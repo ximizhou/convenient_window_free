@@ -7,7 +7,7 @@ Migration work must preserve at least:
 - 71 frontend tests in the private uTools integration.
 - 129 passing default Rust tests and 2 explicitly ignored Windows OCR tests in the shared helper.
 
-The verified migration baseline is currently 71 frontend tests and 135 passing Rust tests with 2 OCR tests ignored.
+The verified migration baseline is currently 75 frontend tests in the private integration and 136 passing Rust tests with 2 OCR tests ignored.
 
 ## Local Gates
 
@@ -23,7 +23,7 @@ Tests must not be skipped, converted to TODOs, weakened, or replaced with mocks 
 
 ## Lifecycle and Compatibility
 
-Acceptance must exercise separate uTools and desktop data directories, intentional helper lock contention with a nonzero result, recovery after the first helper exits, schema v7 migration, unknown action preservation, token creation, normal stop, and original configuration restoration after smoke tests.
+Acceptance must exercise separate uTools and desktop data directories, intentional helper lock contention with a nonzero result, recovery after the first helper exits, schema v7 migration, unknown action preservation, token creation, normal stop, and original configuration restoration after smoke tests. The executable lock check is `node scripts/helper-instance-smoke.mjs <packaged-helper.exe>`; it requires the failure log marker `HELPER_INSTANCE_CONFLICT` before testing recovery.
 
 ## Installation Acceptance
 

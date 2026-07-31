@@ -1,0 +1,5 @@
+[build]
+target = "x86_64-pc-windows-gnullvm"
+
+[target.x86_64-pc-windows-gnullvm]
+linker = "rust-lld.exe"

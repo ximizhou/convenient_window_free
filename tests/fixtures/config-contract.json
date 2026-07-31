@@ -1,0 +1,47 @@
+{
+  "input": {
+    "schemaVersion": 2,
+    "enabled": true,
+    "edgeSize": 999,
+    "hoverDelayMs": 0,
+    "pollIntervalMs": 0,
+    "actionCooldownMs": 99999,
+    "pausedApps": [" explorer.exe ", "", "explorer.exe"],
+    "edgeHide": {
+      "stripSize": 999,
+      "triggerDistance": 0,
+      "triggerRatio": 999,
+      "collapseDelayMs": 99999,
+      "restoreDelayMs": 99999
+    },
+    "mouseGestures": {
+      "minDistance": 999,
+      "sensitivity": 1,
+      "pausedApps": [" game.exe ", "game.exe"]
+    }
+  },
+  "expected": {
+    "schemaVersion": 7,
+    "hotzonesEnabled": false,
+    "edgeSize": 48,
+    "hoverDelayMs": 0,
+    "pollIntervalMs": 10,
+    "actionCooldownMs": 5000,
+    "pausedApps": ["explorer.exe"],
+    "stripSize": 64,
+    "edgeHidePreviewEnabled": true,
+    "triggerDistance": 4,
+    "triggerRatio": 100,
+    "collapseDelayMs": 5000,
+    "restoreDelayMs": 5000,
+    "minDistance": 240,
+    "sensitivity": 35,
+    "gesturePausedApps": ["game.exe"],
+    "windowDragEnabled": false,
+    "moveModifiers": ["alt"],
+    "resizeModifiers": ["alt"],
+    "topmostPinEnabled": true,
+    "ocrLanguage": "auto",
+    "screenshotResult": "pin"
+  }
+}

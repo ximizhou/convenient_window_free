@@ -21,11 +21,11 @@ Linux and macOS modules may satisfy shared interfaces in the future. Core code m
 
 ## Host Bridge
 
-Shared UI code depends on a typed bridge for lifecycle, configuration, token access, file dialogs, external links, diagnostics, and host actions. The uTools adapter maps generic host action events to uTools redirects. The standalone adapter hides uTools-only actions while preserving unknown action records loaded from schema v7 configuration.
+Shared UI code depends on a typed bridge for lifecycle, configuration, token access, file dialogs, external links, diagnostics, and host actions. Protocol v6 emits `host.action` with generic kinds and values; the uTools adapter maps redirect actions to its host API. The helper accepts the legacy `utools-redirect` configuration value as an alias, while normalized helper state uses `host-action`. The standalone adapter hides uTools-only actions while preserving unknown action records loaded from schema v7 configuration.
 
 ## Helper Lifecycle
 
-Each host starts the helper with an absolute `--data-dir` owned by that product. Authentication tokens, configuration, usage data, and logs remain separate. A named global Windows single-instance lock prevents both products from running helpers concurrently; the losing process exits nonzero and emits a stable, host-readable conflict error.
+Each host starts the helper with an absolute `--data-dir` owned by that product. Authentication tokens, configuration, usage data, and logs remain separate. The named mutex `Global\ConvenientWindowHelper` prevents both products from running helpers concurrently; the losing process logs `HELPER_INSTANCE_CONFLICT` and exits nonzero so the host can show a stable error.
 
 The desktop package includes the helper EXE and all GNU runtime DLLs required by that exact build. The Tauri process resolves the packaged sidecar set, starts and stops it cleanly, and surfaces startup, protocol, and recovery diagnostics.
 
