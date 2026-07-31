@@ -1,0 +1,15 @@
+node_modules/
+target/
+dist/
+*.log
+*.zip
+*.exe
+*.dll
+*.msi
+*.msix
+*.appx
+*.appxbundle
+.env
+.env.*
+config.json
+auth-token
