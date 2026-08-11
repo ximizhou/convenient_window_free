@@ -263,9 +263,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .edge-trigger-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 12px; }
 .edge-trigger-method { padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raised); transition: opacity .18s, border-color .18s; }
 .edge-trigger-method.off { opacity: .55; }
-.edge-master-hint { margin: 6px 0 0; color: var(--faint); font-size: 11px; }
-.edge-master-body { transition: opacity .18s; }
-.edge-master-body.off { opacity: .55; }
+.feature-master-toggle { flex: none; min-width: 86px; display: grid; justify-items: end; gap: 8px; padding-top: 2px; }
+.feature-master-toggle b { color: var(--faint); font-size: 10.5px; font-weight: 500; }
+.feature-master-toggle b.on { color: var(--green); }
+.feature-master-toggle .mini-switch > span { width: 40px; height: 22px; }
+.feature-master-toggle .mini-switch > span:after { width: 14px; height: 14px; }
+.feature-master-toggle .mini-switch input:checked + span:after { left: 21px; }
+.feature-settings-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 14px 2px 10px; }
+.feature-settings-head span { color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.feature-settings-head strong { color: var(--faint); font-size: 10.5px; font-weight: 400; text-align: right; }
+.feature-settings-body { margin-left: 2px; padding-left: 14px; border-left: 2px solid var(--line-strong); transition: opacity .18s, border-color .18s; }
+.feature-settings-body.off { cursor: not-allowed; opacity: .48; border-left-color: var(--line); }
+.feature-settings-body.off .mini-switch input:checked + span { border-color: var(--line-strong); background: var(--line-strong); }
 .edge-trigger-method h3 { margin: 0; color: var(--ink); font-size: 12.5px; font-weight: 600; }
 .trigger-value { display: grid; gap: 6px; margin-top: 12px; color: var(--muted); font-size: 11.5px; }
 .trigger-value div { position: relative; }
@@ -402,10 +411,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .gesture-open { --drawer-width: min(660px, 72vw); }
 .gesture-drawer { min-width: 560px; }
 .gesture-drawer .drawer-body { padding: 18px 20px 20px; }
-.gesture-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 2px 2px 16px; }
-.gesture-intro > div > span { color: var(--accent-soft); font-size: 10.5px; font-weight: 600; letter-spacing: .12em; }
-.gesture-intro h2 { margin: 6px 0 5px; color: var(--ink); font-size: 19px; font-weight: 600; letter-spacing: .02em; }
-.gesture-intro p { max-width: 500px; margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+.feature-intro, .gesture-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 2px 2px 16px; }
+.feature-intro > div:first-child { min-width: 0; }
+.feature-intro > div > span, .gesture-intro > div > span { color: var(--accent-soft); font-size: 10.5px; font-weight: 600; letter-spacing: 0; }
+.feature-intro h2, .gesture-intro h2 { margin: 6px 0 5px; color: var(--ink); font-size: 19px; font-weight: 600; letter-spacing: 0; }
+.feature-intro p, .gesture-intro p { max-width: 500px; margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+.edge-master-intro, .drag-master-intro { border-bottom: 1px solid var(--line); }
 .gesture-capabilities { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--line); overflow: hidden; }
 .gesture-capabilities button { position: relative; min-width: 0; min-height: 78px; display: grid; grid-template-columns: 30px 1fr; align-items: start; gap: 9px; padding: 12px; border: 0; background: var(--raised); color: var(--muted); text-align: left; transition: background .15s, color .15s; }
 .gesture-capabilities button:hover { color: var(--ink); background: var(--hover-strong); }
@@ -513,12 +524,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .window-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin-bottom: 16px; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg); }
 .window-tabs button { height: 32px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11.5px; }
 .window-tabs button.active { background: var(--accent-bg); color: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.drag-bindings { display: grid; gap: 8px; margin-top: 14px; }
+.drag-bindings { display: grid; gap: 8px; margin-top: 0; }
 .drag-bindings > div { display: grid; grid-template-columns: minmax(0,1fr) 86px; gap: 8px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--raised); }
 .drag-bindings > div > span { grid-column: 1 / -1; }
 .drag-bindings span b,.drag-bindings span small { display: block; }.drag-bindings span b { color: var(--ink); font-size: 11.5px; }.drag-bindings span small { margin-top: 3px; color: var(--faint); font-size: 10px; }
 .drag-bindings select,.ocr-language select { width: 100%; height: 34px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--bg); color: var(--ink); font-size: 11px; }
-.edge-preview-setting { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.edge-preview-setting { margin-top: 0; padding-top: 0; border-top: 0; }
 .pin-setting { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
 .result-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 10px; padding: 3px; border: 1px solid rgba(242,179,92,.25); border-radius: 5px; background: var(--panel); }.result-modes button { min-width: 0; height: 29px; padding: 0 5px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font-size: 10px; }.result-modes button.active { background: var(--amber-bg); color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
 .ocr-language { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; margin-top: 9px; color: var(--muted); font-size: 10.5px; }.ocr-language select { height: 30px; }

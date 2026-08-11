@@ -961,9 +961,12 @@
             {:else if mode === "edge-hide"}
               <div class="window-tabs"><button class:active={windowEnhancementTab === "edge"} on:click={() => { windowEnhancementTab = "edge"; }} type="button">贴边隐藏</button><button class:active={windowEnhancementTab === "drag"} on:click={() => { windowEnhancementTab = "drag"; }} type="button">拖拽与缩放</button></div>
               {#if windowEnhancementTab === "edge"}
-                <div class="setting-title edge-master"><div><h2>贴边隐藏</h2><p>窗口移出屏幕边缘后自动收缩为细条，悬停即可恢复</p></div><label class="mini-switch"><input aria-label="启用贴边隐藏" bind:checked={settings.edgeHide.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
-                <p class="edge-master-hint">每台显示器独立设置，拼接缝处自动禁用</p>
-                <div class="edge-master-body" class:off={!settings.edgeHide.enabled} inert={!settings.edgeHide.enabled}>
+                <div class="feature-intro edge-master-intro">
+                  <div><span>贴边隐藏总开关</span><h2>让窗口在屏幕边缘自动收起</h2><p>开启后，下方的吸附提示、触发方式、露出宽度、延迟和排除规则统一生效；每台显示器独立设置，拼接缝处自动禁用。</p></div>
+                  <div class="feature-master-toggle"><b class:on={settings.edgeHide.enabled}>{settings.edgeHide.enabled ? "总开关已开启" : "总开关已关闭"}</b><label class="mini-switch"><input aria-label="启用贴边隐藏" bind:checked={settings.edgeHide.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                </div>
+                <div class="feature-settings-head"><span>贴边隐藏选项</span><strong>{settings.edgeHide.enabled ? "由总开关统一启用" : "开启总开关后可调整"}</strong></div>
+                <div class="feature-settings-body" class:off={!settings.edgeHide.enabled} inert={!settings.edgeHide.enabled}>
                 <div class="setting-title edge-preview-setting"><div><h2>显示吸附提示</h2><p>松开后会收纳时，在目标屏幕边缘显示蓝色强调线</p></div><label class="mini-switch"><input aria-label="显示贴边吸附提示" bind:checked={settings.edgeHide.showPreview} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                 <div class="edge-trigger-heading"><h2>收纳触发方式</h2><p>两种方式独立生效，满足任意一种即可触发</p></div>
                 <div class="edge-trigger-methods">
@@ -980,8 +983,12 @@
                 <div class="list-section"><div class="subhead"><div><h2>不收缩的应用</h2><p>当前前台：{foregroundApp || "尚未获取"}</p></div><button class="quiet" on:click={() => addForeground("edge")} type="button">+ 添加</button></div><div class="app-list">{#each settings.edgeHide.excludedApps as app}<div><span>{app}</span><button aria-label={`移除 ${app}`} on:click={() => removeApp("edge", app)} type="button">×</button></div>{:else}<p class="empty">还没有排除应用</p>{/each}</div></div>
                 </div>
               {:else}
-                <div class="setting-title"><div><h2>任意位置拖拽</h2><p>组合键与鼠标键同时按下时接管目标窗口</p></div><label class="mini-switch"><input aria-label="启用任意位置拖拽" bind:checked={settings.windowDrag.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
-                <div class="edge-master-body" class:off={!settings.windowDrag.enabled} inert={!settings.windowDrag.enabled}>
+                <div class="feature-intro drag-master-intro">
+                  <div><span>拖拽与缩放总开关</span><h2>从窗口任意位置移动或缩放</h2><p>开启后，下方两组鼠标组合才会接管目标窗口；窗口布局仍由 Windows 原生 Snap 负责。</p></div>
+                  <div class="feature-master-toggle"><b class:on={settings.windowDrag.enabled}>{settings.windowDrag.enabled ? "总开关已开启" : "总开关已关闭"}</b><label class="mini-switch"><input aria-label="启用任意位置拖拽" bind:checked={settings.windowDrag.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                </div>
+                <div class="feature-settings-head"><span>拖拽组合设置</span><strong>{settings.windowDrag.enabled ? "由总开关统一启用" : "开启总开关后可调整"}</strong></div>
+                <div class="feature-settings-body" class:off={!settings.windowDrag.enabled} inert={!settings.windowDrag.enabled}>
                 <div class="drag-bindings">
                   <div><span><b>移动窗口</b><small>默认 Alt + 左键</small></span><ModifierRecorder label="录制移动窗口修饰键" value={settings.windowDrag.moveModifiers} onChange={(value) => { settings.windowDrag.moveModifiers = value; persist(); }} /><select aria-label="移动窗口鼠标键" bind:value={settings.windowDrag.moveButton} on:change={() => persist()}><option value="left">左键</option><option value="right">右键</option><option value="middle">中键</option><option value="x1">侧键 1</option><option value="x2">侧键 2</option></select></div>
                   <div><span><b>缩放窗口</b><small>默认 Alt + 右键</small></span><ModifierRecorder label="录制缩放窗口修饰键" value={settings.windowDrag.resizeModifiers} onChange={(value) => { settings.windowDrag.resizeModifiers = value; persist(); }} /><select aria-label="缩放窗口鼠标键" bind:value={settings.windowDrag.resizeButton} on:change={() => persist()}><option value="left">左键</option><option value="right">右键</option><option value="middle">中键</option><option value="x1">侧键 1</option><option value="x2">侧键 2</option></select></div>
