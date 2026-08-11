@@ -5,6 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot "hash-file.ps1")
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $ArtifactsDir) { $ArtifactsDir = Join-Path $repoRoot "artifacts" }
@@ -19,8 +20,7 @@ foreach ($declared in $artifactManifest.deliverables) {
   $path = Join-Path $ArtifactsDir $declared.name
   if (-not (Test-Path $path -PathType Leaf)) { throw "Declared artifact is missing: $path" }
   $file = Get-Item $path
-  if ($file.Length -ne [long]$declared.bytes) { throw "Artifact size mismatch: $($file.Name)" }
-  $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+  $hash = (Get-Sha256 $path)
   if ($hash -ne $declared.sha256) { throw "Artifact hash mismatch: $($file.Name)" }
 }
 
@@ -49,7 +49,7 @@ function Assert-HelperPayload {
     $path = Join-Path $HelperDir $declared.name
     $file = Get-Item $path
     if ($file.Length -ne [long]$declared.bytes) { throw "Sidecar size mismatch: $($declared.name)" }
-    $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+    $hash = (Get-Sha256 $path)
     if ($hash -ne $declared.sha256) { throw "Sidecar hash mismatch: $($declared.name)" }
   }
   if (-not (Test-Path (Join-Path $HelperDir "magic-corners-helper.exe"))) { throw "Sidecar EXE is missing" }

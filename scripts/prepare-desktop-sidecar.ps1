@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot "hash-file.ps1")
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $helperDir = Join-Path $repoRoot "helper"
@@ -78,7 +79,7 @@ $manifestFiles = @($payloadFiles | ForEach-Object {
   [ordered]@{
     name = $_.Name
     bytes = $_.Length
-    sha256 = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
+    sha256 = (Get-Sha256 $_.FullName)
   }
 })
 $manifest = [ordered]@{
@@ -91,5 +92,5 @@ $manifestPath = Join-Path $payloadDir "payload-manifest.json"
 $manifestJson = $manifest | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText($manifestPath, $manifestJson, [System.Text.UTF8Encoding]::new($false))
 
-$payloadFiles | Select-Object Name, Length, @{ Name = "SHA256"; Expression = { (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant() } }
+$payloadFiles | Select-Object Name, Length, @{ Name = "SHA256"; Expression = { Get-Sha256 $_.FullName } }
 Write-Output "sidecar manifest: $manifestPath"

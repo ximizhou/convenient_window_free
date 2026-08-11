@@ -2,6 +2,7 @@ param()
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot "hash-file.ps1")
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
   throw "Desktop packages can only be built on Windows"
@@ -93,7 +94,7 @@ $deliverables = @($installerCopy, $portableZip) | ForEach-Object {
   [ordered]@{
     name = $file.Name
     bytes = $file.Length
-    sha256 = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+    sha256 = (Get-Sha256 $file.FullName)
   }
 }
 $artifactManifest = [ordered]@{

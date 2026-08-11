@@ -19,6 +19,7 @@
 ## Engineering Rules
 
 - Preserve schema v7 migrations and unknown action records when reading and writing existing configuration.
+- Keep desktop settings and helper runtime configuration in separate single-writer files; await durable host persistence before sending that revision to the helper.
 - The uTools and desktop products use separate data directories and must not run their helpers concurrently. A conflict must return a nonzero process result and a host-readable error.
 - Package the helper executable with every required runtime DLL. A bare EXE is not a valid desktop sidecar bundle.
 - Do not weaken, skip, or delete tests to make a change pass. Add focused tests for protocol, migration, process, and packaging changes.
