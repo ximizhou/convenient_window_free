@@ -36,8 +36,8 @@ Install the pinned Rust toolchain, then run commands from `helper/` so its linke
 ```powershell
 rustup toolchain install 1.96.0-x86_64-pc-windows-gnullvm --profile minimal --component rustfmt
 cd helper
-cargo +1.96.0-x86_64-pc-windows-gnullvm fmt --check
-cargo +1.96.0-x86_64-pc-windows-gnullvm test
+rustup run 1.96.0-x86_64-pc-windows-gnullvm cargo fmt --check
+rustup run 1.96.0-x86_64-pc-windows-gnullvm cargo test
 ```
 
 The helper accepts an absolute `--data-dir`. Protocol v6 emits generic `host.action` events; the old `utools-redirect` configuration value remains an input alias for schema v7 compatibility. Use `scripts/helper-instance-smoke.mjs <packaged-helper.exe>` to verify global lock contention and recovery with two isolated data directories.
