@@ -13,7 +13,7 @@
 - This repository is the source of truth for the standalone desktop app and the single shared Rust helper source tree.
 - The private uTools integration consumes this repository as an `open-source/` submodule. Do not create or maintain a second helper source tree there.
 - Keep host-specific APIs behind typed host bridges. Shared Svelte components must not call uTools or Tauri globals directly.
-- Keep Windows code in `helper/src/platform/windows/`. Preserve platform interfaces for future Linux/macOS work, but do not claim those platforms are supported.
+- Keep helper Windows platform implementations in `helper/src/platform/windows/`. Windows-only Tauri host lifecycle code may live under `apps/desktop/src-tauri/` when it owns desktop process, tray, installer, or sidecar behavior. Preserve platform interfaces for future Linux/macOS work, but do not claim those platforms are supported.
 - Windows 11 x64 is the only supported and accepted target for the first release.
 
 ## Engineering Rules

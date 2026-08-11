@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { DesktopDiagnostics, HostBridge } from "./host-bridge";
@@ -108,11 +107,6 @@ export async function createDesktopHostBridge(): Promise<HostBridge> {
         content: `${JSON.stringify(settings, null, 2)}\n`
       });
       return true;
-    },
-    isAutostartEnabled: () => isEnabled(),
-    async setAutostartEnabled(enabled) {
-      if (enabled) await enable();
-      else await disable();
     }
   };
 }

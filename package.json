@@ -17,6 +17,7 @@
     "desktop:audit": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit-desktop-artifacts.ps1",
     "desktop:runtime-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe",
     "desktop:runtime-conflict-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe -ExpectConflict",
+    "desktop:runtime-force-kill-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe -ForceAppKill",
     "desktop:install-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-install-smoke.ps1"
   }
 }

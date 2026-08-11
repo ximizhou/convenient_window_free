@@ -37,12 +37,23 @@ if (Test-Path $WorkRoot) { throw "WorkRoot must not already exist: $WorkRoot" }
 
 $installDir = Join-Path $WorkRoot "install"
 $dataRoot = Join-Path $WorkRoot "data"
+$liveUninstallDataRoot = Join-Path $WorkRoot "live-uninstall-data"
+$externalHelperPayloadRoot = Join-Path $WorkRoot "utools-owned-helper"
+$externalHelperDataRoot = Join-Path $WorkRoot "utools-owned-data"
+$conflictDesktopDataRoot = Join-Path $WorkRoot "desktop-conflict-data"
 $appPath = Join-Path $installDir "convenient-window.exe"
 $uninstallerPath = Join-Path $installDir "uninstall.exe"
 $runtimeSmoke = Join-Path $PSScriptRoot "desktop-runtime-smoke.ps1"
 $installed = $false
 $uninstalled = $false
 $failure = $null
+$liveAppProcess = $null
+$liveHelperProcess = $null
+$externalHelperProcess = $null
+$externalHelperToken = $null
+$conflictDesktopProcess = $null
+$previousDataRoot = $env:CONVENIENT_WINDOW_DATA_DIR
+$previousExitDelay = $env:CONVENIENT_WINDOW_SMOKE_EXIT_MS
 
 function Get-MatchingUninstallKeys {
   param([string]$InstallDirectory)
@@ -90,6 +101,47 @@ function Wait-ForRemoval {
   throw "Timed out waiting for removal: $Path"
 }
 
+function Stop-HelperGracefully {
+  param([Parameter(Mandatory = $true)][string]$Token)
+  $socket = [System.Net.WebSockets.ClientWebSocket]::new()
+  $timeout = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(5))
+  try {
+    $socket.Options.AddSubProtocol($Token)
+    [void]$socket.ConnectAsync([Uri]"ws://127.0.0.1:56873", $timeout.Token).GetAwaiter().GetResult()
+    $buffer = [byte[]]::new(4096)
+    $receiveBuffer = [ArraySegment[byte]]::new($buffer)
+    $ready = $socket.ReceiveAsync($receiveBuffer, $timeout.Token).GetAwaiter().GetResult()
+    if ($ready.MessageType -ne [System.Net.WebSockets.WebSocketMessageType]::Text) {
+      throw "External helper did not send its ready message"
+    }
+    $message = [System.Text.Encoding]::UTF8.GetBytes((@{
+      id = [guid]::NewGuid().ToString()
+      type = "helper.stop"
+      time = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+      data = @{}
+    } | ConvertTo-Json -Compress))
+    $segment = [ArraySegment[byte]]::new($message)
+    [void]$socket.SendAsync(
+      $segment,
+      [System.Net.WebSockets.WebSocketMessageType]::Text,
+      $true,
+      $timeout.Token
+    ).GetAwaiter().GetResult()
+    $closed = $socket.ReceiveAsync($receiveBuffer, $timeout.Token).GetAwaiter().GetResult()
+    if ($closed.MessageType -ne [System.Net.WebSockets.WebSocketMessageType]::Close) {
+      throw "External helper did not acknowledge its stop request"
+    }
+    [void]$socket.CloseOutputAsync(
+      [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
+      "",
+      $timeout.Token
+    ).GetAwaiter().GetResult()
+  } finally {
+    $socket.Dispose()
+    $timeout.Dispose()
+  }
+}
+
 function Invoke-Uninstall {
   param([string]$Uninstaller)
   if (-not (Test-Path $Uninstaller -PathType Leaf)) {
@@ -130,8 +182,55 @@ try {
 
   & $runtimeSmoke -AppPath $appPath -DataRoot $dataRoot
 
+  $env:CONVENIENT_WINDOW_DATA_DIR = $liveUninstallDataRoot
+  Remove-Item Env:CONVENIENT_WINDOW_SMOKE_EXIT_MS -ErrorAction SilentlyContinue
+  $liveAppProcess = Start-Process -FilePath $appPath -PassThru
+  $liveLogPath = Join-Path $liveUninstallDataRoot "helper-data\magic-corners-helper.log"
+  $installedHelperPath = Join-Path $installDir "helper\magic-corners-helper.exe"
+  $readyDeadline = [DateTime]::UtcNow.AddSeconds(12)
+  $liveReady = $false
+  while ([DateTime]::UtcNow -lt $readyDeadline) {
+    if ($liveAppProcess.HasExited) { throw "Installed desktop app exited before the live uninstall check" }
+    if (Test-Path $liveLogPath) {
+      $liveLog = [System.IO.File]::ReadAllText($liveLogPath, [System.Text.Encoding]::UTF8)
+      if ($liveLog.Contains("websocket: listening 127.0.0.1:56873")) {
+        $matchingHelpers = @(Get-Process magic-corners-helper -ErrorAction SilentlyContinue | Where-Object {
+          try { $_.Path -eq $installedHelperPath } catch { $false }
+        })
+        if ($matchingHelpers.Count -eq 1) {
+          $liveHelperProcess = $matchingHelpers[0]
+          $liveReady = $true
+          break
+        }
+      }
+    }
+    Start-Sleep -Milliseconds 100
+  }
+  if (-not $liveReady) { throw "Installed desktop helper did not become ready before uninstall" }
+
   Invoke-Uninstall -Uninstaller $uninstallerPath
   $uninstalled = $true
+  if (-not $liveAppProcess.WaitForExit(5000)) {
+    throw "Installed desktop app remained after uninstall"
+  }
+  if (-not $liveHelperProcess.WaitForExit(5000)) {
+    throw "Installed desktop helper remained after uninstall"
+  }
+  $liveLog = [System.IO.File]::ReadAllText($liveLogPath, [System.Text.Encoding]::UTF8)
+  if (-not $liveLog.Contains("main: websocket server stopped")) {
+    throw "Live uninstall did not stop helper through the graceful shutdown path"
+  }
+  $client = [System.Net.Sockets.TcpClient]::new()
+  try {
+    try {
+      $client.Connect("127.0.0.1", 56873)
+      if ($client.Connected) { throw "Helper port remained open after uninstall" }
+    } catch [System.Net.Sockets.SocketException] {
+      # Connection refused is the expected post-uninstall state.
+    }
+  } finally {
+    $client.Dispose()
+  }
   if (@(Get-MatchingUninstallKeys -InstallDirectory $installDir).Count -ne 0) {
     throw "NSIS uninstall registry entry remained after uninstall"
   }
@@ -140,13 +239,126 @@ try {
     throw "NSIS shortcuts remained after uninstall: $($remainingShortcuts -join ', ')"
   }
 
+  $reinstallProcess = Start-Process -FilePath $installer.FullName -ArgumentList @("/S", "/D=$installDir") -PassThru -Wait
+  if ($reinstallProcess.ExitCode -ne 0) { throw "NSIS reinstall exited with code $($reinstallProcess.ExitCode)" }
+  $installed = $true
+  $uninstalled = $false
+  Copy-Item -Recurse -Force (Join-Path $installDir "helper") $externalHelperPayloadRoot
+  New-Item -ItemType Directory -Force -Path $externalHelperDataRoot | Out-Null
+  $externalHelperPath = Join-Path $externalHelperPayloadRoot "magic-corners-helper.exe"
+  $externalHelperProcess = Start-Process -FilePath $externalHelperPath -ArgumentList @("--data-dir", "`"$externalHelperDataRoot`"") -PassThru
+  $externalHelperTokenPath = Join-Path $externalHelperDataRoot "auth-token"
+  $externalHelperLogPath = Join-Path $externalHelperDataRoot "magic-corners-helper.log"
+  $externalReadyDeadline = [DateTime]::UtcNow.AddSeconds(8)
+  $externalReady = $false
+  while ([DateTime]::UtcNow -lt $externalReadyDeadline) {
+    if ($externalHelperProcess.HasExited) { throw "External uTools-owned helper exited before the non-interference check" }
+    if ((Test-Path $externalHelperTokenPath) -and (Test-Path $externalHelperLogPath)) {
+      $externalHelperToken = [System.IO.File]::ReadAllText($externalHelperTokenPath).Trim()
+      $externalHelperLog = [System.IO.File]::ReadAllText($externalHelperLogPath, [System.Text.Encoding]::UTF8)
+      if ($externalHelperToken.Length -eq 64 -and $externalHelperLog.Contains("websocket: listening 127.0.0.1:56873")) {
+        $externalReady = $true
+        break
+      }
+    }
+    Start-Sleep -Milliseconds 100
+  }
+  if (-not $externalReady) { throw "External uTools-owned helper did not become ready" }
+
+  $env:CONVENIENT_WINDOW_DATA_DIR = $conflictDesktopDataRoot
+  Remove-Item Env:CONVENIENT_WINDOW_SMOKE_EXIT_MS -ErrorAction SilentlyContinue
+  $conflictDesktopProcess = Start-Process -FilePath $appPath -PassThru
+  $conflictLogPath = Join-Path $conflictDesktopDataRoot "helper-data\magic-corners-helper.log"
+  $conflictDeadline = [DateTime]::UtcNow.AddSeconds(12)
+  $conflictRecorded = $false
+  while ([DateTime]::UtcNow -lt $conflictDeadline) {
+    if ($conflictDesktopProcess.HasExited) { throw "Desktop app exited before the non-interference uninstall check" }
+    if (Test-Path $conflictLogPath) {
+      $conflictLog = [System.IO.File]::ReadAllText($conflictLogPath, [System.Text.Encoding]::UTF8)
+      if ($conflictLog.Contains("HELPER_INSTANCE_CONFLICT")) {
+        $conflictRecorded = $true
+        break
+      }
+    }
+    Start-Sleep -Milliseconds 100
+  }
+  if (-not $conflictRecorded) { throw "Desktop app did not record the expected external-helper conflict" }
+
+  Invoke-Uninstall -Uninstaller $uninstallerPath
+  $uninstalled = $true
+  if (-not $conflictDesktopProcess.WaitForExit(5000)) {
+    throw "Conflicted desktop app remained after uninstall"
+  }
+  if ($externalHelperProcess.HasExited) {
+    throw "Desktop uninstall terminated the separately owned uTools helper"
+  }
+  $holderPort = [System.Net.Sockets.TcpClient]::new()
+  try {
+    $holderPort.Connect("127.0.0.1", 56873)
+    if (-not $holderPort.Connected) { throw "External uTools-owned helper port was not available after desktop uninstall" }
+  } finally {
+    $holderPort.Dispose()
+  }
+  if (@(Get-MatchingUninstallKeys -InstallDirectory $installDir).Count -ne 0) {
+    throw "NSIS uninstall registry entry remained after the non-interference uninstall"
+  }
+  $remainingShortcuts = @(Get-MatchingShortcuts -InstallDirectory $installDir)
+  if ($remainingShortcuts.Count -ne 0) {
+    throw "NSIS shortcuts remained after the non-interference uninstall: $($remainingShortcuts -join ', ')"
+  }
+  Stop-HelperGracefully -Token $externalHelperToken
+  if (-not $externalHelperProcess.WaitForExit(5000)) {
+    throw "External uTools-owned helper did not stop gracefully after the non-interference check"
+  }
+  if ($externalHelperProcess.ExitCode -ne 0) {
+    throw "External uTools-owned helper exited with code $($externalHelperProcess.ExitCode)"
+  }
+
   Write-Output "NSIS install: exit=0; executable and complete helper payload verified"
   Write-Output "installed runtime: helper ready, schema v7 persisted, graceful exit"
+  Write-Output "live uninstall: app and desktop-owned helper exited gracefully; port closed"
+  Write-Output "uninstall non-interference: separately owned uTools helper survived and stopped by authenticated IPC"
   Write-Output "NSIS uninstall: exit=0; install directory, registry entry, and shortcuts removed"
   Write-Output "installer shortcuts observed: $($installedShortcuts.Count)"
 } catch {
   $failure = $_
 } finally {
+  if ($null -eq $previousDataRoot) {
+    Remove-Item Env:CONVENIENT_WINDOW_DATA_DIR -ErrorAction SilentlyContinue
+  } else {
+    $env:CONVENIENT_WINDOW_DATA_DIR = $previousDataRoot
+  }
+  if ($null -eq $previousExitDelay) {
+    Remove-Item Env:CONVENIENT_WINDOW_SMOKE_EXIT_MS -ErrorAction SilentlyContinue
+  } else {
+    $env:CONVENIENT_WINDOW_SMOKE_EXIT_MS = $previousExitDelay
+  }
+  if ($liveAppProcess -and -not $liveAppProcess.HasExited) {
+    Stop-Process -Id $liveAppProcess.Id -Force -ErrorAction SilentlyContinue
+    $liveAppProcess.WaitForExit(5000) | Out-Null
+  }
+  if ($liveHelperProcess -and -not $liveHelperProcess.HasExited) {
+    Stop-Process -Id $liveHelperProcess.Id -Force -ErrorAction SilentlyContinue
+    $liveHelperProcess.WaitForExit(5000) | Out-Null
+  }
+  if ($conflictDesktopProcess -and -not $conflictDesktopProcess.HasExited) {
+    Stop-Process -Id $conflictDesktopProcess.Id -Force -ErrorAction SilentlyContinue
+    $conflictDesktopProcess.WaitForExit(5000) | Out-Null
+  }
+  if ($externalHelperProcess -and -not $externalHelperProcess.HasExited) {
+    if ($externalHelperToken) {
+      try {
+        Stop-HelperGracefully -Token $externalHelperToken
+        $externalHelperProcess.WaitForExit(5000) | Out-Null
+      } catch {
+        if (-not $failure) { $failure = $_ }
+      }
+    }
+    if (-not $externalHelperProcess.HasExited) {
+      Stop-Process -Id $externalHelperProcess.Id -Force -ErrorAction SilentlyContinue
+      $externalHelperProcess.WaitForExit(5000) | Out-Null
+    }
+  }
   if ($installed -and -not $uninstalled -and (Test-Path $uninstallerPath -PathType Leaf)) {
     try {
       Invoke-Uninstall -Uninstaller $uninstallerPath

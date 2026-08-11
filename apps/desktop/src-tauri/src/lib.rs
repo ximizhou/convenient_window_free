@@ -1,15 +1,18 @@
 mod storage;
 mod supervisor;
+#[cfg(windows)]
+mod windows_lifecycle;
 
 use serde::Serialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use supervisor::{HelperProcess, StartResult, StopResult};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
-use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 const HELPER_VERSION: &str = "0.5.5";
 const REPOSITORY_URL: &str = "https://github.com/ximizhou/convenient_window_free";
@@ -56,6 +59,7 @@ struct DesktopState {
     paths: DesktopPaths,
     helper: Arc<Mutex<HelperProcess>>,
     settings_write_lock: Mutex<()>,
+    shutdown_started: AtomicBool,
 }
 
 #[derive(Serialize)]
@@ -254,15 +258,38 @@ fn show_main_window(app: &AppHandle) {
 
 fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "打开设置", true, None::<&str>)?;
+    let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
+    let autostart = CheckMenuItem::with_id(
+        app,
+        "autostart",
+        "开机自动启动",
+        true,
+        autostart_enabled,
+        None::<&str>,
+    )?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "退出便捷窗口", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &separator, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &autostart, &separator, &quit])?;
+    let autostart_menu = autostart.clone();
     let mut builder = TrayIconBuilder::with_id("main-tray")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("便捷窗口")
-        .on_menu_event(|app, event| match event.id.as_ref() {
+        .on_menu_event(move |app, event| match event.id.as_ref() {
             "show" => show_main_window(app),
+            "autostart" => {
+                let desired = autostart_menu.is_checked().unwrap_or(false);
+                let manager = app.autolaunch();
+                let previous = manager.is_enabled().unwrap_or(!desired);
+                let result = if desired {
+                    manager.enable()
+                } else {
+                    manager.disable()
+                };
+                if result.is_err() {
+                    let _ = autostart_menu.set_checked(previous);
+                }
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -287,6 +314,9 @@ fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 
 fn stop_managed_helper(app: &AppHandle) {
     let state = app.state::<DesktopState>();
+    if state.shutdown_started.swap(true, Ordering::AcqRel) {
+        return;
+    }
     if let Ok(mut helper) = state.helper.lock() {
         let _ = helper.stop(&state.paths.helper_data_dir);
     };
@@ -349,8 +379,12 @@ pub fn run() {
                 paths,
                 helper: Arc::new(Mutex::new(HelperProcess::default())),
                 settings_write_lock: Mutex::new(()),
+                shutdown_started: AtomicBool::new(false),
             });
             create_tray(app.handle())?;
+            #[cfg(windows)]
+            windows_lifecycle::listen_for_uninstall(app.handle().clone())
+                .map_err(std::io::Error::other)?;
             let autostart = std::env::args().any(|argument| argument == "--autostart");
             if !autostart {
                 show_main_window(app.handle());

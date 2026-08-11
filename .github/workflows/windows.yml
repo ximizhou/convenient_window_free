@@ -41,6 +41,7 @@ jobs:
         run: |
           npm run desktop:runtime-smoke
           npm run desktop:runtime-conflict-smoke
+          npm run desktop:runtime-force-kill-smoke
 
       - name: Verify isolated NSIS install, runtime, and uninstall
         shell: pwsh

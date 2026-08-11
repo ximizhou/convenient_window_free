@@ -36,7 +36,9 @@ The UI awaits a successful durable desktop-settings write before sending that ex
 
 Each host starts the helper with an absolute `--data-dir` owned by that product. Authentication tokens, runtime configuration, usage data, and logs remain separate between products. The named mutex `Global\ConvenientWindowHelper` prevents both products from running helpers concurrently; the losing process logs `HELPER_INSTANCE_CONFLICT` and exits nonzero so the host can show a stable error.
 
-The desktop package includes the helper EXE and all GNU runtime DLLs required by that exact build. The Tauri process resolves the packaged sidecar set, starts and stops it cleanly, and surfaces startup, protocol, and recovery diagnostics.
+The desktop package includes the helper EXE and all GNU runtime DLLs required by that exact build. The Tauri process resolves the packaged sidecar set, assigns every desktop-owned helper to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and retains the Job handle for the helper lifetime. Normal exits first request authenticated `helper.stop`; if the desktop process is terminated before that path runs, closing the Job handle terminates only the assigned child. Cleanup never searches for or kills helpers by executable name, so a separately owned uTools helper is outside the desktop lifecycle boundary.
+
+The NSIS pre-uninstall hook signals `Local\com.ximizhou.convenientwindow.shutdown` and waits briefly for the desktop process to use the same guarded shutdown path before files are removed. Tray quit, Tauri exit events, and uninstall converge on a one-time shutdown guard. Closing the main window only hides it. Optional startup registration is exposed only as the checked `开机自动启动` tray item; autostart launches with `--autostart` and keeps the settings window hidden.
 
 Automated runtime tests may set the absolute `CONVENIENT_WINDOW_DATA_DIR` override. In that mode desktop settings, helper data, and WebView data all stay below the explicit root. Production startup uses the platform application-data path.
 

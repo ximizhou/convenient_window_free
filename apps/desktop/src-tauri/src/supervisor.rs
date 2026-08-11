@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use crate::windows_lifecycle::ChildJob;
 use serde::Serialize;
 use serde_json::Value;
 use std::fs;
@@ -35,6 +37,8 @@ pub struct StopResult {
 
 pub struct HelperProcess {
     child: Option<Child>,
+    #[cfg(windows)]
+    child_job: Option<ChildJob>,
     last_exit_code: Option<i32>,
     last_error: Option<String>,
 }
@@ -43,6 +47,8 @@ impl Default for HelperProcess {
     fn default() -> Self {
         Self {
             child: None,
+            #[cfg(windows)]
+            child_job: None,
             last_exit_code: None,
             last_error: None,
         }
@@ -80,12 +86,26 @@ impl HelperProcess {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x0800_0000);
         }
-        let child = command.spawn().map_err(|error| {
+        let mut child = command.spawn().map_err(|error| {
             let message = format!("无法启动后台助手 {}：{error}", helper_path.display());
             self.last_error = Some(message.clone());
             message
         })?;
+        #[cfg(windows)]
+        let child_job = match ChildJob::assign(&child) {
+            Ok(job) => job,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                self.last_error = Some(error.clone());
+                return Err(error);
+            }
+        };
         self.child = Some(child);
+        #[cfg(windows)]
+        {
+            self.child_job = Some(child_job);
+        }
         self.last_error = None;
         self.last_exit_code = None;
 
@@ -190,6 +210,10 @@ impl HelperProcess {
         if let Some(status) = exit_status {
             self.last_exit_code = status.code();
             self.child = None;
+            #[cfg(windows)]
+            {
+                self.child_job = None;
+            }
         }
     }
 
@@ -197,12 +221,18 @@ impl HelperProcess {
         let Some(mut child) = self.child.take() else {
             return Ok(());
         };
-        child
+        let kill_result = child
             .kill()
-            .map_err(|error| format!("无法终止 helper：{error}"))?;
-        let status = child
+            .map_err(|error| format!("无法终止 helper：{error}"));
+        let wait_result = child
             .wait()
-            .map_err(|error| format!("无法等待 helper 退出：{error}"))?;
+            .map_err(|error| format!("无法等待 helper 退出：{error}"));
+        #[cfg(windows)]
+        {
+            self.child_job = None;
+        }
+        kill_result?;
+        let status = wait_result?;
         self.last_exit_code = status.code();
         Ok(())
     }

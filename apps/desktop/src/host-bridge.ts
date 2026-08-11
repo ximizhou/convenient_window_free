@@ -17,8 +17,6 @@ export interface HostBridge {
   saveSettings(settings: unknown): Promise<void>;
   importSettings(): Promise<unknown | null>;
   exportSettings(settings: unknown): Promise<boolean>;
-  isAutostartEnabled(): Promise<boolean>;
-  setAutostartEnabled(enabled: boolean): Promise<void>;
 }
 
 let activeBridge: HostBridge | null = null;

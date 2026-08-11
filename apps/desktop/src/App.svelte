@@ -129,8 +129,6 @@
   let connectionTestStartedAt = 0;
   let connectionTestTimer: ReturnType<typeof setTimeout> | null = null;
   let connectionTestResetTimer: ReturnType<typeof setTimeout> | null = null;
-  let autostartEnabled = false;
-  let autostartChanging = false;
   const expectedHelperVersion = helperInstallState.development || helperInstallState.version === "unknown"
     ? undefined
     : helperInstallState.version;
@@ -155,7 +153,6 @@
 
   onMount(() => {
     initTheme();
-    void host.isAutostartEnabled().then((enabled) => { autostartEnabled = enabled; });
     const offStatus = helper.onStatus((status) => {
       helperStatus = status;
       if (status === "connected") lastMessage = "helper 已连接，正在同步配置";
@@ -859,19 +856,6 @@
       lastMessage = `导入失败：${error instanceof Error ? error.message : "配置文件格式无效"}`;
     }
   }
-  async function toggleAutostart(event: Event): Promise<void> {
-    const enabled = (event.currentTarget as HTMLInputElement).checked;
-    autostartChanging = true;
-    try {
-      await host.setAutostartEnabled(enabled);
-      autostartEnabled = enabled;
-      lastMessage = enabled ? "已启用开机启动" : "已关闭开机启动";
-    } catch (error) {
-      lastMessage = `开机启动设置失败：${error instanceof Error ? error.message : String(error)}`;
-    } finally {
-      autostartChanging = false;
-    }
-  }
   async function copyDiagnostics(): Promise<void> {
     try {
       await navigator.clipboard.writeText(JSON.stringify(await host.diagnostics(), null, 2));
@@ -1101,7 +1085,6 @@
               <div class="power-facts desktop-power-facts">
                 <div><span>功能总开关</span><strong class:on={settings.enabled}>{settings.enabled ? "已打开" : "已关闭"}</strong><p>同时控制规则运行与助手生命周期</p></div>
                 <div><span>后台助手</span><strong class:on={helperStatus === "connected"}>{helperStatus === "connected" ? "已连接" : helperStatus === "connecting" ? "连接中" : "未连接"}</strong><p>负责系统监听与窗口操作</p></div>
-                <div><span>开机启动</span><label class="autostart-control"><input checked={autostartEnabled} disabled={autostartChanging} on:change={toggleAutostart} type="checkbox" /><strong class:on={autostartEnabled}>{autostartEnabled ? "已开启" : "已关闭"}</strong></label><p>登录 Windows 后自动运行</p></div>
               </div>
               <div class="power-actions"><button class="apply" disabled={!helperInstallState.installed || settings.enabled || starting || stopping} on:click={() => setPowerEnabled(true)} type="button">打开功能</button><button class="quiet" disabled={starting || stopping || (!settings.enabled && helperStatus === "disconnected")} on:click={() => setPowerEnabled(false)} type="button">关闭功能</button><button aria-live="polite" class:failed={connectionTestState === "failed"} class:success={connectionTestState === "success"} class:testing={connectionTestState === "testing"} class="quiet connection-test" disabled={helperStatus !== "connected" || connectionTestState === "testing"} on:click={runConnectionTest} type="button"><i aria-hidden="true"></i><span>{connectionTestState === "testing" ? "测试中" : connectionTestState === "success" ? "连接正常" : connectionTestState === "failed" ? "测试失败" : "连接测试"}</span></button><button class="quiet" on:click={copyDiagnostics} type="button">复制诊断</button></div>
               <div class="helper-meta"><span>助手 {helperInstallState.version}</span><button on:click={() => openHelperPage("repository")} type="button">公开下载仓库</button><code>{helperInstallState.installDir ?? "尚未确定安装目录"}</code></div>

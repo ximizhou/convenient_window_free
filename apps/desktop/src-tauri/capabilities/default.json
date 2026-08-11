@@ -1,16 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-window",
-  "description": "Minimum desktop permissions for configuration dialogs, public repository links, and startup registration.",
+  "description": "Minimum desktop permissions for configuration dialogs and public repository links.",
   "windows": ["main"],
   "platforms": ["windows"],
   "permissions": [
     "core:default",
     "dialog:allow-open",
     "dialog:allow-save",
-    "autostart:allow-enable",
-    "autostart:allow-disable",
-    "autostart:allow-is-enabled",
     {
       "identifier": "opener:allow-open-url",
       "allow": [

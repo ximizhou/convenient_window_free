@@ -23,11 +23,12 @@ The top-level build entry point builds the Svelte frontend, Rust helper sidecar,
 npm run desktop:build
 npm run desktop:runtime-smoke
 npm run desktop:runtime-conflict-smoke
+npm run desktop:runtime-force-kill-smoke
 npm run desktop:install-smoke
 npm run desktop:audit
 ```
 
-The two portable runtime smoke commands use explicit disposable data roots and verify that the real user profile is not modified. The NSIS smoke installs under a disposable directory, launches the installed app with isolated data, then verifies uninstaller, registry, shortcut, and directory cleanup. These commands must remain executable in Windows CI.
+The three portable runtime smoke commands use explicit disposable data roots and verify normal shutdown, global-helper conflict handling, and Job Object cleanup after the desktop process is force-terminated without modifying the real user profile. The NSIS smoke installs under a disposable directory and uninstalls while the app and its helper are running; it requires graceful helper shutdown, then repeats the uninstall with a separately owned helper to prove that desktop cleanup does not terminate the uTools-owned process. Registry, shortcut, port, process, and directory cleanup are verified. These commands must remain executable in Windows CI.
 
 ## Helper Development
 

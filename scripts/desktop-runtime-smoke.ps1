@@ -3,6 +3,7 @@ param(
   [string]$AppPath,
   [string]$DataRoot,
   [switch]$ExpectConflict,
+  [switch]$ForceAppKill,
   [switch]$KeepData
 )
 
@@ -50,6 +51,10 @@ function Stop-HelperGracefully {
   }
 }
 
+if ($ExpectConflict -and $ForceAppKill) {
+  throw "ExpectConflict and ForceAppKill cannot be combined"
+}
+
 $AppPath = (Resolve-Path $AppPath).Path
 if (-not $DataRoot) {
   $DataRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("convenient-window-runtime-" + [guid]::NewGuid().ToString("N"))
@@ -72,6 +77,7 @@ $holderRoot = "$DataRoot-holder"
 $holderDataRoot = Join-Path $holderRoot "helper-data"
 $holderProcess = $null
 $holderToken = $null
+$process = $null
 $holderCleanupError = $null
 $realAppDataRoot = Join-Path ([System.Environment]::GetFolderPath("LocalApplicationData")) "com.ximizhou.convenientwindow"
 $smokeStartedAt = [DateTime]::UtcNow.AddSeconds(-1)
@@ -98,21 +104,78 @@ try {
   }
 
   $env:CONVENIENT_WINDOW_DATA_DIR = $DataRoot
-  $env:CONVENIENT_WINDOW_SMOKE_EXIT_MS = "7000"
-  $process = Start-Process -FilePath $AppPath -PassThru
-  if (-not $process.WaitForExit(20000)) {
-    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-    throw "Desktop app did not exit through its managed smoke path"
+  if ($ForceAppKill) {
+    Remove-Item Env:CONVENIENT_WINDOW_SMOKE_EXIT_MS -ErrorAction SilentlyContinue
+  } else {
+    $env:CONVENIENT_WINDOW_SMOKE_EXIT_MS = "7000"
   }
-  if ($process.ExitCode -ne 0) { throw "Desktop app exited with code $($process.ExitCode)" }
+  $process = Start-Process -FilePath $AppPath -PassThru
+  $logPath = Join-Path $helperDataRoot "magic-corners-helper.log"
+  if ($ForceAppKill) {
+    $readyDeadline = [DateTime]::UtcNow.AddSeconds(12)
+    $ready = $false
+    while ([DateTime]::UtcNow -lt $readyDeadline) {
+      if ($process.HasExited) { throw "Desktop app exited before the force-kill lifecycle check" }
+      if (Test-Path $logPath) {
+        $content = [System.IO.File]::ReadAllText($logPath, [System.Text.Encoding]::UTF8)
+        if ($content.Contains("websocket: listening 127.0.0.1:56873")) {
+          $ready = $true
+          break
+        }
+      }
+      Start-Sleep -Milliseconds 100
+    }
+    if (-not $ready) { throw "Desktop helper did not become ready before the force-kill lifecycle check" }
 
-  $log = Get-Item (Join-Path $helperDataRoot "magic-corners-helper.log") -ErrorAction SilentlyContinue
+    Stop-Process -Id $process.Id -Force
+    if (-not $process.WaitForExit(5000)) { throw "Desktop app survived the forced termination" }
+
+    $payloadHelperPath = Join-Path (Split-Path -Parent $AppPath) "helper\magic-corners-helper.exe"
+    $helperDeadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+      $remainingAfterKill = @(Get-Process magic-corners-helper -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -eq $payloadHelperPath } catch { $false }
+      })
+      if ($remainingAfterKill.Count -eq 0) { break }
+      Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $helperDeadline)
+    if ($remainingAfterKill.Count -ne 0) {
+      throw "Desktop helper survived after its owning app was force-killed"
+    }
+
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+      try {
+        $client.Connect("127.0.0.1", 56873)
+        if ($client.Connected) {
+          throw "Desktop helper port remained open after the owning app was force-killed"
+        }
+      } catch [System.Net.Sockets.SocketException] {
+        # Connection refused is the expected post-kill state.
+      }
+    } finally {
+      $client.Dispose()
+    }
+    Write-Output "desktop force-kill: owner exited; Job Object removed sidecar; port closed"
+  } else {
+    if (-not $process.WaitForExit(20000)) {
+      Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+      throw "Desktop app did not exit through its managed smoke path"
+    }
+    if ($process.ExitCode -ne 0) { throw "Desktop app exited with code $($process.ExitCode)" }
+  }
+
+  $log = Get-Item $logPath -ErrorAction SilentlyContinue
   if (-not $log) { throw "Desktop helper log was not created under the explicit isolated data directory" }
   if (-not (Test-Path $webviewDataRoot -PathType Container)) {
     throw "Desktop WebView data was not isolated under the explicit data directory"
   }
   $logContent = [System.IO.File]::ReadAllText($log.FullName, [System.Text.Encoding]::UTF8)
-  if ($ExpectConflict) {
+  if ($ForceAppKill) {
+    if (-not $logContent.Contains("websocket: listening 127.0.0.1:56873")) {
+      throw "Desktop helper never reached its listening state before the forced termination"
+    }
+  } elseif ($ExpectConflict) {
     if (-not $logContent.Contains("HELPER_INSTANCE_CONFLICT")) {
       throw "Expected helper lock conflict marker was not recorded"
     }
@@ -156,7 +219,11 @@ try {
   if ($realWrites.Count -gt 0) {
     throw "Desktop runtime smoke modified the real user profile: $($realWrites.FullName -join ', ')"
   }
-  Write-Output "desktop app exit: code=0; sidecar remaining=0"
+  if ($ForceAppKill) {
+    Write-Output "desktop app force exit: sidecar remaining=0"
+  } else {
+    Write-Output "desktop app exit: code=0; sidecar remaining=0"
+  }
 } finally {
   if ($null -eq $previousDataRoot) {
     Remove-Item Env:CONVENIENT_WINDOW_DATA_DIR -ErrorAction SilentlyContinue
@@ -167,6 +234,10 @@ try {
     Remove-Item Env:CONVENIENT_WINDOW_SMOKE_EXIT_MS -ErrorAction SilentlyContinue
   } else {
     $env:CONVENIENT_WINDOW_SMOKE_EXIT_MS = $previousExitDelay
+  }
+  if ($process -and -not $process.HasExited) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    $process.WaitForExit(5000) | Out-Null
   }
   if ($holderProcess -and -not $holderProcess.HasExited) {
     try {
