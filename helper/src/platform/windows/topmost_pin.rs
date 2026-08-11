@@ -332,7 +332,7 @@ unsafe extern "system" fn pin_window_proc(
             if captured {
                 let _ = ReleaseCapture();
             }
-            if captured && cursor_inside_pin(hwnd) {
+            if captured && point_inside_pin(hwnd, point_from_lparam(lparam)) {
                 let target = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
                 if target != 0 {
                     let _ = SetWindowPos(
@@ -359,17 +359,29 @@ unsafe extern "system" fn pin_window_proc(
     }
 }
 
-unsafe fn cursor_inside_pin(hwnd: HWND) -> bool {
-    let mut point = POINT::default();
-    if GetCursorPos(&mut point).is_err() || !ScreenToClient(hwnd, &mut point).as_bool() {
-        return false;
+fn point_from_lparam(lparam: LPARAM) -> POINT {
+    let packed = lparam.0 as u32;
+    POINT {
+        x: (packed as u16 as i16) as i32,
+        y: ((packed >> 16) as u16 as i16) as i32,
     }
+}
+
+unsafe fn point_inside_pin(hwnd: HWND, point: POINT) -> bool {
     let mut client = RECT::default();
     let _ = windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut client);
     point.x >= client.left
         && point.x < client.right
         && point.y >= client.top
         && point.y < client.bottom
+}
+
+unsafe fn cursor_inside_pin(hwnd: HWND) -> bool {
+    let mut point = POINT::default();
+    if GetCursorPos(&mut point).is_err() || !ScreenToClient(hwnd, &mut point).as_bool() {
+        return false;
+    }
+    point_inside_pin(hwnd, point)
 }
 
 unsafe fn paint_pin(hwnd: HWND) {
@@ -413,12 +425,15 @@ unsafe fn paint_pin(hwnd: HWND) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use windows::core::PCWSTR;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, FindWindowW, GetWindowDisplayAffinity, GetWindowLongPtrW, SendMessageW,
-        SetCursorPos, SetWindowPos, GWL_EXSTYLE, SWP_NOACTIVATE, WM_SETCURSOR, WS_EX_TOPMOST,
-        WS_POPUP, WS_VISIBLE,
+        SetWindowPos, GWL_EXSTYLE, SWP_NOACTIVATE, WM_SETCURSOR, WS_EX_TOPMOST, WS_POPUP,
+        WS_VISIBLE,
     };
+
+    static PIN_WINDOW_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn pin_refreshes_at_interactive_cadence_only_while_visible() {
@@ -447,10 +462,15 @@ mod tests {
         assert_eq!(pin_color(false, false), PIN_NORMAL);
         assert_eq!(pin_color(true, false), PIN_HOVER);
         assert_eq!(pin_color(true, true), PIN_PRESSED);
+        let packed = LPARAM((((-7_i16 as u16 as u32) << 16) | 12_u32) as isize);
+        assert_eq!(point_from_lparam(packed), POINT { x: 12, y: -7 });
     }
 
     #[test]
     fn pin_window_is_excluded_from_capture() {
+        let _guard = PIN_WINDOW_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let marker = create_pin_window(WindowHandle(0));
         let hwnd = HWND(marker as *mut c_void);
         let mut affinity = 0;
@@ -463,6 +483,9 @@ mod tests {
 
     #[test]
     fn managed_pin_follows_target_and_click_cancels_topmost() {
+        let _guard = PIN_WINDOW_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let target = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
@@ -520,16 +543,14 @@ mod tests {
             GetWindowRect(marker, &mut after).unwrap();
         }
 
+        let click_x = (after.right - after.left) / 2;
+        let click_y = (after.bottom - after.top) / 2;
+        let click = LPARAM((((click_y as u16 as u32) << 16) | click_x as u16 as u32) as isize);
         unsafe {
-            SetCursorPos(
-                (after.left + after.right) / 2,
-                (after.top + after.bottom) / 2,
-            )
-            .unwrap();
             let cursor_result = SendMessageW(marker, WM_SETCURSOR, WPARAM(0), LPARAM(0));
             assert_eq!(cursor_result, LRESULT(1));
-            let _ = SendMessageW(marker, WM_LBUTTONDOWN, WPARAM(0), LPARAM(0));
-            let _ = SendMessageW(marker, WM_LBUTTONUP, WPARAM(0), LPARAM(0));
+            let _ = SendMessageW(marker, WM_LBUTTONDOWN, WPARAM(0), click);
+            let _ = SendMessageW(marker, WM_LBUTTONUP, WPARAM(0), click);
         }
         std::thread::sleep(Duration::from_millis(120));
         assert_eq!(
