@@ -1,0 +1,22 @@
+{
+  "name": "convenient-window-free",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Build and verification entry points for Convenient Window desktop and the shared helper",
+  "license": "MIT",
+  "engines": {
+    "node": "24.14.0"
+  },
+  "scripts": {
+    "desktop:install": "npm --prefix apps/desktop ci",
+    "desktop:test": "npm --prefix apps/desktop test",
+    "desktop:check": "npm --prefix apps/desktop run check",
+    "desktop:frontend": "npm --prefix apps/desktop run build",
+    "desktop:sidecar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-desktop-sidecar.ps1",
+    "desktop:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
+    "desktop:audit": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit-desktop-artifacts.ps1",
+    "desktop:runtime-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe",
+    "desktop:runtime-conflict-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe -ExpectConflict",
+    "desktop:install-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-install-smoke.ps1"
+  }
+}

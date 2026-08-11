@@ -1,0 +1,2 @@
+This directory is populated by scripts/prepare-desktop-sidecar.ps1 before Tauri builds.
+The generated EXE and DLL payload is intentionally not committed.

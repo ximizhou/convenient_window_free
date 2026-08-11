@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/app-icon.png" />
+    <title>便捷窗口</title>
+    <script>
+      try {
+        var theme = localStorage.getItem("convenient-window-theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch (e) { /* 忽略隐私模式读取失败 */ }
+    </script>
+    <style>
+      .boot-error {
+        background: #fff7ed;
+        border: 1px solid #fed7aa;
+        border-radius: 8px;
+        color: #7c2d12;
+        display: none;
+        font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+        line-height: 1.6;
+        margin: 18px;
+        padding: 14px 16px;
+        white-space: pre-wrap;
+      }
+
+      html:not([data-app-ready="true"]) .boot-error.visible {
+        display: block;
+      }
+    </style>
+    <script>
+      window.addEventListener("error", function (event) {
+        var box = document.getElementById("boot-error");
+        if (!box) return;
+        box.className = "boot-error visible";
+        box.textContent = "页面启动失败：\n" + (event.message || "未知脚本错误");
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        var box = document.getElementById("boot-error");
+        if (!box) return;
+        var reason = event.reason && event.reason.message ? event.reason.message : String(event.reason || "未知 Promise 错误");
+        box.className = "boot-error visible";
+        box.textContent = "页面启动失败：\n" + reason;
+      });
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="boot-error" class="boot-error"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -7,7 +7,7 @@ This repository owns two things:
 - `apps/desktop/`: the Tauri 2 desktop host and reusable Svelte interface.
 - `helper/`: the only source tree for the shared Rust helper used by both the desktop app and the private uTools integration.
 
-This repository now contains the migrated shared helper source and its contract/smoke tests. The standalone Tauri host is the next implementation stage; repository visibility does not imply that an installer or release is available.
+This repository contains the shared helper, the standalone Tauri host, their automated tests, and reproducible Windows packaging scripts. A local build can produce an NSIS installer and portable archive; repository visibility still does not imply that a public release is available.
 
 ## Support
 
@@ -17,7 +17,17 @@ The first accepted target is Windows 11 x64. Linux and macOS have reserved platf
 
 Standalone desktop development happens entirely in this repository. The private uTools project mounts this repository at `open-source/` and builds the same helper source from `open-source/helper/`; it does not keep another helper source copy.
 
-Planned top-level build entry points are PowerShell and npm commands that build the Svelte frontend, Rust helper sidecar, Tauri application, per-user NSIS installer, and portable archive. Exact commands are added alongside the implementation and must remain executable in Windows CI.
+The top-level build entry point builds the Svelte frontend, Rust helper sidecar, Tauri application, per-user NSIS installer, and portable archive:
+
+```powershell
+npm run desktop:build
+npm run desktop:runtime-smoke
+npm run desktop:runtime-conflict-smoke
+npm run desktop:install-smoke
+npm run desktop:audit
+```
+
+The two portable runtime smoke commands use explicit disposable data roots and verify that the real user profile is not modified. The NSIS smoke installs under a disposable directory, launches the installed app with isolated data, then verifies uninstaller, registry, shortcut, and directory cleanup. These commands must remain executable in Windows CI.
 
 ## Helper Development
 

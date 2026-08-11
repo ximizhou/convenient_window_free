@@ -1,6 +1,7 @@
 node_modules/
 target/
 dist/
+artifacts/
 *.log
 *.zip
 *.exe
@@ -13,3 +14,5 @@ dist/
 .env.*
 config.json
 auth-token
+apps/desktop/src-tauri/resources/helper/payload-manifest.json
+apps/desktop/src-tauri/gen/

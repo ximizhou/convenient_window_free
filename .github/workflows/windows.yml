@@ -1,0 +1,53 @@
+name: Windows desktop
+
+on:
+  push:
+    branches: [main, develop, "codex/**"]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install pinned Rust toolchains
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.96.0-x86_64-pc-windows-gnullvm --profile minimal --component rustfmt
+          rustup toolchain install 1.96.0-x86_64-pc-windows-msvc --profile minimal --component rustfmt
+
+      - name: Frontend, helper, Tauri, NSIS, and portable gates
+        shell: pwsh
+        run: npm run desktop:build
+
+      - name: Verify helper lock contention and recovery
+        shell: pwsh
+        run: node scripts/helper-instance-smoke.mjs apps/desktop/src-tauri/resources/helper/magic-corners-helper.exe
+
+      - name: Verify isolated portable runtime
+        shell: pwsh
+        run: |
+          npm run desktop:runtime-smoke
+          npm run desktop:runtime-conflict-smoke
+
+      - name: Verify isolated NSIS install, runtime, and uninstall
+        shell: pwsh
+        run: npm run desktop:install-smoke
+
+      - name: Audit installer and portable contents
+        shell: pwsh
+        env:
+          SEVEN_ZIP: C:\Program Files\7-Zip\7z.exe
+        run: npm run desktop:audit
