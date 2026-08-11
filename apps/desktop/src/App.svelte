@@ -961,29 +961,34 @@
             {:else if mode === "edge-hide"}
               <div class="window-tabs"><button class:active={windowEnhancementTab === "edge"} on:click={() => { windowEnhancementTab = "edge"; }} type="button">贴边隐藏</button><button class:active={windowEnhancementTab === "drag"} on:click={() => { windowEnhancementTab = "drag"; }} type="button">拖拽与缩放</button></div>
               {#if windowEnhancementTab === "edge"}
-                <div class="setting-title"><div><h2>收缩设置</h2><p>当前显示器独立设置，拼接缝自动禁用</p></div><label class="mini-switch"><input bind:checked={settings.edgeHide.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                <div class="setting-title edge-master"><div><h2>贴边隐藏</h2><p>窗口移出屏幕边缘后自动收缩为细条，悬停即可恢复</p></div><label class="mini-switch"><input aria-label="启用贴边隐藏" bind:checked={settings.edgeHide.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                <p class="edge-master-hint">每台显示器独立设置，拼接缝处自动禁用</p>
+                <div class="edge-master-body" class:off={!settings.edgeHide.enabled} inert={!settings.edgeHide.enabled}>
                 <div class="setting-title edge-preview-setting"><div><h2>显示吸附提示</h2><p>松开后会收纳时，在目标屏幕边缘显示蓝色强调线</p></div><label class="mini-switch"><input aria-label="显示贴边吸附提示" bind:checked={settings.edgeHide.showPreview} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                 <div class="edge-trigger-heading"><h2>收纳触发方式</h2><p>两种方式独立生效，满足任意一种即可触发</p></div>
                 <div class="edge-trigger-methods">
                   <section class:off={!settings.edgeHide.distanceTriggerEnabled} class="edge-trigger-method">
-                    <div class="setting-title"><div><h3>靠近边缘</h3><p>窗口边缘进入指定像素范围</p></div><label class="mini-switch"><input bind:checked={settings.edgeHide.distanceTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                    <div class="setting-title"><div><h3>靠近边缘</h3><p>窗口边缘进入指定像素范围</p></div><label class="mini-switch"><input aria-label="启用靠近边缘触发" bind:checked={settings.edgeHide.distanceTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                     <label class="trigger-value"><span>边缘距离</span><div><input bind:value={settings.edgeHide.triggerDistance} disabled={!settings.edgeHide.distanceTriggerEnabled} min="4" max="96" on:input={() => persist()} type="number" /><em>px</em></div></label>
                   </section>
                   <section class:off={!settings.edgeHide.ratioTriggerEnabled} class="edge-trigger-method">
-                    <div class="setting-title"><div><h3>移出比例</h3><p>窗口移出屏幕达到自身比例</p></div><label class="mini-switch"><input bind:checked={settings.edgeHide.ratioTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                    <div class="setting-title"><div><h3>移出比例</h3><p>窗口移出屏幕达到自身比例</p></div><label class="mini-switch"><input aria-label="启用移出比例触发" bind:checked={settings.edgeHide.ratioTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                     <label class="trigger-value"><span>窗口比例</span><div><input bind:value={settings.edgeHide.triggerRatio} disabled={!settings.edgeHide.ratioTriggerEnabled} min="1" max="100" on:input={() => persist()} type="number" /><em>%</em></div></label>
                   </section>
                 </div>
                 <div class="form-grid"><label><span>露出宽度</span><div><input bind:value={settings.edgeHide.stripSize} min="4" max="64" on:input={() => persist()} type="number" /><em>px</em></div></label><label><span>收缩延迟</span><div><input bind:value={settings.edgeHide.collapseDelayMs} min="0" max="5000" on:input={() => persist()} type="number" /><em>ms</em></div></label><label><span>恢复延迟</span><div><input bind:value={settings.edgeHide.restoreDelayMs} min="0" max="5000" on:input={() => persist()} type="number" /><em>ms</em></div></label></div>
                 <div class="list-section"><div class="subhead"><div><h2>不收缩的应用</h2><p>当前前台：{foregroundApp || "尚未获取"}</p></div><button class="quiet" on:click={() => addForeground("edge")} type="button">+ 添加</button></div><div class="app-list">{#each settings.edgeHide.excludedApps as app}<div><span>{app}</span><button aria-label={`移除 ${app}`} on:click={() => removeApp("edge", app)} type="button">×</button></div>{:else}<p class="empty">还没有排除应用</p>{/each}</div></div>
+                </div>
               {:else}
-                <div class="setting-title"><div><h2>任意位置拖拽</h2><p>组合键与鼠标键同时按下时接管目标窗口</p></div><label class="mini-switch"><input bind:checked={settings.windowDrag.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                <div class="setting-title"><div><h2>任意位置拖拽</h2><p>组合键与鼠标键同时按下时接管目标窗口</p></div><label class="mini-switch"><input aria-label="启用任意位置拖拽" bind:checked={settings.windowDrag.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                <div class="edge-master-body" class:off={!settings.windowDrag.enabled} inert={!settings.windowDrag.enabled}>
                 <div class="drag-bindings">
                   <div><span><b>移动窗口</b><small>默认 Alt + 左键</small></span><ModifierRecorder label="录制移动窗口修饰键" value={settings.windowDrag.moveModifiers} onChange={(value) => { settings.windowDrag.moveModifiers = value; persist(); }} /><select aria-label="移动窗口鼠标键" bind:value={settings.windowDrag.moveButton} on:change={() => persist()}><option value="left">左键</option><option value="right">右键</option><option value="middle">中键</option><option value="x1">侧键 1</option><option value="x2">侧键 2</option></select></div>
                   <div><span><b>缩放窗口</b><small>默认 Alt + 右键</small></span><ModifierRecorder label="录制缩放窗口修饰键" value={settings.windowDrag.resizeModifiers} onChange={(value) => { settings.windowDrag.resizeModifiers = value; persist(); }} /><select aria-label="缩放窗口鼠标键" bind:value={settings.windowDrag.resizeButton} on:change={() => persist()}><option value="left">左键</option><option value="right">右键</option><option value="middle">中键</option><option value="x1">侧键 1</option><option value="x2">侧键 2</option></select></div>
                 </div>
                 {#if windowDragBindingConflict}<p class="gesture-warning">移动与缩放组合重复，请修改其中一项</p>{/if}
-                <div class="setting-title pin-setting"><div><h2>置顶小图钉</h2><p>跟随置顶窗口，点击即可取消置顶</p></div><label class="mini-switch"><input bind:checked={settings.topmostPin.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                </div>
+                <div class="setting-title pin-setting"><div><h2>置顶小图钉</h2><p>跟随置顶窗口，点击即可取消置顶</p></div><label class="mini-switch"><input aria-label="启用置顶小图钉" bind:checked={settings.topmostPin.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
               {/if}
             {:else if mode === "gestures"}
               <div class="gesture-intro">
@@ -1032,7 +1037,7 @@
                     <button class="quiet" on:click={duplicateGesture} type="button">制作副本</button>
                     <button class="quiet" on:click={clearGestureSamples} type="button">重新录制</button>
                     <button class="quiet danger" disabled={activeGesture.builtin} on:click={deleteGesture} type="button">删除</button>
-                    <label class="gesture-enable"><span>{activeGesture.enabled ? "已启用" : "已停用"}</span><span class="mini-switch"><input checked={activeGesture.enabled} on:change={toggleGestureEnabled} type="checkbox" /><i></i></span></label>
+                    <label class="gesture-enable"><span>{activeGesture.enabled ? "已启用" : "已停用"}</span><span class="mini-switch"><input aria-label="启用当前手势" checked={activeGesture.enabled} on:change={toggleGestureEnabled} type="checkbox" /><i></i></span></label>
                   </div>
                   {#if activeGesture.mode === "action"}
                     <div class="action-editor gesture-action">
