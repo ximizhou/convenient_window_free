@@ -34,8 +34,9 @@
     "shortDescription": "Windows 11 热区、窗口与鼠标增强工具",
     "longDescription": "便捷窗口提供热区、贴边隐藏、全局鼠标手势、截图、本地 OCR 和窗口置顶能力。",
     "publisher": "ximizhou",
-    "license": "MIT",
+    "licenseFile": "../../../LICENSE",
     "resources": {
+      "../../../LICENSE": "LICENSE",
       "resources/helper/*.exe": "helper/",
       "resources/helper/*.dll": "helper/",
       "resources/helper/payload-manifest.json": "helper/payload-manifest.json"

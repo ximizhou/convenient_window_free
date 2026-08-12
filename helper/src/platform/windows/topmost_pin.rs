@@ -478,7 +478,7 @@ mod tests {
             GetWindowDisplayAffinity(hwnd, &mut affinity).unwrap();
             let _ = DestroyWindow(hwnd);
         }
-        assert_eq!(affinity, WDA_EXCLUDEFROMCAPTURE.0);
+        super::super::assert_capture_exclusion_affinity(affinity);
     }
 
     #[test]

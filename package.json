@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Build and verification entry points for Convenient Window desktop and the shared helper",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "engines": {
     "node": "24.14.0"
   },
@@ -18,6 +18,8 @@
     "desktop:runtime-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe",
     "desktop:runtime-conflict-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe -ExpectConflict",
     "desktop:runtime-force-kill-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe -ForceAppKill",
-    "desktop:install-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-install-smoke.ps1"
+    "desktop:install-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-install-smoke.ps1",
+    "desktop:publish:pre": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-desktop-release.ps1",
+    "desktop:release:promote": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-desktop-release.ps1 -Promote"
   }
 }

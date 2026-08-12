@@ -820,9 +820,7 @@ fn replace_if_changed<T: PartialEq>(current: &mut T, next: T) -> bool {
 mod tests {
     use super::*;
     use std::time::Duration;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        DestroyWindow, GetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, GetWindowDisplayAffinity};
 
     #[test]
     fn edge_hide_preview_uses_the_product_accent_blue() {
@@ -867,7 +865,7 @@ mod tests {
             let _ = DestroyWindow(hwnd);
         }
 
-        assert_eq!(affinity, WDA_EXCLUDEFROMCAPTURE.0);
+        super::super::assert_capture_exclusion_affinity(affinity);
     }
 
     #[test]

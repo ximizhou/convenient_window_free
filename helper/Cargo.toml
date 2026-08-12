@@ -2,6 +2,8 @@
 name = "magic-corners-helper"
 version = "0.5.5"
 edition = "2021"
+license-file = "../LICENSE"
+repository = "https://github.com/ximizhou/convenient_window_free"
 
 [dependencies]
 anyhow = "1.0"
@@ -27,6 +29,7 @@ windows = { version = "0.58", features = [
   "Win32_System_Memory",
   "Win32_System_ProcessStatus",
   "Win32_System_Shutdown",
+  "Win32_System_SystemInformation",
   "Win32_System_Threading",
   "Win32_System_WinRT",
   "Win32_UI_Input_KeyboardAndMouse",

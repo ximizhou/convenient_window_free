@@ -12,8 +12,21 @@ if (-not $ArtifactsDir) { $ArtifactsDir = Join-Path $repoRoot "artifacts" }
 $manifestPath = Join-Path $ArtifactsDir "artifact-manifest.json"
 if (-not (Test-Path $manifestPath)) { throw "Artifact manifest is missing: $manifestPath" }
 $artifactManifest = [System.IO.File]::ReadAllText($manifestPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
-if ($artifactManifest.version -ne "0.1.0" -or $artifactManifest.platform -ne "windows-x64") {
+$rootPackage = [System.IO.File]::ReadAllText((Join-Path $repoRoot "package.json"), [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+if ($artifactManifest.version -ne $rootPackage.version -or $artifactManifest.platform -ne "windows-x64") {
   throw "Artifact manifest declares an unexpected version or platform"
+}
+if ($artifactManifest.sourceRepository -ne "https://github.com/ximizhou/convenient_window_free" -or
+    $artifactManifest.sourceCommit -notmatch '^[0-9a-f]{40}$') {
+  throw "Artifact manifest declares an invalid source"
+}
+if ($artifactManifest.dirty) { throw "Artifact manifest was generated from a dirty source worktree" }
+$head = (& git -C $repoRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $head -ne $artifactManifest.sourceCommit) {
+  throw "Artifact manifest sourceCommit does not match the current source commit"
+}
+if (@($artifactManifest.deliverables).Count -ne 2) {
+  throw "Artifact manifest must declare exactly the NSIS installer and portable archive"
 }
 
 foreach ($declared in $artifactManifest.deliverables) {
@@ -21,7 +34,15 @@ foreach ($declared in $artifactManifest.deliverables) {
   if (-not (Test-Path $path -PathType Leaf)) { throw "Declared artifact is missing: $path" }
   $file = Get-Item $path
   $hash = (Get-Sha256 $path)
+  if ($file.Length -ne [long]$declared.bytes) { throw "Artifact size mismatch: $($file.Name)" }
   if ($hash -ne $declared.sha256) { throw "Artifact hash mismatch: $($file.Name)" }
+}
+$checksumPath = Join-Path $ArtifactsDir "SHA256SUMS"
+if (-not (Test-Path $checksumPath -PathType Leaf)) { throw "SHA256SUMS is missing" }
+$expectedChecksums = @($artifactManifest.deliverables | ForEach-Object { "$($_.sha256)  $($_.name)" })
+$actualChecksums = @(Get-Content -LiteralPath $checksumPath -Encoding ascii)
+if (($actualChecksums -join "`n") -ne ($expectedChecksums -join "`n")) {
+  throw "SHA256SUMS does not match the artifact manifest"
 }
 
 function Assert-ExactFiles {
@@ -62,6 +83,7 @@ $portableManifestPath = Join-Path $portableDir "helper\payload-manifest.json"
 $portableManifest = [System.IO.File]::ReadAllText($portableManifestPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
 $portableFiles = @(
   "ConvenientWindow.exe",
+  "LICENSE",
   "README.txt",
   "helper/payload-manifest.json"
 ) + @($portableManifest.files | ForEach-Object { "helper/$($_.name)" })
@@ -104,6 +126,7 @@ try {
     '$PLUGINSDIR/StartMenu.dll',
     '$PLUGINSDIR/NSISdl.dll',
     "convenient-window.exe",
+    "LICENSE",
     "helper/payload-manifest.json"
   ) + @($nsisManifest.files | ForEach-Object { "helper/$($_.name)" })
   Assert-ExactFiles -Root $nsisRoot -Expected $nsisFiles

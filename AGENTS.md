@@ -22,6 +22,7 @@
 - Keep desktop settings and helper runtime configuration in separate single-writer files; await durable host persistence before sending that revision to the helper.
 - The uTools and desktop products use separate data directories and must not run their helpers concurrently. A conflict must return a nonzero process result and a host-readable error.
 - Package the helper executable with every required runtime DLL. A bare EXE is not a valid desktop sidecar bundle.
+- The NSIS installer and portable package must include the repository-root `LICENSE`; artifact inventory checks must fail when it is missing.
 - Do not weaken, skip, or delete tests to make a change pass. Add focused tests for protocol, migration, process, and packaging changes.
 - Do not create a GitHub Release, tag, or upload release assets without explicit approval. Source commits and branch pushes are allowed after verification.
 - Do not commit `node_modules/`, Rust `target/`, local configuration, tokens, logs, generated installers, or private-repository material.

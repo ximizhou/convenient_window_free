@@ -19,3 +19,33 @@ pub use ocr::*;
 pub use screenshot::*;
 pub use topmost_pin::*;
 pub use window::*;
+
+#[cfg(test)]
+pub(crate) fn assert_capture_exclusion_affinity(affinity: u32) {
+    use std::mem::size_of;
+    use windows::Win32::System::SystemInformation::{
+        VerSetConditionMask, VerifyVersionInfoW, OSVERSIONINFOEXW, VER_PRODUCT_TYPE,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::WDA_EXCLUDEFROMCAPTURE;
+
+    const VER_EQUAL: u8 = 1;
+    const VER_NT_WORKSTATION: u8 = 1;
+
+    let mut version = OSVERSIONINFOEXW {
+        dwOSVersionInfoSize: size_of::<OSVERSIONINFOEXW>() as u32,
+        wProductType: VER_NT_WORKSTATION,
+        ..Default::default()
+    };
+    let condition_mask = unsafe { VerSetConditionMask(0, VER_PRODUCT_TYPE, VER_EQUAL) };
+    let is_workstation =
+        unsafe { VerifyVersionInfoW(&mut version, VER_PRODUCT_TYPE, condition_mask).is_ok() };
+
+    if is_workstation {
+        assert_eq!(affinity, WDA_EXCLUDEFROMCAPTURE.0);
+    } else {
+        assert!(
+            affinity == 0 || affinity == WDA_EXCLUDEFROMCAPTURE.0,
+            "Windows Server returned unexpected display affinity {affinity}"
+        );
+    }
+}

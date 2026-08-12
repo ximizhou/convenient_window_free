@@ -1,6 +1,6 @@
 # Convenient Window Free
 
-Open-source Windows 11 desktop software for hot zones, window edge hiding, global mouse gestures, screenshots, local OCR, and topmost-window controls.
+Source-available Windows 11 desktop software for hot zones, window edge hiding, global mouse gestures, screenshots, local OCR, and topmost-window controls.
 
 This repository owns two things:
 
@@ -30,6 +30,8 @@ npm run desktop:audit
 
 The three portable runtime smoke commands use explicit disposable data roots and verify normal shutdown, global-helper conflict handling, and Job Object cleanup after the desktop process is force-terminated without modifying the real user profile. The NSIS smoke installs under a disposable directory and uninstalls while the app and its helper are running; it requires graceful helper shutdown, then repeats the uninstall with a separately owned helper to prove that desktop cleanup does not terminate the uTools-owned process. Registry, shortcut, port, process, and directory cleanup are verified. These commands must remain executable in Windows CI.
 
+Public downloads use the immutable Pre-release acceptance flow documented in [`docs/release.md`](docs/release.md): build once from a clean `main`, download and test those exact assets, then promote the same release without replacing files.
+
 ## Helper Development
 
 Install the pinned Rust toolchain, then run commands from `helper/` so its linker configuration is applied:
@@ -49,4 +51,10 @@ Local WebSocket access is protected by a random token stored in each product's o
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+This project is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+
+You may view, study, modify, and use the software for personal and other noncommercial purposes under the license terms. Commercial use requires a separate written license from the copyright holder.
+
+本项目允许在许可证条款下查看、学习、修改，以及用于个人和其他非商业目的。任何商业使用均须事先取得版权所有者的书面授权。
+
+This license applies to the repository from the commit that introduced it onward. Earlier versions that were already published under the MIT License remain available under the license granted with those versions.

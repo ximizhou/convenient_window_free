@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Convenient Window standalone desktop host"
 authors = ["ximizhou"]
 edition = "2021"
-license = "MIT"
+license-file = "../../../LICENSE"
 repository = "https://github.com/ximizhou/convenient_window_free"
 
 [lib]

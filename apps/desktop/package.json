@@ -18,7 +18,7 @@
     "tauri:build": "tauri build --bundles nsis",
     "tauri:binary": "tauri build --no-bundle"
   },
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.2",
