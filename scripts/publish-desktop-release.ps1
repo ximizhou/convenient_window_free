@@ -44,10 +44,20 @@ function Assert-RemoteAssets {
   }
 }
 
+function Get-SourceChanges {
+  $unstaged = @(& git -C $repoRoot diff --name-only --)
+  if ($LASTEXITCODE -ne 0) { throw "Unable to inspect unstaged source changes" }
+  $staged = @(& git -C $repoRoot diff --cached --name-only --)
+  if ($LASTEXITCODE -ne 0) { throw "Unable to inspect staged source changes" }
+  $untracked = @(& git -C $repoRoot ls-files --others --exclude-standard)
+  if ($LASTEXITCODE -ne 0) { throw "Unable to inspect untracked source files" }
+  return @($unstaged + $staged + $untracked | Sort-Object -Unique)
+}
+
 $branch = (& git -C $repoRoot branch --show-current).Trim()
 if ($LASTEXITCODE -ne 0 -or $branch -ne "main") { throw "Desktop releases must run from main" }
-$dirty = @(& git -C $repoRoot status --porcelain --untracked-files=normal)
-if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) { throw "Desktop releases require a clean source worktree" }
+$dirty = @(Get-SourceChanges)
+if ($dirty.Count -gt 0) { throw "Desktop releases require a clean source worktree" }
 $head = (& git -C $repoRoot rev-parse HEAD).Trim()
 $remoteHead = (& git -C $repoRoot rev-parse origin/main).Trim()
 if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$' -or $head -ne $remoteHead) {
