@@ -530,6 +530,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .drag-bindings span b,.drag-bindings span small { display: block; }.drag-bindings span b { color: var(--ink); font-size: 11.5px; }.drag-bindings span small { margin-top: 3px; color: var(--faint); font-size: 10px; }
 .drag-bindings select,.ocr-language select { width: 100%; height: 34px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--bg); color: var(--ink); font-size: 11px; }
 .edge-preview-setting { margin-top: 0; padding-top: 0; border-top: 0; }
+.edge-foreground-setting { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
 .pin-setting { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
 .result-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 10px; padding: 3px; border: 1px solid rgba(242,179,92,.25); border-radius: 5px; background: var(--panel); }.result-modes button { min-width: 0; height: 29px; padding: 0 5px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font-size: 10px; }.result-modes button.active { background: var(--amber-bg); color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
 .ocr-language { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; margin-top: 9px; color: var(--muted); font-size: 10.5px; }.ocr-language select { height: 30px; }

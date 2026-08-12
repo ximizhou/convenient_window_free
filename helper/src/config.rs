@@ -563,6 +563,8 @@ pub struct EdgeHideConfig {
     pub enabled: bool,
     #[serde(default = "default_true")]
     pub show_preview: bool,
+    #[serde(default = "default_true")]
+    pub keep_expanded_when_foreground: bool,
     #[serde(default = "default_edges")]
     pub edges: Vec<Edge>,
     #[serde(default)]
@@ -590,6 +592,7 @@ impl Default for EdgeHideConfig {
         Self {
             enabled: false,
             show_preview: true,
+            keep_expanded_when_foreground: true,
             edges: default_edges(),
             monitor_profiles: Vec::new(),
             strip_size: default_strip_size(),
@@ -960,6 +963,7 @@ mod tests {
             "pausedApps": config.paused_apps,
             "stripSize": config.edge_hide.strip_size,
             "edgeHidePreviewEnabled": config.edge_hide.show_preview,
+            "keepExpandedWhenForeground": config.edge_hide.keep_expanded_when_foreground,
             "triggerDistance": config.edge_hide.trigger_distance,
             "triggerRatio": config.edge_hide.trigger_ratio,
             "collapseDelayMs": config.edge_hide.collapse_delay_ms,
@@ -987,11 +991,22 @@ mod tests {
         assert_eq!(config.hotzones.len(), 8);
         assert_eq!(config.edge_hide.strip_size, 16);
         assert!(config.edge_hide.show_preview);
+        assert!(config.edge_hide.keep_expanded_when_foreground);
         assert!(config.edge_hide.distance_trigger_enabled);
         assert!(config.edge_hide.ratio_trigger_enabled);
         assert_eq!(config.edge_hide.trigger_ratio, 33);
         assert_eq!(config.edge_hide.collapse_delay_ms, 300);
         assert_eq!(config.edge_hide.restore_delay_ms, 200);
+    }
+
+    #[test]
+    fn edge_hide_foreground_hold_defaults_on_and_preserves_an_explicit_off() {
+        let defaulted: AppConfig = serde_json::from_str(r#"{"edgeHide":{}}"#).unwrap();
+        let disabled: AppConfig =
+            serde_json::from_str(r#"{"edgeHide":{"keepExpandedWhenForeground":false}}"#).unwrap();
+
+        assert!(defaulted.edge_hide.keep_expanded_when_foreground);
+        assert!(!disabled.edge_hide.keep_expanded_when_foreground);
     }
 
     #[test]

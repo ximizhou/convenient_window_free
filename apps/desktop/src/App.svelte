@@ -968,6 +968,7 @@
                 <div class="feature-settings-head"><span>贴边隐藏选项</span><strong>{settings.edgeHide.enabled ? "由总开关统一启用" : "开启总开关后可调整"}</strong></div>
                 <div class="feature-settings-body" class:off={!settings.edgeHide.enabled} inert={!settings.edgeHide.enabled}>
                 <div class="setting-title edge-preview-setting"><div><h2>显示吸附提示</h2><p>松开后会收纳时，在目标屏幕边缘显示蓝色强调线</p></div><label class="mini-switch"><input aria-label="显示贴边吸附提示" bind:checked={settings.edgeHide.showPreview} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                <div class="setting-title edge-foreground-setting"><div><h2>前台窗口保持展开</h2><p>窗口展开后仍在使用时，不会因为鼠标离开而自动收回</p></div><label class="mini-switch"><input aria-label="前台窗口保持展开" bind:checked={settings.edgeHide.keepExpandedWhenForeground} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                 <div class="edge-trigger-heading"><h2>收纳触发方式</h2><p>两种方式独立生效，满足任意一种即可触发</p></div>
                 <div class="edge-trigger-methods">
                   <section class:off={!settings.edgeHide.distanceTriggerEnabled} class="edge-trigger-method">

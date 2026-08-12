@@ -520,7 +520,9 @@ impl EdgeHideController {
                     return None;
                 }
 
-                if foreground.is_some_and(|window| window.handle == *handle) {
+                if config.keep_expanded_when_foreground
+                    && foreground.is_some_and(|window| window.handle == *handle)
+                {
                     *leave_since = None;
                     return None;
                 }
@@ -2882,6 +2884,75 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn foreground_expanded_window_recollapses_when_hold_is_disabled() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            keep_expanded_when_foreground: false,
+            collapse_delay_ms: 0,
+            restore_delay_ms: 10,
+            ..EdgeHideConfig::default()
+        };
+        let mut controller = EdgeHideController::new();
+        let visible = window(Rect {
+            left: 0,
+            top: 120,
+            right: 600,
+            bottom: 700,
+        });
+        let start = Instant::now();
+        controller.tick(
+            start,
+            &config,
+            Point { x: 300, y: 300 },
+            &[monitor()],
+            Some(&visible),
+        );
+        let Some(EdgeHideCommand::Collapse { rect: hidden, .. }) = controller.tick(
+            start + Duration::from_millis(1),
+            &config,
+            Point { x: 300, y: 300 },
+            &[monitor()],
+            Some(&visible),
+        ) else {
+            panic!("window should collapse first");
+        };
+        assert!(matches!(
+            controller.tick(
+                start + Duration::from_millis(2),
+                &config,
+                Point { x: 1, y: 300 },
+                &[monitor()],
+                None,
+            ),
+            Some(EdgeHideCommand::Restore { .. })
+        ));
+
+        assert_eq!(
+            controller.tick(
+                start + Duration::from_millis(3),
+                &config,
+                Point { x: 1200, y: 900 },
+                &[monitor()],
+                Some(&visible),
+            ),
+            None
+        );
+        assert_eq!(
+            controller.tick(
+                start + Duration::from_millis(14),
+                &config,
+                Point { x: 1200, y: 900 },
+                &[monitor()],
+                Some(&visible),
+            ),
+            Some(EdgeHideCommand::Collapse {
+                handle: visible.handle,
+                rect: hidden,
+            })
+        );
     }
 
     #[test]

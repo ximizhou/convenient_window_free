@@ -25,6 +25,8 @@ Shared UI code depends on a typed bridge for lifecycle, configuration, token acc
 
 ## Configuration Ownership
 
+The shared schema v7 `edgeHide.keepExpandedWhenForeground` setting defaults to `true`. An expanded edge-hidden window remains open while it is still the active foreground window; when the setting is disabled, leaving the window starts the normal restore-delay countdown even if that window remains foreground. Missing fields preserve the prior behavior, while an explicit `false` survives host normalization and helper deserialization.
+
 The desktop host and helper never write the same file:
 
 - The desktop host is the only writer of `<app-data>/desktop-settings.json`. This is the UI's authoritative settings snapshot.

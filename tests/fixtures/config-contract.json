@@ -30,6 +30,7 @@
     "pausedApps": ["explorer.exe"],
     "stripSize": 64,
     "edgeHidePreviewEnabled": true,
+    "keepExpandedWhenForeground": true,
     "triggerDistance": 4,
     "triggerRatio": 100,
     "collapseDelayMs": 5000,
