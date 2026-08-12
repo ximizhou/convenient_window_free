@@ -40,7 +40,7 @@ foreach ($declared in $artifactManifest.deliverables) {
 $checksumPath = Join-Path $ArtifactsDir "SHA256SUMS"
 if (-not (Test-Path $checksumPath -PathType Leaf)) { throw "SHA256SUMS is missing" }
 $expectedChecksums = @($artifactManifest.deliverables | ForEach-Object { "$($_.sha256)  $($_.name)" })
-$actualChecksums = @(Get-Content -LiteralPath $checksumPath -Encoding ascii)
+$actualChecksums = @([System.IO.File]::ReadAllLines($checksumPath, [System.Text.Encoding]::UTF8))
 if (($actualChecksums -join "`n") -ne ($expectedChecksums -join "`n")) {
   throw "SHA256SUMS does not match the artifact manifest"
 }

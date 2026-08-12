@@ -20,12 +20,21 @@ $version = [string]$rootPackage.version
 if (-not $version -or $desktopPackage.version -ne $version -or $tauriConfig.version -ne $version) {
   throw "Desktop version mismatch: root=$($rootPackage.version), frontend=$($desktopPackage.version), tauri=$($tauriConfig.version)"
 }
+function Get-SourceChanges {
+  $unstaged = @(& git -C $repoRoot diff --name-only --)
+  if ($LASTEXITCODE -ne 0) { throw "Unable to inspect unstaged source changes" }
+  $staged = @(& git -C $repoRoot diff --cached --name-only --)
+  if ($LASTEXITCODE -ne 0) { throw "Unable to inspect staged source changes" }
+  $untracked = @(& git -C $repoRoot ls-files --others --exclude-standard)
+  if ($LASTEXITCODE -ne 0) { throw "Unable to inspect untracked source files" }
+  return @($unstaged + $staged + $untracked | Sort-Object -Unique)
+}
+
 $sourceCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-f]{40}$') {
   throw "Unable to read the desktop source commit"
 }
-$sourceStatus = @(& git -C $repoRoot status --porcelain --untracked-files=normal)
-if ($LASTEXITCODE -ne 0) { throw "Unable to inspect the desktop source worktree" }
+$sourceStatus = @(Get-SourceChanges)
 $helperToolchain = (Get-Content (Join-Path $repoRoot "rust-toolchain") -Raw).Trim()
 $desktopToolchain = "1.96.0-x86_64-pc-windows-msvc"
 
@@ -112,13 +121,18 @@ $deliverables = @($installerCopy, $portableZip) | ForEach-Object {
     sha256 = (Get-Sha256 $file.FullName)
   }
 }
+$finalSourceStatus = @(Get-SourceChanges)
+if (($sourceStatus -join "`n") -ne ($finalSourceStatus -join "`n")) {
+  throw "Desktop build changed the source worktree"
+}
+
 $artifactManifest = [ordered]@{
   schemaVersion = 1
   version = $version
   platform = "windows-x64"
   sourceRepository = "https://github.com/ximizhou/convenient_window_free"
   sourceCommit = $sourceCommit
-  dirty = ($sourceStatus.Count -gt 0)
+  dirty = ($finalSourceStatus.Count -gt 0)
   deliverables = @($deliverables)
 }
 $artifactManifestPath = Join-Path $artifactsDir "artifact-manifest.json"
@@ -129,8 +143,12 @@ $artifactManifestPath = Join-Path $artifactsDir "artifact-manifest.json"
 )
 
 $checksumPath = Join-Path $artifactsDir "SHA256SUMS"
-$deliverables | ForEach-Object { "$($_.sha256)  $($_.name)" } |
-  Set-Content -LiteralPath $checksumPath -Encoding ascii
+$checksumLines = [string[]]@($deliverables | ForEach-Object { "$($_.sha256)  $($_.name)" })
+[System.IO.File]::WriteAllLines(
+  $checksumPath,
+  $checksumLines,
+  [System.Text.UTF8Encoding]::new($false)
+)
 
 $deliverables | Format-Table -AutoSize
 Write-Output "portable directory: $portableDir"
