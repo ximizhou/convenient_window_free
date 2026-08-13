@@ -10,6 +10,23 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Read-TextFileWithRetry {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [int]$TimeoutMilliseconds = 5000
+  )
+
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+  do {
+    try {
+      return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+    } catch [System.IO.IOException] {
+      if ([DateTime]::UtcNow -ge $deadline) { throw }
+      Start-Sleep -Milliseconds 100
+    }
+  } while ($true)
+}
+
 function Stop-HelperGracefully {
   param([Parameter(Mandatory = $true)][string]$Token)
   $socket = [System.Net.WebSockets.ClientWebSocket]::new()
@@ -170,7 +187,7 @@ try {
   if (-not (Test-Path $webviewDataRoot -PathType Container)) {
     throw "Desktop WebView data was not isolated under the explicit data directory"
   }
-  $logContent = [System.IO.File]::ReadAllText($log.FullName, [System.Text.Encoding]::UTF8)
+  $logContent = Read-TextFileWithRetry -Path $log.FullName
   if ($ForceAppKill) {
     if (-not $logContent.Contains("websocket: listening 127.0.0.1:56873")) {
       throw "Desktop helper never reached its listening state before the forced termination"
