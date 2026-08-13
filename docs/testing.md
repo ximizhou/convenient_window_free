@@ -7,7 +7,7 @@ Migration work must preserve at least:
 - 71 frontend tests in the private uTools integration.
 - 129 passing default Rust tests and 2 explicitly ignored Windows OCR tests in the shared helper.
 
-The verified migration baseline is currently 76 frontend tests in the private integration and 138 passing Rust tests with 2 OCR tests ignored.
+The current verified baseline is 83 frontend tests in the private integration and 138 passing Rust tests with 2 OCR tests ignored.
 
 The standalone desktop baseline is 63 frontend tests across 12 files, zero Svelte check errors or warnings, and 13 Tauri host tests.
 
@@ -51,4 +51,4 @@ The gate silently installs the current-user NSIS package below a disposable dire
 
 A clean clone of this repository must reproduce the desktop build. Manual Windows checks remain required for tray behavior, optional startup, global input, hot zones, gestures, drag, edge hiding, screenshots, OCR, and topmost controls; passing unit tests alone is not release evidence.
 
-Before a GitHub Pre-release, the build manifest must identify the clean `main` commit and `SHA256SUMS` must match both deliverables. The release command anonymously downloads every uploaded asset and recomputes its hash. Stable promotion is allowed only for the same remote assets; changed binaries require a new patch version and tag.
+There are only two user acceptance phases. Daily `develop` acceptance normally uses the private uTools host; build and hand off a local NSIS package only when the user explicitly requests desktop synchronization. Before release, rebuild from clean `main`, publish the exact final installer and portable archive as a GitHub Pre-release, and test the public downloads end to end. The final manifest must identify the clean `main` commit and `SHA256SUMS` must match both deliverables. Stable promotion is allowed only for the same remote assets; changed binaries require a new patch version and tag.

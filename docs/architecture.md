@@ -46,4 +46,4 @@ Automated runtime tests may set the absolute `CONVENIENT_WINDOW_DATA_DIR` overri
 
 ## Platform and Release Boundary
 
-Only Windows 11 x64 is accepted. The first package produces a per-user NSIS installer and a portable archive or executable, with tray controls and optional startup registration. Automatic updates, code signing, public GitHub Releases, and release tags are outside the initial implementation gate.
+Only Windows 11 x64 is accepted. The package produces a per-user NSIS installer and a portable archive, with tray controls and optional startup registration. Public GitHub Releases use immutable final-version assets: a clean `main` build is published as a Pre-release for online acceptance, then promoted in place. Automatic updates and trusted commercial code signing are not implemented.

@@ -1,8 +1,15 @@
 # Release Process
 
-The standalone desktop uses its final version number for acceptance. A fixed `main` commit is built once, published as a GitHub Pre-release, downloaded and tested through the public path, and then promoted to a stable release without replacing any asset.
+The standalone desktop has two user acceptance points:
 
-## Prepare
+1. During daily `develop` work, acceptance normally stays in the private uTools host for faster iteration. Only when the user explicitly requests desktop synchronization, port the applicable shared behavior, preserve desktop-specific lifecycle and UI differences, build the current NSIS package, and give the user its absolute local path. Do not publish this build.
+2. Before release, freeze a clean `main`, build once with the final version, publish those exact assets as a GitHub Pre-release, and have the user download and test the public installer and portable archive. Promote the same release without replacing assets.
+
+## Develop Acceptance
+
+Desktop packaging is not repeated for every uTools change. When desktop synchronization is requested, run `npm run desktop:build` and the relevant lifecycle gates, then hand off the generated `artifacts/convenient-window-<version>-windows-x64-setup.exe` with its absolute path, source commit, size, and SHA-256. This first pass is for fast product feedback; it is not release evidence and does not consume a tag.
+
+## Prepare Final Online Acceptance
 
 1. Merge the accepted source into `main` and push it.
 2. Confirm `package.json`, `apps/desktop/package.json`, and `apps/desktop/src-tauri/tauri.conf.json` declare the same version.
@@ -28,7 +35,7 @@ Create the public Pre-release:
 npm run desktop:publish:pre
 ```
 
-The command refuses to overwrite an existing tag, uploads only the NSIS installer, portable ZIP, manifest, and checksums, then anonymously downloads every asset and recomputes its SHA-256. Test the downloaded installer, uninstall flow, and portable ZIP on Windows 11 x64. The current binaries are unsigned, so an unknown-publisher or SmartScreen warning is expected and must not be described as a trusted signature.
+The command refuses to overwrite an existing tag, uploads only the NSIS installer, portable ZIP, manifest, and checksums, then anonymously downloads every asset and recomputes its SHA-256. Public asset names must remain ASCII so Windows PowerShell 5.1 and the GitHub API compare the same exact names. Test the downloaded installer, uninstall flow, and portable ZIP on Windows 11 x64. The current binaries are unsigned, so an unknown-publisher or SmartScreen warning is expected and must not be described as a trusted signature.
 
 If acceptance succeeds, promote the existing release in place:
 
