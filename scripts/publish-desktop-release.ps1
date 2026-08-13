@@ -44,6 +44,23 @@ function Assert-RemoteAssets {
   }
 }
 
+function Get-ReleaseWithExpectedAssets {
+  param(
+    [Parameter(Mandatory = $true)][string]$Uri,
+    [Parameter(Mandatory = $true)][hashtable]$Headers,
+    [Parameter(Mandatory = $true)][System.IO.FileInfo[]]$ExpectedFiles
+  )
+
+  $expectedNames = (($ExpectedFiles.Name | Sort-Object) -join "`n")
+  for ($attempt = 1; $attempt -le 5; $attempt += 1) {
+    $candidate = Invoke-RestMethod -UseBasicParsing -Headers $Headers -Uri $Uri
+    $actualNames = ((@($candidate.assets).name | Sort-Object) -join "`n")
+    if ($actualNames -ceq $expectedNames) { return $candidate }
+    if ($attempt -lt 5) { Start-Sleep -Seconds $attempt }
+  }
+  throw "Remote release asset set did not converge to the local candidate"
+}
+
 function Get-SourceChanges {
   $unstaged = @(& git -C $repoRoot diff --name-only --)
   if ($LASTEXITCODE -ne 0) { throw "Unable to inspect unstaged source changes" }
@@ -150,7 +167,7 @@ try {
     Invoke-RestMethod -UseBasicParsing -Method Post -Headers $headers -ContentType "application/octet-stream" -InFile $asset.FullName -Uri "${uploadBase}?name=$encodedName" | Out-Null
     Write-Output "Uploaded: $($asset.Name)"
   }
-  $release = Invoke-RestMethod -UseBasicParsing -Headers $headers -Uri "$api/releases/tags/$tag"
+  $release = Get-ReleaseWithExpectedAssets -Uri "$api/releases/tags/$tag" -Headers $headers -ExpectedFiles $releaseFiles
   Assert-RemoteAssets -Release $release -ExpectedFiles $releaseFiles
   Write-Output "Published pre-release: $($release.html_url)"
 } catch {
