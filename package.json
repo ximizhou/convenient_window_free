@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.1",
   "description": "Build and verification entry points for Convenient Window desktop and the shared helper",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": "24.14.0"
   },
