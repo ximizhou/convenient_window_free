@@ -56,6 +56,36 @@ function Assert-ExactFiles {
   }
 }
 
+$expectedThirdPartyNotices = Join-Path $repoRoot "target\THIRD-PARTY-NOTICES.txt"
+& node (Join-Path $PSScriptRoot "generate-third-party-notices.mjs") $expectedThirdPartyNotices
+if ($LASTEXITCODE -ne 0) { throw "Unable to regenerate third-party notices for artifact audit" }
+$expectedThirdPartyHash = Get-Sha256 $expectedThirdPartyNotices
+
+function Assert-ThirdPartyNotices {
+  param([string]$Path)
+  if (-not (Test-Path $Path -PathType Leaf)) { throw "Third-party notices are missing: $Path" }
+  $text = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+  $required = @(
+    "THIRD-PARTY COMPONENTS",
+    "https://github.com/ximizhou/convenient_window_free",
+    "npm:@tauri-apps/api@",
+    "cargo:tauri@",
+    "Mozilla Public License Version 2.0",
+    "Apache License",
+    "Permission is hereby granted, free of charge",
+    "Redistribution and use in source and binary forms"
+  )
+  foreach ($marker in $required) {
+    if (-not $text.Contains($marker)) { throw "Third-party notices are incomplete; missing '$marker': $Path" }
+  }
+  if ($text.Contains("PolyForm Noncommercial License 1.0.0")) {
+    throw "Project license must not be duplicated in third-party notices: $Path"
+  }
+  if ((Get-Sha256 $Path) -ne $expectedThirdPartyHash) {
+    throw "Third-party notices do not match the current locked dependency graph: $Path"
+  }
+}
+
 function Assert-HelperPayload {
   param([string]$HelperDir)
   $payloadManifestPath = Join-Path $HelperDir "payload-manifest.json"
@@ -84,10 +114,12 @@ $portableManifest = [System.IO.File]::ReadAllText($portableManifestPath, [System
 $portableFiles = @(
   "ConvenientWindow.exe",
   "LICENSE",
+  "THIRD-PARTY-NOTICES.txt",
   "README.txt",
   "helper/payload-manifest.json"
 ) + @($portableManifest.files | ForEach-Object { "helper/$($_.name)" })
 Assert-ExactFiles -Root $portableDir -Expected $portableFiles
+Assert-ThirdPartyNotices -Path (Join-Path $portableDir "THIRD-PARTY-NOTICES.txt")
 Assert-HelperPayload -HelperDir (Join-Path $portableDir "helper")
 
 $portableZip = Get-ChildItem $ArtifactsDir -Filter "*-portable.zip" -File | Select-Object -First 1
@@ -99,6 +131,7 @@ New-Item -ItemType Directory -Force -Path $zipRoot, $nsisRoot | Out-Null
 try {
   Expand-Archive -Path $portableZip.FullName -DestinationPath $zipRoot
   Assert-ExactFiles -Root $zipRoot -Expected $portableFiles
+  Assert-ThirdPartyNotices -Path (Join-Path $zipRoot "THIRD-PARTY-NOTICES.txt")
   Assert-HelperPayload -HelperDir (Join-Path $zipRoot "helper")
 
   if (-not $SevenZip) {
@@ -127,9 +160,11 @@ try {
     '$PLUGINSDIR/NSISdl.dll',
     "convenient-window.exe",
     "LICENSE",
+    "THIRD-PARTY-NOTICES.txt",
     "helper/payload-manifest.json"
   ) + @($nsisManifest.files | ForEach-Object { "helper/$($_.name)" })
   Assert-ExactFiles -Root $nsisRoot -Expected $nsisFiles
+  Assert-ThirdPartyNotices -Path (Join-Path $nsisRoot "THIRD-PARTY-NOTICES.txt")
   Assert-HelperPayload -HelperDir (Join-Path $nsisRoot "helper")
 
   foreach ($binary in @(

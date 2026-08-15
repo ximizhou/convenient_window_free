@@ -13,6 +13,7 @@ $desktopDir = Join-Path $repoRoot "apps\desktop"
 $tauriDir = Join-Path $desktopDir "src-tauri"
 $artifactsDir = Join-Path $repoRoot "artifacts"
 $portableDir = Join-Path $artifactsDir "ConvenientWindow-portable"
+$thirdPartyNotices = Join-Path $repoRoot "target\THIRD-PARTY-NOTICES.txt"
 $rootPackage = [System.IO.File]::ReadAllText((Join-Path $repoRoot "package.json"), [System.Text.Encoding]::UTF8) | ConvertFrom-Json
 $desktopPackage = [System.IO.File]::ReadAllText((Join-Path $desktopDir "package.json"), [System.Text.Encoding]::UTF8) | ConvertFrom-Json
 $tauriConfig = [System.IO.File]::ReadAllText((Join-Path $tauriDir "tauri.conf.json"), [System.Text.Encoding]::UTF8) | ConvertFrom-Json
@@ -44,6 +45,8 @@ $buildEnvironmentPath = $env:PATH
 
 & npm --prefix $desktopDir ci
 if ($LASTEXITCODE -ne 0) { throw "desktop npm ci failed with exit code $LASTEXITCODE" }
+& node (Join-Path $PSScriptRoot "generate-third-party-notices.mjs") $thirdPartyNotices
+if ($LASTEXITCODE -ne 0) { throw "third-party notice generation failed with exit code $LASTEXITCODE" }
 & (Join-Path $PSScriptRoot "prepare-desktop-sidecar.ps1")
 if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed with exit code $LASTEXITCODE" }
 $env:PATH = $buildEnvironmentPath
@@ -92,6 +95,7 @@ if (Test-Path $artifactsDir) { Remove-Item -Recurse -Force $artifactsDir }
 New-Item -ItemType Directory -Force -Path (Join-Path $portableDir "helper") | Out-Null
 Copy-Item -Force $appExe (Join-Path $portableDir "ConvenientWindow.exe")
 Copy-Item -Force (Join-Path $repoRoot "LICENSE") (Join-Path $portableDir "LICENSE")
+Copy-Item -Force $thirdPartyNotices (Join-Path $portableDir "THIRD-PARTY-NOTICES.txt")
 $payloadDir = Join-Path $tauriDir "resources\helper"
 Get-ChildItem $payloadDir -File |
   Where-Object { $_.Extension -in ".exe", ".dll" -or $_.Name -eq "payload-manifest.json" } |

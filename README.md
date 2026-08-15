@@ -28,6 +28,8 @@ npm run desktop:install-smoke
 npm run desktop:audit
 ```
 
+The build derives a deterministic `THIRD-PARTY-NOTICES.txt` from the installed npm production tree and the locked Windows Cargo dependency graphs, then packages it with the project `LICENSE` in both NSIS and portable outputs. Missing or unauditable dependency license text stops the build.
+
 The three portable runtime smoke commands use explicit disposable data roots and verify normal shutdown, global-helper conflict handling, and Job Object cleanup after the desktop process is force-terminated without modifying the real user profile. The NSIS smoke installs under a disposable directory and uninstalls while the app and its helper are running; it requires graceful helper shutdown, then repeats the uninstall with a separately owned helper to prove that desktop cleanup does not terminate the uTools-owned process. Registry, shortcut, port, process, and directory cleanup are verified. These commands must remain executable in Windows CI.
 
 Public downloads use the immutable Pre-release acceptance flow documented in [`docs/release.md`](docs/release.md): build once from a clean `main`, download and test those exact assets, then promote the same release without replacing files.

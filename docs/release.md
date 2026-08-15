@@ -25,7 +25,7 @@ npm run desktop:install-smoke
 npm run desktop:audit
 ```
 
-`desktop:build` records the source commit and dirty state in `artifacts/artifact-manifest.json`. A release candidate is invalid unless `dirty` is `false`, the source commit equals `main`, and `SHA256SUMS` matches the installer and portable archive.
+`desktop:build` records the source commit and dirty state in `artifacts/artifact-manifest.json`. It also generates `THIRD-PARTY-NOTICES.txt` from the installed npm production tree and the locked Windows Cargo dependency graphs; missing or unauditable license text stops the build. A release candidate is invalid unless `dirty` is `false`, the source commit equals `main`, `SHA256SUMS` matches the installer and portable archive, and both package types contain the project `LICENSE` plus the generated third-party notices.
 
 ## Publish And Accept
 

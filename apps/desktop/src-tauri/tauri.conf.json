@@ -37,6 +37,7 @@
     "licenseFile": "../../../LICENSE",
     "resources": {
       "../../../LICENSE": "LICENSE",
+      "../../../target/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",
       "resources/helper/*.exe": "helper/",
       "resources/helper/*.dll": "helper/",
       "resources/helper/payload-manifest.json": "helper/payload-manifest.json"
