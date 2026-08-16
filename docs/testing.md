@@ -7,9 +7,9 @@ Migration work must preserve at least:
 - 71 frontend tests in the private uTools integration.
 - 129 passing default Rust tests and 2 explicitly ignored Windows OCR tests in the shared helper.
 
-The current verified baseline is 83 frontend tests in the private integration and 138 passing Rust tests with 2 OCR tests ignored.
+The current verified baseline is 88 frontend tests in the private integration and 138 passing Rust tests with 2 OCR tests ignored.
 
-The standalone desktop baseline is 63 frontend tests across 12 files, zero Svelte check errors or warnings, and 13 Tauri host tests.
+The standalone desktop baseline is 68 frontend tests across 13 files, zero Svelte check errors or warnings, and 13 Tauri host tests.
 
 ## Local Gates
 
@@ -22,6 +22,8 @@ Every cross-host change runs the closest unit and contract tests first, followed
 5. Artifact inventory and secret scan for installers and portable output.
 
 Tests must not be skipped, converted to TODOs, weakened, or replaced with mocks of the behavior under test merely to satisfy a gate.
+
+Cross-host UI acceptance requires settings to persist on each valid change without a generic manual-save button. The hot-zone master switch must leave saved configuration, preview, and configured markers visible while the editing controls are inert. Window enhancement currently exposes only the edge-hide tutorial: one circled question mark beside its heading, a hover/focus card that remains readable while the pointer enters it, the center-to-right/collapse/restore CSS sequence, no drag or pin tutorial, no horizontal overflow at 1280x720, 900x600, or 640x600, and no positional animation under reduced motion.
 
 The capture-exclusion assertions remain strict on the supported Windows 11 workstation target. Windows Server CI may report display affinity `0` after a successful `SetWindowDisplayAffinity` call; tests recognize that product type explicitly rather than weakening the Windows 11 assertion.
 

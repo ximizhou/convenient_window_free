@@ -2,6 +2,8 @@
 
 Source-available Windows 11 desktop software for hot zones, window edge hiding, global mouse gestures, screenshots, local OCR, and topmost-window controls.
 
+Settings persist and apply as they change unless an operation explicitly requires confirmation. Window enhancement currently provides one keyboard-accessible, CSS-only tutorial beside edge hiding; drag/resize and topmost-pin settings intentionally have no tutorial entry.
+
 This repository owns two things:
 
 - `apps/desktop/`: the Tauri 2 desktop host and reusable Svelte interface.

@@ -18,12 +18,13 @@
   import type {
     ActionKind, AppSettings, DisplayInfo, Edge, HelperStatus, HotzoneAction,
     GesturePoint, GestureTemplate, HotzoneId, HotzoneSetting, ModifierKey,
-    MouseButton, OcrLanguage, TriggerAction, TriggerKind
+    OcrLanguage, TriggerAction, TriggerKind
   } from "./types";
 
   type Mode = "power" | "hotzones" | "edge-hide" | "gestures" | "more";
   type ConnectionTestState = "idle" | "testing" | "success" | "failed";
   type ActionPreset = { label: string; group: string; kind: ActionKind; value?: string };
+  type FeatureTutorial = "edge-hide";
   const host = getHostBridge();
   const helper = new HelperClient("ws://127.0.0.1:56873", () => host.getHelperToken());
   const fallbackDisplay: DisplayInfo = {
@@ -85,6 +86,7 @@
   let hotzoneModifierDraft: ModifierKey[] | null = null;
   let hotzoneModifierError = "";
   let windowEnhancementTab: "edge" | "drag" = "edge";
+  let activeFeatureTutorial: FeatureTutorial | null = null;
   $: windowDragBindingConflict = settings.windowDrag.moveButton === settings.windowDrag.resizeButton
     && sameModifiers(settings.windowDrag.moveModifiers, settings.windowDrag.resizeModifiers);
   let actionEditorRevision = 0;
@@ -319,6 +321,27 @@
 
   function sameModifiers(left: ModifierKey[], right: ModifierKey[]): boolean {
     return modifierId(left) === modifierId(right);
+  }
+
+  function showFeatureTutorial(id: FeatureTutorial): void {
+    activeFeatureTutorial = id;
+  }
+
+  function hideFeatureTutorial(id: FeatureTutorial): void {
+    if (activeFeatureTutorial === id) activeFeatureTutorial = null;
+  }
+
+  function handleFeatureTutorialMouseLeave(id: FeatureTutorial, event: MouseEvent): void {
+    const currentTarget = event.currentTarget;
+    if (currentTarget instanceof HTMLElement && currentTarget.contains(document.activeElement)) return;
+    hideFeatureTutorial(id);
+  }
+
+  function handleFeatureTutorialFocusOut(id: FeatureTutorial, event: FocusEvent): void {
+    const currentTarget = event.currentTarget;
+    const nextTarget = event.relatedTarget;
+    if (currentTarget instanceof HTMLElement && nextTarget instanceof Node && currentTarget.contains(nextTarget)) return;
+    hideFeatureTutorial(id);
   }
 
   function actionForModifiers(slot: TriggerAction, modifiers: ModifierKey[]): HotzoneAction {
@@ -892,7 +915,7 @@
         {selectedDisplayId}
         {selectedZone}
         edgeHideEdges={currentEdgeHideEdges()}
-        hotzonesEnabled={settings.hotzonesEnabled}
+        hotzonesEnabled={true}
         hotzones={currentDisplayHotzones}
         onSelectDisplay={selectDisplay}
         onSelectZone={selectZone}
@@ -918,51 +941,61 @@
         {#key mode}
           <div class="drawer-body" in:fly={{ y: 10, duration: 170 }}>
             {#if mode === "hotzones"}
-              <div class="setting-title"><div><h2>触发角功能</h2><p>关闭后保留配置，但所有区域动作暂停</p></div><label class="mini-switch"><input aria-label="启用触发角功能" bind:checked={settings.hotzonesEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
-              <div class="trigger-tabs">
-                {#each triggerGroups as group}
-                  <button class:active={group.items.includes(activeTrigger)} disabled={group.label === "滑动" && !["top", "right", "bottom", "left"].includes(selectedZone)} on:click={() => { activeTrigger = group.items[0]; selectedHotzoneModifiers = []; cancelHotzoneVariant(); }} type="button">{group.label}</button>
-                {/each}
+              <div class="feature-intro hotzone-master-intro">
+                <div class="feature-copy-stack">
+                  <span>触发角总开关</span>
+                  <h2>把屏幕边角变成快捷操作入口</h2>
+                  <p>开启后，当前显示器的区域与触发方式统一生效；关闭只暂停动作，不删除已有配置。</p>
+                </div>
+                <div class="feature-master-toggle"><b class:on={settings.hotzonesEnabled}>{settings.hotzonesEnabled ? "总开关已开启" : "总开关已关闭"}</b><label class="mini-switch"><input aria-label="启用触发角功能" bind:checked={settings.hotzonesEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
               </div>
-              {#if activeTrigger.startsWith("wheel") || activeTrigger.startsWith("slide")}
-                <div class="direction-tabs">
-                  {#each triggerGroups.find((group) => group.items.includes(activeTrigger))?.items ?? [] as trigger}
-                    <button class:active={activeTrigger === trigger} on:click={() => { activeTrigger = trigger; selectedHotzoneModifiers = []; cancelHotzoneVariant(); }} type="button">{triggerLabel(trigger)}</button>
+              <div class="feature-settings-head"><span>触发角设置</span><strong>{settings.hotzonesEnabled ? "由总开关统一启用" : "关闭后保留配置与预览"}</strong></div>
+              <div class="feature-settings-body" class:off={!settings.hotzonesEnabled} inert={!settings.hotzonesEnabled}>
+                <div class="trigger-tabs">
+                  {#each triggerGroups as group}
+                    <button class:active={group.items.includes(activeTrigger)} disabled={group.label === "滑动" && !["top", "right", "bottom", "left"].includes(selectedZone)} on:click={() => { activeTrigger = group.items[0]; selectedHotzoneModifiers = []; cancelHotzoneVariant(); }} type="button">{group.label}</button>
                   {/each}
                 </div>
-              {/if}
-              <div class="modifier-variants">
-                <div class="variant-tabs">
-                  <button class:active={!selectedHotzoneModifiers.length && hotzoneModifierDraft === null} on:click={() => selectHotzoneVariant([])} type="button">直接触发</button>
-                  {#each currentHotzoneModifierActions as variant}
-                    <button class:active={hotzoneModifierDraft === null && sameModifiers(selectedHotzoneModifiers, variant.modifiers)} on:click={() => selectHotzoneVariant(variant.modifiers)} type="button">{modifierLabel(variant.modifiers)}</button>
-                  {/each}
-                  <span class="variant-spacer"></span>
-                  <button aria-label="新增热区组合" class="variant-add" disabled={currentHotzoneModifierActions.length >= MAX_MODIFIER_VARIANTS} on:click={beginHotzoneVariant} title="新增组合" type="button">＋</button>
-                  {#if selectedHotzoneModifiers.length && hotzoneModifierDraft === null}<button aria-label="删除当前组合变体" class="variant-delete" on:click={() => removeHotzoneVariant(selectedHotzoneModifiers)} title="删除当前组合" type="button">×</button>{/if}
+                {#if activeTrigger.startsWith("wheel") || activeTrigger.startsWith("slide")}
+                  <div class="direction-tabs">
+                    {#each triggerGroups.find((group) => group.items.includes(activeTrigger))?.items ?? [] as trigger}
+                      <button class:active={activeTrigger === trigger} on:click={() => { activeTrigger = trigger; selectedHotzoneModifiers = []; cancelHotzoneVariant(); }} type="button">{triggerLabel(trigger)}</button>
+                    {/each}
+                  </div>
+                {/if}
+                <div class="modifier-variants">
+                  <div class="variant-tabs">
+                    <button class:active={!selectedHotzoneModifiers.length && hotzoneModifierDraft === null} on:click={() => selectHotzoneVariant([])} type="button">直接触发</button>
+                    {#each currentHotzoneModifierActions as variant}
+                      <button class:active={hotzoneModifierDraft === null && sameModifiers(selectedHotzoneModifiers, variant.modifiers)} on:click={() => selectHotzoneVariant(variant.modifiers)} type="button">{modifierLabel(variant.modifiers)}</button>
+                    {/each}
+                    <span class="variant-spacer"></span>
+                    <button aria-label="新增热区组合" class="variant-add" disabled={currentHotzoneModifierActions.length >= MAX_MODIFIER_VARIANTS} on:click={beginHotzoneVariant} title="新增组合" type="button">＋</button>
+                    {#if selectedHotzoneModifiers.length && hotzoneModifierDraft === null}<button aria-label="删除当前组合变体" class="variant-delete" on:click={() => removeHotzoneVariant(selectedHotzoneModifiers)} title="删除当前组合" type="button">×</button>{/if}
+                  </div>
+                  {#if hotzoneModifierDraft !== null}
+                    <div class="modifier-draft"><ModifierRecorder label="录制新热区组合" value={hotzoneModifierDraft} onChange={commitHotzoneVariant} /><button aria-label="取消新增组合" class="variant-delete" on:click={cancelHotzoneVariant} title="取消" type="button">×</button></div>
+                  {/if}
+                  {#if hotzoneModifierError}<p class="modifier-error" role="alert">{hotzoneModifierError}</p>{/if}
                 </div>
-                {#if hotzoneModifierDraft !== null}
-                  <div class="modifier-draft"><ModifierRecorder label="录制新热区组合" value={hotzoneModifierDraft} onChange={commitHotzoneVariant} /><button aria-label="取消新增组合" class="variant-delete" on:click={cancelHotzoneVariant} title="取消" type="button">×</button></div>
+                {#if hotzoneModifierDraft === null}
+                {#key `${selectedZone}:${activeTrigger}:${modifierId(selectedHotzoneModifiers)}:${actionEditorRevision}`}
+                <div class="action-editor">
+                  <label><span>执行动作</span><ActionPicker options={actionPresets} value={presetIndex(currentAction())} onSelect={setActionPreset} /></label>
+                  {#if currentAction().kind === "open-command" || (currentAction().kind === "shortcut" && !actionPresets.some((item) => item.kind === "shortcut" && item.value !== undefined && item.value === currentAction().value))}
+                    <label><span>{currentAction().kind === "shortcut" ? "快捷键" : "命令"}</span><input value={currentAction().value ?? ""} on:input={setActionValue} placeholder={currentAction().kind === "shortcut" ? "例如 Ctrl+Alt+T" : "请输入参数"} /></label>
+                  {/if}
+                  <div class="action-state"><i class:enabled={currentAction().kind !== "none"}></i><div><strong>{triggerLabel(activeTrigger)}</strong><p>{currentAction().kind === "none" ? "尚未设置动作" : actionPresets[presetIndex(currentAction())]?.label ?? "自定义动作"}</p></div></div>
+                </div>
+                {/key}
                 {/if}
-                {#if hotzoneModifierError}<p class="modifier-error" role="alert">{hotzoneModifierError}</p>{/if}
+                <div class:single={activeTrigger !== "hover"} class="timing">{#if activeTrigger === "hover"}<label><span>当前悬停延迟</span><div><input value={currentTriggerSlot().hoverDelayMs ?? settings.hoverDelayMs} min="0" max="3000" on:input={(event) => setTriggerTiming("hoverDelayMs", event)} type="number" /><em>ms</em></div></label>{/if}<label><span>当前触发冷却</span><div><input value={currentTriggerSlot().cooldownMs ?? settings.actionCooldownMs} min="10" max="5000" on:input={(event) => setTriggerTiming("cooldownMs", event)} type="number" /><em>ms</em></div></label></div>
               </div>
-              {#if hotzoneModifierDraft === null}
-              {#key `${selectedZone}:${activeTrigger}:${modifierId(selectedHotzoneModifiers)}:${actionEditorRevision}`}
-              <div class="action-editor">
-                <label><span>执行动作</span><ActionPicker options={actionPresets} value={presetIndex(currentAction())} onSelect={setActionPreset} /></label>
-                {#if currentAction().kind === "open-command" || (currentAction().kind === "shortcut" && !actionPresets.some((item) => item.kind === "shortcut" && item.value !== undefined && item.value === currentAction().value))}
-                  <label><span>{currentAction().kind === "shortcut" ? "快捷键" : "命令"}</span><input value={currentAction().value ?? ""} on:input={setActionValue} placeholder={currentAction().kind === "shortcut" ? "例如 Ctrl+Alt+T" : "请输入参数"} /></label>
-                {/if}
-                <div class="action-state"><i class:enabled={currentAction().kind !== "none"}></i><div><strong>{triggerLabel(activeTrigger)}</strong><p>{currentAction().kind === "none" ? "尚未设置动作" : actionPresets[presetIndex(currentAction())]?.label ?? "自定义动作"}</p></div></div>
-              </div>
-              {/key}
-              {/if}
-              <div class:single={activeTrigger !== "hover"} class="timing">{#if activeTrigger === "hover"}<label><span>当前悬停延迟</span><div><input value={currentTriggerSlot().hoverDelayMs ?? settings.hoverDelayMs} min="0" max="3000" on:input={(event) => setTriggerTiming("hoverDelayMs", event)} type="number" /><em>ms</em></div></label>{/if}<label><span>当前触发冷却</span><div><input value={currentTriggerSlot().cooldownMs ?? settings.actionCooldownMs} min="10" max="5000" on:input={(event) => setTriggerTiming("cooldownMs", event)} type="number" /><em>ms</em></div></label></div>
             {:else if mode === "edge-hide"}
               <div class="window-tabs"><button class:active={windowEnhancementTab === "edge"} on:click={() => { windowEnhancementTab = "edge"; }} type="button">贴边隐藏</button><button class:active={windowEnhancementTab === "drag"} on:click={() => { windowEnhancementTab = "drag"; }} type="button">拖拽与缩放</button></div>
               {#if windowEnhancementTab === "edge"}
-                <div class="feature-intro edge-master-intro">
-                  <div><span>贴边隐藏总开关</span><h2>让窗口在屏幕边缘自动收起</h2><p>开启后，下方的吸附提示、触发方式、露出宽度、延迟和排除规则统一生效；每台显示器独立设置，拼接缝处自动禁用。</p></div>
+                <div class="feature-intro edge-master-intro" on:mouseleave={(event) => handleFeatureTutorialMouseLeave("edge-hide", event)} on:focusout={(event) => handleFeatureTutorialFocusOut("edge-hide", event)} role="group">
+                  <div class="feature-copy-stack"><span>贴边隐藏总开关</span><div class="feature-title-row"><h2>让窗口在屏幕边缘自动收起</h2><div class="feature-help" on:mouseenter={() => showFeatureTutorial("edge-hide")} on:focusin={() => showFeatureTutorial("edge-hide")} role="group"><button aria-controls="edge-hide-tutorial" aria-describedby={activeFeatureTutorial === "edge-hide" ? "edge-hide-tutorial" : undefined} aria-expanded={activeFeatureTutorial === "edge-hide"} aria-label="查看贴边隐藏教程" class="feature-help-button" on:click={() => showFeatureTutorial("edge-hide")} type="button">?</button>{#if activeFeatureTutorial === "edge-hide"}<section class="feature-help-card" id="edge-hide-tutorial" role="tooltip"><strong>贴边隐藏教程</strong><div aria-hidden="true" class="tutorial-demo"><div class="tutorial-screen"><div class="tutorial-edge-window"><i></i><span></span></div><div class="tutorial-cursor"><i></i></div></div></div><p>拖到屏幕外边缘并松开，窗口自动收起；移到露出区域即可恢复。</p></section>{/if}</div></div><p>开启后，下方的吸附提示、触发方式、露出宽度、延迟和排除规则统一生效；每台显示器独立设置，拼接缝处自动禁用。</p></div>
                   <div class="feature-master-toggle"><b class:on={settings.edgeHide.enabled}>{settings.edgeHide.enabled ? "总开关已开启" : "总开关已关闭"}</b><label class="mini-switch"><input aria-label="启用贴边隐藏" bind:checked={settings.edgeHide.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                 </div>
                 <div class="feature-settings-head"><span>贴边隐藏选项</span><strong>{settings.edgeHide.enabled ? "由总开关统一启用" : "开启总开关后可调整"}</strong></div>
@@ -985,7 +1018,7 @@
                 </div>
               {:else}
                 <div class="feature-intro drag-master-intro">
-                  <div><span>拖拽与缩放总开关</span><h2>从窗口任意位置移动或缩放</h2><p>开启后，下方两组鼠标组合才会接管目标窗口；窗口布局仍由 Windows 原生 Snap 负责。</p></div>
+                  <div class="feature-copy-stack"><span>拖拽与缩放总开关</span><div class="feature-title-row"><h2>从窗口任意位置移动或缩放</h2></div><p>开启后，下方两组鼠标组合才会接管目标窗口；窗口布局仍由 Windows 原生 Snap 负责。</p></div>
                   <div class="feature-master-toggle"><b class:on={settings.windowDrag.enabled}>{settings.windowDrag.enabled ? "总开关已开启" : "总开关已关闭"}</b><label class="mini-switch"><input aria-label="启用任意位置拖拽" bind:checked={settings.windowDrag.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                 </div>
                 <div class="feature-settings-head"><span>拖拽组合设置</span><strong>{settings.windowDrag.enabled ? "由总开关统一启用" : "开启总开关后可调整"}</strong></div>
@@ -1083,7 +1116,6 @@
                 <div class="gesture-options"><label><input bind:checked={settings.mouseGestures.showTrail} on:change={() => persist()} type="checkbox" /><span><b>显示淡蓝轨迹与名称</b><small>按住触发键绘制时提供视觉反馈</small></span></label><label><input bind:checked={settings.mouseGestures.fullscreenPause} on:change={() => persist()} type="checkbox" /><span><b>全屏应用自动暂停</b><small>游戏和全屏播放时避免误触</small></span></label></div>
               </section>
               <div class="list-section gesture-paused-apps"><div class="subhead"><div><h2>暂停手势的应用</h2><p>当前前台：{foregroundApp || "尚未获取"}</p></div><button class="quiet" on:click={() => addForeground("gestures")} type="button">+ 添加当前应用</button></div><div class="app-list">{#each settings.mouseGestures.pausedApps as app}<div><span>{app}</span><button aria-label={`移除 ${app}`} on:click={() => removeApp("gestures", app)} type="button">×</button></div>{:else}<p class="empty">所有应用都会响应手势；需要排除时可添加当前前台应用。</p>{/each}</div></div>
-              <button class="apply gesture-apply" on:click={applyNow} type="button">保存并应用鼠标增强</button>
             {:else if mode === "power"}
               {#if !helperInstallState.installed}
                 <section class="helper-install-card">
