@@ -10,22 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-function Read-TextFileWithRetry {
-  param(
-    [Parameter(Mandatory = $true)][string]$Path,
-    [int]$TimeoutMilliseconds = 5000
-  )
-
-  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
-  do {
-    try {
-      return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
-    } catch [System.IO.IOException] {
-      if ([DateTime]::UtcNow -ge $deadline) { throw }
-      Start-Sleep -Milliseconds 100
-    }
-  } while ($true)
-}
+. (Join-Path $PSScriptRoot "read-text-file-with-retry.ps1")
 
 function Stop-HelperGracefully {
   param([Parameter(Mandatory = $true)][string]$Token)
@@ -134,7 +119,7 @@ try {
     while ([DateTime]::UtcNow -lt $readyDeadline) {
       if ($process.HasExited) { throw "Desktop app exited before the force-kill lifecycle check" }
       if (Test-Path $logPath) {
-        $content = [System.IO.File]::ReadAllText($logPath, [System.Text.Encoding]::UTF8)
+        $content = Read-TextFileWithRetry -Path $logPath -TimeoutMilliseconds 500
         if ($content.Contains("websocket: listening 127.0.0.1:56873")) {
           $ready = $true
           break

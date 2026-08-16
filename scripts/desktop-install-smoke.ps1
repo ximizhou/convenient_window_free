@@ -7,9 +7,14 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+. (Join-Path $PSScriptRoot "read-text-file-with-retry.ps1")
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
   throw "NSIS installation smoke can only run on Windows"
 }
+
+& (Join-Path $PSScriptRoot "read-text-file-with-retry.test.ps1")
+if ($LASTEXITCODE -ne 0) { throw "Log sharing retry regression failed" }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $ArtifactsDir) { $ArtifactsDir = Join-Path $repoRoot "artifacts" }
@@ -192,7 +197,7 @@ try {
   while ([DateTime]::UtcNow -lt $readyDeadline) {
     if ($liveAppProcess.HasExited) { throw "Installed desktop app exited before the live uninstall check" }
     if (Test-Path $liveLogPath) {
-      $liveLog = [System.IO.File]::ReadAllText($liveLogPath, [System.Text.Encoding]::UTF8)
+      $liveLog = Read-TextFileWithRetry -Path $liveLogPath -TimeoutMilliseconds 500
       if ($liveLog.Contains("websocket: listening 127.0.0.1:56873")) {
         $matchingHelpers = @(Get-Process magic-corners-helper -ErrorAction SilentlyContinue | Where-Object {
           try { $_.Path -eq $installedHelperPath } catch { $false }
@@ -216,7 +221,7 @@ try {
   if (-not $liveHelperProcess.WaitForExit(5000)) {
     throw "Installed desktop helper remained after uninstall"
   }
-  $liveLog = [System.IO.File]::ReadAllText($liveLogPath, [System.Text.Encoding]::UTF8)
+  $liveLog = Read-TextFileWithRetry -Path $liveLogPath
   if (-not $liveLog.Contains("main: websocket server stopped")) {
     throw "Live uninstall did not stop helper through the graceful shutdown path"
   }
@@ -255,7 +260,7 @@ try {
     if ($externalHelperProcess.HasExited) { throw "External uTools-owned helper exited before the non-interference check" }
     if ((Test-Path $externalHelperTokenPath) -and (Test-Path $externalHelperLogPath)) {
       $externalHelperToken = [System.IO.File]::ReadAllText($externalHelperTokenPath).Trim()
-      $externalHelperLog = [System.IO.File]::ReadAllText($externalHelperLogPath, [System.Text.Encoding]::UTF8)
+      $externalHelperLog = Read-TextFileWithRetry -Path $externalHelperLogPath -TimeoutMilliseconds 500
       if ($externalHelperToken.Length -eq 64 -and $externalHelperLog.Contains("websocket: listening 127.0.0.1:56873")) {
         $externalReady = $true
         break
@@ -274,7 +279,7 @@ try {
   while ([DateTime]::UtcNow -lt $conflictDeadline) {
     if ($conflictDesktopProcess.HasExited) { throw "Desktop app exited before the non-interference uninstall check" }
     if (Test-Path $conflictLogPath) {
-      $conflictLog = [System.IO.File]::ReadAllText($conflictLogPath, [System.Text.Encoding]::UTF8)
+      $conflictLog = Read-TextFileWithRetry -Path $conflictLogPath -TimeoutMilliseconds 500
       if ($conflictLog.Contains("HELPER_INSTANCE_CONFLICT")) {
         $conflictRecorded = $true
         break
