@@ -1,28 +1,125 @@
-# Convenient Window Free
+# Convenient Window
 
-Source-available Windows 11 desktop software for hot zones, window edge hiding, global mouse gestures, screenshots, local OCR, and topmost-window controls.
+[简体中文](README.zh-CN.md) | English
 
-Settings persist and apply as they change unless an operation explicitly requires confirmation. Window enhancement currently provides one keyboard-accessible, CSS-only tutorial beside edge hiding; drag/resize and topmost-pin settings intentionally have no tutorial entry.
+Convenient Window is a Windows 11 desktop utility for hot zones, edge-hidden windows, global mouse gestures, screenshots, local OCR, and topmost-window control.
 
-This repository owns two things:
+Settings are saved and applied as they change. The standalone app runs from the system tray and packages its native Rust helper with the desktop application.
+
+<p align="center">
+  <img src="docs/images/running-center.png" alt="Convenient Window running center with two detected displays" width="920" />
+</p>
+
+## Download
+
+Download the Windows installer or portable archive from the [latest stable release](https://github.com/ximizhou/convenient_window_free/releases/latest).
+
+- **Installer (`setup.exe`)**: recommended for a normal per-user installation.
+- **Portable ZIP**: extract and run without installing.
+- **System requirement**: Windows 11 x64.
+
+Release assets are currently unsigned. Windows may show an unknown-publisher or Microsoft Defender SmartScreen warning. Checksums and an artifact manifest are included with each release so the downloaded files can be verified.
+
+## Features
+
+- **Hot zones**: configure the four corners and four edges of each monitor independently, with hover, mouse-button, wheel, and edge-movement triggers.
+- **Window edge hiding**: move windows partly off-screen and restore them from a visible edge strip, with multi-window and multi-monitor support.
+- **Anywhere move and resize**: move or resize the active window with configurable modifier-and-mouse combinations.
+- **Topmost controls**: keep a window above others and optionally use a small on-window pin to release it quickly.
+- **Global mouse gestures**: bind gestures to shortcuts, system actions, commands, and window controls; create and manage custom gesture samples.
+- **Screenshots and pinned images**: capture an area, keep the image above other windows, move or resize it, adjust opacity, copy it, or save it as PNG.
+- **Local OCR**: recognize text with Windows 11 language capabilities and copy the result without uploading the screenshot.
+- **Per-monitor configuration**: preserve independent profiles across supported display layouts and signed virtual-desktop coordinates.
+- **Live settings**: most changes are persisted and applied immediately, without a separate save step.
+- **Light and dark themes**: follow the system appearance by default or remember a manual selection.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/hot-zones.png" alt="Per-monitor hot-zone configuration" /></td>
+    <td width="50%"><img src="docs/images/window-enhancement.png" alt="Window edge-hiding configuration and preview" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Hot zones</strong></td>
+    <td align="center"><strong>Window enhancement</strong></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/mouse-gestures.png" alt="Mouse gesture workbench with screenshot and local OCR actions" /></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><strong>Mouse gestures, screenshots, and local OCR</strong></td>
+  </tr>
+</table>
+
+### Edge-Hide Tutorial
+
+The in-app tutorial demonstrates the full cycle: drag a window to the screen edge, move the pointer away to hide it, then return to the visible strip to restore it.
+
+<p align="center">
+  <img src="docs/media/edge-hide-tutorial.gif" alt="Animated edge-hide tutorial" width="508" />
+</p>
+
+## Quick Start
+
+1. Download the installer or portable ZIP from the [latest release](https://github.com/ximizhou/convenient_window_free/releases/latest).
+2. Install the app, or extract the portable archive and run `ConvenientWindow.exe`.
+3. Open Convenient Window from the system tray.
+4. Turn on the main feature switch, then configure hot zones, window enhancements, or mouse gestures.
+
+Closing the settings window keeps the tray application running. Use the tray menu to reopen settings, control startup behavior, or quit the application.
+
+## Privacy and Security
+
+- OCR is performed through local Windows APIs. Screenshots are not uploaded for recognition.
+- Configuration, authentication tokens, usage data, and logs stay in the application's local data directory.
+- Local WebSocket access is protected by a random token.
+- A global Windows single-instance lock prevents the standalone app and the private uTools integration from controlling competing helper processes.
+
+See [SECURITY.md](SECURITY.md) to report a vulnerability privately.
+
+## Current Limitations
+
+- Windows 11 x64 is the only supported and accepted platform.
+- Linux and macOS have reserved architecture boundaries but are not implemented or supported.
+- The installer and executable are not currently code-signed.
+- Automatic application updates are not implemented.
+
+## For Developers
+
+This repository is the source of truth for:
 
 - `apps/desktop/`: the Tauri 2 desktop host and reusable Svelte interface.
-- `helper/`: the only source tree for the shared Rust helper used by both the desktop app and the private uTools integration.
+- `helper/`: the shared Rust helper used by the standalone desktop app and the private uTools integration.
+- `scripts/`: reproducible build, packaging, smoke-test, and artifact-audit entry points.
 
-This repository contains the shared helper, the standalone Tauri host, their automated tests, and reproducible Windows packaging scripts. A local build can produce an NSIS installer and portable archive; repository visibility still does not imply that a public release is available.
+The private uTools project consumes this repository as a submodule and supplies its own host adapter. It does not maintain a second copy of the helper source.
 
-## Support
+### Prerequisites
 
-The first accepted target is Windows 11 x64. Linux and macOS have reserved platform boundaries only; they are not implemented or supported.
+- Windows 11 x64
+- Node.js `24.14.0` as pinned by `.node-version`
+- Rust `1.96.0-x86_64-pc-windows-gnullvm` as pinned by `rust-toolchain`
+- Windows tooling required by Tauri 2 and NSIS packaging
 
-## Development Modes
+Install dependencies and run the frontend checks:
 
-Standalone desktop development happens entirely in this repository. The private uTools project mounts this repository at `open-source/` and builds the same helper source from `open-source/helper/`; it does not keep another helper source copy.
+```powershell
+npm ci
+npm run desktop:test
+npm run desktop:check
+npm run desktop:frontend
+```
 
-The top-level build entry point builds the Svelte frontend, Rust helper sidecar, Tauri application, per-user NSIS installer, and portable archive:
+Build the Svelte frontend, Rust helper sidecar, Tauri application, per-user NSIS installer, and portable archive:
 
 ```powershell
 npm run desktop:build
+```
+
+Run the packaged lifecycle and artifact checks:
+
+```powershell
 npm run desktop:runtime-smoke
 npm run desktop:runtime-conflict-smoke
 npm run desktop:runtime-force-kill-smoke
@@ -30,15 +127,7 @@ npm run desktop:install-smoke
 npm run desktop:audit
 ```
 
-The build derives a deterministic `THIRD-PARTY-NOTICES.txt` from the installed npm production tree and the locked Windows Cargo dependency graphs, then packages it with the project `LICENSE` in both NSIS and portable outputs. Missing or unauditable dependency license text stops the build.
-
-The three portable runtime smoke commands use explicit disposable data roots and verify normal shutdown, global-helper conflict handling, and Job Object cleanup after the desktop process is force-terminated without modifying the real user profile. The NSIS smoke installs under a disposable directory and uninstalls while the app and its helper are running; it requires graceful helper shutdown, then repeats the uninstall with a separately owned helper to prove that desktop cleanup does not terminate the uTools-owned process. Registry, shortcut, port, process, and directory cleanup are verified. These commands must remain executable in Windows CI.
-
-Public downloads use the immutable Pre-release acceptance flow documented in [`docs/release.md`](docs/release.md): build once from a clean `main`, download and test those exact assets, then promote the same release without replacing files.
-
-## Helper Development
-
-Install the pinned Rust toolchain, then run commands from `helper/` so its linker configuration is applied:
+For helper-only development, run commands from `helper/` so its linker configuration is applied:
 
 ```powershell
 rustup toolchain install 1.96.0-x86_64-pc-windows-gnullvm --profile minimal --component rustfmt
@@ -47,11 +136,18 @@ rustup run 1.96.0-x86_64-pc-windows-gnullvm cargo fmt --check
 rustup run 1.96.0-x86_64-pc-windows-gnullvm cargo test
 ```
 
-The helper accepts an absolute `--data-dir`. Protocol v6 emits generic `host.action` events; the old `utools-redirect` configuration value remains an input alias for schema v7 compatibility. Use `scripts/helper-instance-smoke.mjs <packaged-helper.exe>` to verify global lock contention and recovery with two isolated data directories.
+The build generates `THIRD-PARTY-NOTICES.txt` from the installed npm production tree and locked Windows Cargo dependency graphs. The installer and portable package must contain both that file and the project license; missing or unauditable license text stops the build.
 
-## Security
+More technical information:
 
-Local WebSocket access is protected by a random token stored in each product's own data directory. The helper uses a global Windows single-instance lock so the uTools and standalone hosts cannot control competing helper processes. See [`SECURITY.md`](SECURITY.md) for private vulnerability reporting.
+- [Architecture](docs/architecture.md)
+- [Testing](docs/testing.md)
+- [Release process](docs/release.md)
+- [Security policy](SECURITY.md)
+
+## Release Integrity
+
+Public builds follow an immutable acceptance process: a clean `main` build is published once, its installer and portable archive are tested, and the same assets are promoted from Pre-release to stable without replacement. Every release includes SHA-256 checksums and an artifact manifest tied to the source commit.
 
 ## License
 
@@ -59,6 +155,4 @@ This project is source-available under the [PolyForm Noncommercial License 1.0.0
 
 You may view, study, modify, and use the software for personal and other noncommercial purposes under the license terms. Commercial use requires a separate written license from the copyright holder.
 
-本项目允许在许可证条款下查看、学习、修改，以及用于个人和其他非商业目的。任何商业使用均须事先取得版权所有者的书面授权。
-
-This license applies to the repository from the commit that introduced it onward. Earlier versions that were already published under the MIT License remain available under the license granted with those versions.
+This license applies to the repository from the commit that introduced it onward. Earlier versions already published under the MIT License remain available under the license granted with those versions.
