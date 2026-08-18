@@ -273,7 +273,8 @@ try {
   Remove-Item Env:CONVENIENT_WINDOW_SMOKE_EXIT_MS -ErrorAction SilentlyContinue
   $conflictDesktopProcess = Start-Process -FilePath $appPath -PassThru
   $conflictLogPath = Join-Path $conflictDesktopDataRoot "helper-data\magic-corners-helper.log"
-  $conflictDeadline = [DateTime]::UtcNow.AddSeconds(12)
+  # The installed WebView can take longer to initialize than the portable build on a fresh CI runner.
+  $conflictDeadline = [DateTime]::UtcNow.AddSeconds(30)
   $conflictRecorded = $false
   while ([DateTime]::UtcNow -lt $conflictDeadline) {
     if ($conflictDesktopProcess.HasExited) { throw "Desktop app exited before the non-interference uninstall check" }
