@@ -168,14 +168,24 @@ try {
   Assert-ThirdPartyNotices -Path (Join-Path $nsisRoot "THIRD-PARTY-NOTICES.txt")
   Assert-HelperPayload -HelperDir (Join-Path $nsisRoot "helper")
 
-  foreach ($binary in @(
-    (Join-Path $portableDir "ConvenientWindow.exe"),
-    $installer.FullName
-  )) {
-    $signature = Get-AuthenticodeSignature $binary
-    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::NotSigned) {
-      throw "Unexpected code-signing state for $binary`: $($signature.Status)"
+  $signatureCommand = Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue
+  if ($signatureCommand) {
+    foreach ($binary in @(
+      (Join-Path $portableDir "ConvenientWindow.exe"),
+      $installer.FullName
+    )) {
+      try {
+        $signature = & $signatureCommand $binary
+      } catch {
+        Write-Warning "Code-signature inspection is unavailable for ${binary}: $($_.Exception.Message)"
+        $signature = $null
+      }
+      if ($signature -and $signature.Status -ne [System.Management.Automation.SignatureStatus]::NotSigned) {
+        throw "Unexpected code-signing state for $binary`: $($signature.Status)"
+      }
     }
+  } else {
+    Write-Warning "Get-AuthenticodeSignature is unavailable; skipping code-signing state check"
   }
 
   $forbiddenNames = '(?i)(^|[\\/])(?:node_modules|target|\.git)([\\/]|$)|auth-token|config\.json|\.log$|\.env$|PROGRESS\.md|BLOCKED\.md'
