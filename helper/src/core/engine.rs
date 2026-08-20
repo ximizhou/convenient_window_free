@@ -435,7 +435,7 @@ impl Engine {
             let source = format!("gesture/{}", result.gesture.id);
             let dispatch_result = if let Some(region) = result.region {
                 platform::hide_gesture_overlay_before_capture();
-                platform::capture_and_pin(region, &config.ocr)
+                platform::capture_and_pin(region, capture.points.last().copied(), &config.ocr)
             } else {
                 dispatcher.dispatch_at_with_modifiers(
                     result.gesture.action_for_modifier_mask(capture.modifiers),

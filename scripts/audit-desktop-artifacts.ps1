@@ -91,7 +91,7 @@ function Assert-HelperPayload {
   $payloadManifestPath = Join-Path $HelperDir "payload-manifest.json"
   if (-not (Test-Path $payloadManifestPath)) { throw "Sidecar payload manifest is missing" }
   $payloadManifest = [System.IO.File]::ReadAllText($payloadManifestPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
-  if ($payloadManifest.helperVersion -ne "0.5.5" -or $payloadManifest.target -ne "x86_64-pc-windows-gnullvm") {
+  if ($payloadManifest.helperVersion -ne "0.5.6" -or $payloadManifest.target -ne "x86_64-pc-windows-gnullvm") {
     throw "Sidecar payload manifest declares an unexpected helper"
   }
   $expected = @("payload-manifest.json") + @($payloadManifest.files | ForEach-Object { $_.name })
