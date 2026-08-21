@@ -64,8 +64,8 @@ Copy-Item -Force $unwindDll $payloadDir
 $stdDlls | ForEach-Object { Copy-Item -Force $_.FullName $payloadDir }
 
 $policy = Get-Content $assetPolicyPath -Raw | ConvertFrom-Json
-if ($policy.version -ne "0.5.6" -or $policy.platform -ne "win32-x64") {
-  throw "helper-assets.json does not declare helper 0.5.6 for win32-x64"
+if ($policy.version -ne "0.5.7" -or $policy.platform -ne "win32-x64") {
+  throw "helper-assets.json does not declare helper 0.5.7 for win32-x64"
 }
 $payloadFiles = @(Get-ChildItem -Path $payloadDir -File |
   Where-Object { $_.Extension -in ".exe", ".dll" } |
