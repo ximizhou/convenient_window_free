@@ -14,7 +14,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
-const HELPER_VERSION: &str = "0.5.6";
+const HELPER_VERSION: &str = "0.5.7";
 const REPOSITORY_URL: &str = "https://github.com/ximizhou/convenient_window_free";
 const SMOKE_EXIT_ENV: &str = "CONVENIENT_WINDOW_SMOKE_EXIT_MS";
 const DATA_DIR_ENV: &str = "CONVENIENT_WINDOW_DATA_DIR";
