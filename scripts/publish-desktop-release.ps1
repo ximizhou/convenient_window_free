@@ -1,7 +1,8 @@
 param(
   [string]$Repository = "ximizhou/convenient_window_free",
   [switch]$Promote,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$RequireTrustedSignature
 )
 
 $ErrorActionPreference = "Stop"
@@ -101,12 +102,34 @@ $releaseFiles += Get-Item -LiteralPath $manifestPath
 $releaseFiles += Get-Item -LiteralPath $checksumPath
 $releaseFiles = @($releaseFiles | Sort-Object Name)
 
+if ($RequireTrustedSignature) {
+  $signatureCommand = Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue
+  if (-not $signatureCommand) { throw "Get-AuthenticodeSignature is required when -RequireTrustedSignature is set" }
+  $portableDir = Join-Path $artifactsDir "ConvenientWindow-portable"
+  $signedBinaries = @(
+    (Join-Path $portableDir "ConvenientWindow.exe"),
+    (Join-Path $portableDir "helper\magic-corners-helper.exe"),
+    ($releaseFiles | Where-Object { $_.Name -like '*setup.exe' } | Select-Object -First 1).FullName
+  )
+  foreach ($binary in $signedBinaries) {
+    $signature = & $signatureCommand $binary
+    if (-not $signature -or $signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+      throw "Trusted Authenticode signature required for $binary; status=$($signature.Status)"
+    }
+  }
+}
+
+$signingNote = if ($RequireTrustedSignature) {
+  "- Authenticode signatures were required and verified for the application, helper, and installer."
+} else {
+  "- The executable, helper, and installer are unsigned; Windows may show an unknown-publisher or SmartScreen warning."
+}
 $notes = @"
 Convenient Window Desktop $($manifest.version) for Windows 11 x64.
 
 - Per-user NSIS installer and portable ZIP are built from public source commit $head.
 - SHA-256 values are recorded in SHA256SUMS and artifact-manifest.json.
-- The executable and installer are currently unsigned; Windows may show an unknown-publisher or SmartScreen warning.
+$signingNote
 - This pre-release is intended for download, installation, portable, and uninstall acceptance before the same immutable assets are promoted to a stable release.
 "@
 

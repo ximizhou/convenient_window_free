@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const source = readFileSync(nodePath.join(import.meta.dirname, "App.svelte"), "utf8");
 const styles = readFileSync(nodePath.join(import.meta.dirname, "styles.css"), "utf8");
+const monitorStage = readFileSync(nodePath.join(import.meta.dirname, "MonitorStage.svelte"), "utf8");
 
 describe("window enhancement UI wiring", () => {
   it("uses the unified hotzone master-toggle copy and disabled settings body", () => {
@@ -11,10 +12,21 @@ describe("window enhancement UI wiring", () => {
     expect(source).toContain("把屏幕边角变成快捷操作入口");
     expect(source).toContain("触发角设置");
     expect(source).toContain('class="feature-settings-body" class:off={!settings.hotzonesEnabled} inert={!settings.hotzonesEnabled}');
+    expect(source).toContain('class:app-disabled={!settings.enabled}');
+    expect(styles).toContain(".app-disabled .feature-settings-body");
   });
 
   it("keeps configured hotzone markers visible in the monitor preview", () => {
-    expect(source).toContain("hotzonesEnabled={true}");
+    expect(source).toContain("hotzonesEnabled={settings.hotzonesEnabled}");
+  });
+
+  it("keeps the selected monitor and edge controls above companion content", () => {
+    expect(source).toContain("edgeHideEnabled={settings.edgeHide.enabled}");
+    expect(monitorStage).toContain("class:hotzone-layer={display.id === selectedDisplayId && mode === \"hotzones\"}");
+    expect(monitorStage).toContain(".physical-monitor.hotzone-layer{z-index:20}");
+    expect(monitorStage).toContain(".zone{position:absolute;z-index:30");
+    expect(monitorStage).toContain("aria-pressed={edgeHideEdges.includes(edge as Edge)}");
+    expect(monitorStage).toContain("pointer-events:auto");
   });
 
   it("keeps only the focused edge-hide tutorial", () => {

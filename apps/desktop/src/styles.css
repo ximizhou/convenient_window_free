@@ -275,6 +275,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .feature-settings-body { margin-left: 2px; padding-left: 14px; border-left: 2px solid var(--line-strong); transition: opacity .18s, border-color .18s; }
 .feature-settings-body.off { cursor: not-allowed; opacity: .48; border-left-color: var(--line); }
 .feature-settings-body.off .mini-switch input:checked + span { border-color: var(--line-strong); background: var(--line-strong); }
+.app-disabled .feature-master-toggle, .app-disabled .gesture-intro > .mini-switch { filter: grayscale(.45); opacity: .58; }
+.app-disabled .feature-settings-body, .app-disabled .gesture-intro, .app-disabled .gesture-workbench, .app-disabled .gesture-global-settings, .app-disabled .gesture-paused-apps, .app-disabled .mode-nav { filter: grayscale(.35); }
+.app-disabled .feature-settings-body, .app-disabled .gesture-workbench, .app-disabled .gesture-global-settings, .app-disabled .gesture-paused-apps { opacity: .55; }
+.app-disabled .feature-settings-body .mini-switch, .app-disabled .gesture-workbench button, .app-disabled .gesture-global-settings input, .app-disabled .gesture-global-settings select, .app-disabled .gesture-paused-apps button { color: var(--faint); }
+.app-disabled .feature-settings-body .mini-switch > span, .app-disabled .gesture-global-settings input[type="range"]::-webkit-slider-thumb { filter: saturate(.35); }
 .edge-trigger-method h3 { margin: 0; color: var(--ink); font-size: 12.5px; font-weight: 600; }
 .trigger-value { display: grid; gap: 6px; margin-top: 12px; color: var(--muted); font-size: 11.5px; }
 .trigger-value div { position: relative; }

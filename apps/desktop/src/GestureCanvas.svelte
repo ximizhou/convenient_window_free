@@ -3,6 +3,7 @@
 
   export let sample: GesturePoint[] = [];
   export let recording = true;
+  export let english = false;
   export let onRecord: (sample: GesturePoint[]) => void = () => {};
 
   let drawing: GesturePoint[] = [];
@@ -44,7 +45,7 @@
 
 <svg
   class:recording
-  aria-label={recording ? "按住鼠标左键录制单笔手势" : "手势轨迹预览"}
+  aria-label={recording ? (english ? "Hold left mouse button to record" : "按住鼠标左键录制单笔手势") : (english ? "Gesture preview" : "手势轨迹预览")}
   on:pointercancel={pointerUp}
   on:pointerdown={pointerDown}
   on:pointermove={pointerMove}
@@ -56,7 +57,7 @@
   {#if sample.length}<path class="saved" d={path(sample)} />{/if}
   {#if drawing.length}<path class="live" d={path(drawing)} />{/if}
   {#if !sample.length && !drawing.length}
-    <text x="50" y="47">按住左键</text><text class="small" x="50" y="57">画一个单笔图案</text>
+    <text x="50" y="47">{english ? "Hold left" : "按住左键"}</text><text class="small" x="50" y="57">{english ? "Draw one stroke" : "画一个单笔图案"}</text>
   {/if}
 </svg>
 

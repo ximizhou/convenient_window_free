@@ -5,8 +5,10 @@
   export let displays: DisplayInfo[];
   export let selectedDisplayId: string;
   export let mode: "power" | "hotzones" | "edge-hide" | "gestures" | "more" | null;
+  export let english = false;
   export let selectedZone: HotzoneId;
   export let hotzonesEnabled: boolean;
+  export let edgeHideEnabled = false;
   export let hotzones: HotzoneSetting[];
   export let edgeHideEdges: Edge[];
   export let onSelectDisplay: (id: string) => void;
@@ -22,6 +24,12 @@
     "bottom-right": "右下角", bottom: "下边缘", "bottom-left": "左下角", left: "左边缘"
   };
   const edgeLabels: Record<Edge, string> = { left: "左", top: "上", right: "右", bottom: "下" };
+  const zoneLabelsEn: Record<HotzoneId, string> = {
+    "top-left": "Top left", top: "Top", "top-right": "Top right", right: "Right",
+    "bottom-right": "Bottom right", bottom: "Bottom", "bottom-left": "Bottom left", left: "Left"
+  };
+  const edgeLabelsEn: Record<Edge, string> = { left: "L", top: "T", right: "R", bottom: "B" };
+  const edgeNamesEn: Record<Edge, string> = { left: "Left", top: "Top", right: "Right", bottom: "Bottom" };
   function slotConfigured(slot: HotzoneSetting["actions"][number]): boolean {
     return slot.action.kind !== "none"
       || (slot.modifierActions ?? []).some((variant) => variant.action.kind !== "none");
@@ -46,7 +54,15 @@
   }
 
   function displayLabel(display: DisplayInfo): string {
-    return display.primary ? "主显示器" : `${display.bounds.right - display.bounds.left} × ${display.bounds.bottom - display.bounds.top}`;
+    return display.primary ? (english ? "Primary" : "主显示器") : `${display.bounds.right - display.bounds.left} × ${display.bounds.bottom - display.bounds.top}`;
+  }
+
+  function zoneLabel(zone: HotzoneId): string {
+    return english ? zoneLabelsEn[zone] : zoneLabels[zone];
+  }
+
+  function edgeLabel(edge: Edge): string {
+    return english ? edgeLabelsEn[edge] : edgeLabels[edge];
   }
 
   function edgeUnavailable(edge: Edge): boolean {
@@ -63,7 +79,7 @@
       <path d="M 105 100 C 165 92, 165 142, 230 150" />
       <path class="arrow" d="M 220 139 L 231 150 L 216 156" />
     </svg>
-    <span class="swap-note">点击切换焦点</span>
+    <span class="swap-note">{english ? "Switch display" : "点击切换焦点"}</span>
   {/if}
 
   {#each displays as display, index (display.id)}
@@ -71,48 +87,51 @@
       class:active-monitor={display.id === selectedDisplayId}
       class:companion-monitor={display.id !== selectedDisplayId}
       class="physical-monitor"
+      class:hotzone-layer={display.id === selectedDisplayId && mode === "hotzones"}
       style={monitorStyle(display)}
     >
       <button
-        aria-label={`选择显示器 S${index + 1}`}
+        aria-label={`${english ? "Select display" : "选择显示器"} S${index + 1}`}
         class="screen"
         on:click={() => onSelectDisplay(display.id)}
         type="button"
       >
         <span class="screen-index">S{index + 1}</span>
-        <strong>{display.id === selectedDisplayId ? `S${index + 1} · 当前` : `S${index + 1}`}</strong>
+        <strong>{display.id === selectedDisplayId ? `S${index + 1} · ${english ? "Current" : "当前"}` : `S${index + 1}`}</strong>
         <small>{displayLabel(display)}</small>
       </button>
 
       {#if display.id === selectedDisplayId && mode === "hotzones"}
         {#each zones as zone}
           <button
-            aria-label={zoneLabels[zone]}
+            aria-label={zoneLabel(zone)}
             class:active={selectedZone === zone}
             class:configured={hotzonesEnabled && hotzones.some((item) => item.id === zone && item.actions.some(slotConfigured))}
             class={`zone zone-${zone}`}
             on:click={() => onSelectZone(zone)}
             type="button"
           >
-            {#if triggerCounts[zone] > 0}<em>{triggerCounts[zone]}</em>{/if}<span>{zoneLabels[zone]}</span>
+            {#if triggerCounts[zone] > 0}<em>{triggerCounts[zone]}</em>{/if}<span>{zoneLabel(zone)}</span>
           </button>
         {/each}
       {/if}
 
       {#if display.id === selectedDisplayId && mode === "edge-hide"}
         <div class="window-demo">
-          <span>窗口</span>
-          {#each Object.entries(edgeLabels) as [edge, label]}
+          <span>{english ? "Window" : "窗口"}</span>
+          {#each Object.keys(edgeLabels) as edge}
             <button
-              aria-label={`${label}侧贴边隐藏`}
-              class:active={!edgeUnavailable(edge as Edge) && edgeHideEdges.includes(edge as Edge)}
+              aria-label={`${english ? edgeNamesEn[edge as Edge] : edgeLabel(edge as Edge)}${english ? " edge hide" : "侧贴边隐藏"}`}
+              aria-pressed={edgeHideEdges.includes(edge as Edge)}
+              class:active={edgeHideEnabled && !edgeUnavailable(edge as Edge) && edgeHideEdges.includes(edge as Edge)}
+              class:configured={!edgeUnavailable(edge as Edge) && edgeHideEdges.includes(edge as Edge)}
               class:unavailable={edgeUnavailable(edge as Edge)}
               class={`edge-${edge}`}
               disabled={edgeUnavailable(edge as Edge)}
               on:click={() => onToggleEdge(edge as Edge)}
-              title={edgeUnavailable(edge as Edge) ? "显示器拼接缝，不执行收缩" : `${label}侧贴边隐藏`}
+              title={edgeUnavailable(edge as Edge) ? (english ? "Display seam; edge hide is unavailable" : "显示器拼接缝，不执行收缩") : `${english ? edgeNamesEn[edge as Edge] : edgeLabel(edge as Edge)}${english ? " edge hide" : "侧贴边隐藏"}`}
               type="button"
-            >{label}</button>
+            >{edgeLabel(edge as Edge)}</button>
           {/each}
         </div>
       {/if}
@@ -122,7 +141,7 @@
   {/each}
 
   <p class="stage-caption">
-    {mode === "hotzones" ? "点击边角定义动作" : mode === "edge-hide" ? "外轮廓可用，拼接缝已禁用" : displays.length > 1 ? "一次只专注设置一块屏幕" : "选择下方功能开始设置"}
+    {mode === "hotzones" ? (english ? "Choose a corner" : "点击边角定义动作") : mode === "edge-hide" ? (english ? "Outer edges work; seams do not" : "外轮廓可用，拼接缝已禁用") : displays.length > 1 ? (english ? "Choose one display" : "一次只专注设置一块屏幕") : (english ? "Choose a feature" : "选择下方功能开始设置")}
   </p>
 </div>
 
@@ -130,6 +149,7 @@
   .monitor-stage{position:relative;min-height:0;height:100%;overflow:hidden;isolation:isolate}
   .blueprint-grid{position:absolute;inset:3% 1% 10%;opacity:.6;background-image:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px);background-size:28px 28px;mask-image:radial-gradient(ellipse at center,#000 20%,transparent 76%)}
   .physical-monitor{--slot:0;position:absolute;left:14%;top:13%;width:70%;height:63%;transition:left .5s cubic-bezier(.22,1,.36,1),top .5s cubic-bezier(.22,1,.36,1),width .5s cubic-bezier(.22,1,.36,1),height .5s cubic-bezier(.22,1,.36,1),opacity .25s,filter .25s,transform .5s cubic-bezier(.22,1,.36,1);z-index:3}
+  .physical-monitor.hotzone-layer{z-index:20}
   .has-companions .active-monitor{left:22%;width:68%}
   .screen{position:absolute;inset:0 0 17%;border:1px solid var(--line-strong);border-radius:10px;background:linear-gradient(160deg,var(--screen-a),var(--screen-b));color:var(--ink);padding:18px;text-align:left;box-shadow:0 16px 36px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.06);transition:border-color .18s,box-shadow .18s,background .32s}
   .screen:hover{border-color:var(--faint);background:linear-gradient(160deg,var(--screen-hover-a),var(--screen-hover-b))}
@@ -148,7 +168,7 @@
   .focus-path .arrow{stroke-dasharray:none}
   .swap-note{position:absolute;left:23%;top:13%;font:11px/1.2 "Segoe UI Variable","Microsoft YaHei",sans-serif;color:var(--accent-soft);z-index:2}
   .stage-caption{position:absolute;left:0;right:0;bottom:5%;margin:0;text-align:center;color:var(--faint);font:12px/1.2 "Segoe UI Variable","Microsoft YaHei",sans-serif;letter-spacing:.04em}
-  .zone{position:absolute;z-index:6;padding:0;border:1px solid var(--line-strong);border-radius:6px;background:var(--zone-bg);color:var(--muted);box-shadow:0 2px 8px rgba(0,0,0,.12);transition:transform .15s,background-color .15s,color .15s,border-color .15s,box-shadow .18s}
+  .zone{position:absolute;z-index:30;padding:0;border:1px solid var(--line-strong);border-radius:6px;background:var(--zone-bg);color:var(--muted);box-shadow:0 2px 8px rgba(0,0,0,.12);transition:transform .15s,background-color .15s,color .15s,border-color .15s,box-shadow .18s}
   .zone::before{content:"";position:absolute;inset:-5px;border:1px dashed transparent;border-radius:9px;opacity:0;pointer-events:none;transition:opacity .18s,border-color .18s}
   .zone.configured:not(.active)::before{opacity:1;border-width:1.5px;border-color:var(--zone-configured)}
   .zone:hover{color:#fff;border-color:var(--accent);background:var(--accent);transform:scale(1.06)}
@@ -162,10 +182,19 @@
   .zone-top-left,.zone-top-right,.zone-bottom-left,.zone-bottom-right{width:26px;height:26px}.zone-top-left{left:10px;top:10px}.zone-top-right{right:10px;top:10px}.zone-bottom-left{left:10px;bottom:calc(17% + 10px)}.zone-bottom-right{right:10px;bottom:calc(17% + 10px)}
   .zone-top,.zone-bottom{width:24%;height:12px;left:38%}.zone-top{top:10px}.zone-bottom{bottom:calc(17% + 10px)}.zone-left,.zone-right{height:25%;width:12px;top:30%}.zone-left{left:10px}.zone-right{right:10px}
   .zone em{right:-7px;top:-7px}.zone span{left:32px;top:-4px}.zone-top span,.zone-bottom span{left:50%;top:18px;transform:translateX(-50%)}.zone-right span,.zone-top-right span,.zone-bottom-right span{left:auto;right:32px}
-  .window-demo{position:absolute;inset:20% 15% 31%;z-index:5;border:1px solid var(--line-strong);border-radius:8px;background:linear-gradient(160deg,var(--window-a),var(--window-b));display:grid;place-items:center;box-shadow:0 10px 24px rgba(0,0,0,.14);pointer-events:none}
-  .window-demo>span{font:12px "Segoe UI Variable","Microsoft YaHei",sans-serif;color:var(--muted)}.window-demo button{position:absolute;border:1px solid var(--line-strong);border-radius:5px;background:var(--raised);color:var(--muted);pointer-events:auto;font-size:10.5px;padding:0;transition:background-color .15s,color .15s,border-color .15s}.window-demo button:hover{border-color:var(--accent);color:var(--accent-soft)}.window-demo button.active{border-color:var(--accent);background:var(--accent);color:#fff}.window-demo button.unavailable{border-color:var(--line);background:var(--unavailable-bg);color:var(--unavailable-ink);cursor:not-allowed;opacity:.8}
+  .window-demo{position:absolute;inset:20% 15% 31%;z-index:5;border:1px solid var(--line-strong);border-radius:8px;background:linear-gradient(160deg,var(--window-a),var(--window-b));display:grid;place-items:center;box-shadow:0 10px 24px rgba(0,0,0,.14);pointer-events:auto}
+  .window-demo>span{font:12px "Segoe UI Variable","Microsoft YaHei",sans-serif;color:var(--muted)}
+  .window-demo button{position:absolute;border:1px solid var(--line-strong);border-radius:5px;background:var(--raised);color:var(--muted);pointer-events:auto;font-size:10.5px;padding:0;box-shadow:0 2px 8px rgba(0,0,0,.12);transition:transform .15s cubic-bezier(.2,.9,.3,1.25),background-color .15s,color .15s,border-color .15s,box-shadow .18s,opacity .18s}
+  .window-demo button::before{content:"";position:absolute;inset:-5px;border:1px dashed transparent;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .18s,border-color .18s}
+  .window-demo button.configured:not(.active)::before{opacity:1;border-width:1.5px;border-color:var(--zone-configured)}
+  .window-demo button:hover:not(:disabled){border-color:var(--accent);background:var(--accent);color:#fff;box-shadow:0 0 0 3px var(--accent-bg),0 6px 14px rgba(35,84,190,.22);transform:scale(1.08)}
+  .window-demo button.active{border-color:var(--accent);background:var(--accent);color:#fff;box-shadow:0 0 0 3px var(--accent-bg),0 6px 14px rgba(35,84,190,.24);animation:edge-select-fill .28s cubic-bezier(.2,.9,.3,1.25)}
+  .window-demo button:active:not(:disabled){transform:scale(.92)}
+  .window-demo button.active::before,.window-demo button:hover::before{opacity:0}
+  .window-demo button.unavailable{border-color:var(--line);background:var(--unavailable-bg);color:var(--unavailable-ink);cursor:not-allowed;opacity:.6;box-shadow:none}
+  @keyframes edge-select-fill{0%{background:var(--raised);transform:scale(.92)}65%{background:var(--accent);transform:scale(1.1)}100%{background:var(--accent);transform:scale(1)}}
   .window-demo .edge-left,.window-demo .edge-right{top:27%;bottom:27%;width:20px}.window-demo .edge-left{left:-10px}.window-demo .edge-right{right:-10px}.window-demo .edge-top,.window-demo .edge-bottom{left:31%;right:31%;height:20px}.window-demo .edge-top{top:-10px}.window-demo .edge-bottom{bottom:-10px}
   @media(max-width:900px){.physical-monitor{left:12%;width:74%}.has-companions .active-monitor{left:23%;width:70%}.companion-monitor{left:1%;width:26%}.swap-note{left:21%}}
   @media(max-width:700px){.physical-monitor{left:10%;top:17%;width:80%;height:58%}.has-companions .active-monitor{left:20%;width:76%}.companion-monitor{left:3%;top:4%;width:25%;height:27%}.focus-path{height:52%}.swap-note{top:11%}}
-  @media(prefers-reduced-motion:reduce){.physical-monitor{transition-duration:.01ms}.zone.active,.zone.configured.active{animation:none}}
+  @media(prefers-reduced-motion:reduce){.physical-monitor{transition-duration:.01ms}.zone.active,.zone.configured.active,.window-demo button.active{animation:none}}
 </style>

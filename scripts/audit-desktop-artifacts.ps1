@@ -1,6 +1,7 @@
 param(
   [string]$ArtifactsDir,
-  [string]$SevenZip = $env:SEVEN_ZIP
+  [string]$SevenZip = $env:SEVEN_ZIP,
+  [switch]$RequireTrustedSignature
 )
 
 $ErrorActionPreference = "Stop"
@@ -169,23 +170,31 @@ try {
   Assert-HelperPayload -HelperDir (Join-Path $nsisRoot "helper")
 
   $signatureCommand = Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue
-  if ($signatureCommand) {
-    foreach ($binary in @(
-      (Join-Path $portableDir "ConvenientWindow.exe"),
-      $installer.FullName
-    )) {
+  $signedBinaries = @(
+    (Join-Path $portableDir "ConvenientWindow.exe"),
+    (Join-Path $portableDir "helper\magic-corners-helper.exe"),
+    $installer.FullName
+  )
+  if (-not $signatureCommand) {
+    if ($RequireTrustedSignature) { throw "Get-AuthenticodeSignature is required when -RequireTrustedSignature is set" }
+    Write-Warning "Get-AuthenticodeSignature is unavailable; skipping code-signing state check"
+  } else {
+    foreach ($binary in $signedBinaries) {
       try {
         $signature = & $signatureCommand $binary
       } catch {
+        if ($RequireTrustedSignature) { throw "Code-signature inspection failed for ${binary}: $($_.Exception.Message)" }
         Write-Warning "Code-signature inspection is unavailable for ${binary}: $($_.Exception.Message)"
         $signature = $null
       }
-      if ($signature -and $signature.Status -ne [System.Management.Automation.SignatureStatus]::NotSigned) {
+      if ($RequireTrustedSignature) {
+        if (-not $signature -or $signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+          throw "Trusted Authenticode signature required for $binary; status=$($signature.Status)"
+        }
+      } elseif ($signature -and $signature.Status -ne [System.Management.Automation.SignatureStatus]::NotSigned) {
         throw "Unexpected code-signing state for $binary`: $($signature.Status)"
       }
     }
-  } else {
-    Write-Warning "Get-AuthenticodeSignature is unavailable; skipping code-signing state check"
   }
 
   $forbiddenNames = '(?i)(^|[\\/])(?:node_modules|target|\.git)([\\/]|$)|auth-token|config\.json|\.log$|\.env$|PROGRESS\.md|BLOCKED\.md'
@@ -230,7 +239,11 @@ try {
   Write-Output "portable files verified: $($portableFiles.Count)"
   Write-Output "NSIS files verified: $($nsisFiles.Count)"
   Write-Output "public source files scanned: $($sourcePaths.Count)"
-  Write-Output "signing state: NotSigned (expected)"
+  if ($RequireTrustedSignature) {
+    Write-Output "signing state: Valid Authenticode signatures verified"
+  } else {
+    Write-Output "signing state: NotSigned (diagnostic mode)"
+  }
 } finally {
   Remove-Item -Recurse -Force $tempRoot -ErrorAction SilentlyContinue
 }

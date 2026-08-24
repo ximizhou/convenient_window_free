@@ -891,7 +891,7 @@
   function hasSecureBridge(): boolean { return host.kind === "desktop"; }
 </script>
 
-<div class="app-shell">
+<div class:app-disabled={!settings.enabled} class="app-shell">
   <header class="topbar">
     <div class="brand"><img src="app-icon.png" alt="" /><strong>便捷窗口</strong></div>
     <div class:connected={helperStatus === "connected"} class="connection"><i></i>{helperStatus === "connected" ? "已连接" : helperStatus === "connecting" ? "连接中" : "未连接"}<span>{runtimeSummary}</span></div>
@@ -914,8 +914,9 @@
         {mode}
         {selectedDisplayId}
         {selectedZone}
+        edgeHideEnabled={settings.edgeHide.enabled}
         edgeHideEdges={currentEdgeHideEdges()}
-        hotzonesEnabled={true}
+        hotzonesEnabled={settings.hotzonesEnabled}
         hotzones={currentDisplayHotzones}
         onSelectDisplay={selectDisplay}
         onSelectZone={selectZone}

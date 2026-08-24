@@ -4,6 +4,7 @@
   export let value: ModifierKey[] = [];
   export let onChange: (value: ModifierKey[]) => void;
   export let label = "录制组合键";
+  export let english = false;
 
   const order: ModifierKey[] = ["ctrl", "alt", "shift", "win"];
   const names: Record<ModifierKey, string> = { ctrl: "Ctrl", alt: "Alt", shift: "Shift", win: "Win" };
@@ -86,12 +87,12 @@
     {:else if value.length}
       <span class="key-row">{#each value as key}<kbd>{names[key]}</kbd>{/each}</span>
     {:else}
-      <span class="empty">{recording ? "请按组合键" : "直接触发"}</span>
+      <span class="empty">{recording ? (english ? "Press keys" : "请按组合键") : (english ? "Direct" : "直接触发")}</span>
     {/if}
     {#if recording}<i aria-hidden="true"></i>{/if}
   </button>
   {#if value.length}
-    <button aria-label="清除修饰键" class="clear" on:click={clear} title="清除修饰键" type="button">×</button>
+    <button aria-label={english ? "Clear modifiers" : "清除修饰键"} class="clear" on:click={clear} title={english ? "Clear modifiers" : "清除修饰键"} type="button">×</button>
   {/if}
 </div>
 

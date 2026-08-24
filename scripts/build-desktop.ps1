@@ -1,4 +1,6 @@
-param()
+param(
+  [switch]$RequireTrustedSignature
+)
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -116,6 +118,22 @@ $portableZip = Join-Path $artifactsDir "convenient-window-$version-windows-x64-p
 Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $portableZip -CompressionLevel Optimal
 $installerCopy = Join-Path $artifactsDir "convenient-window-$version-windows-x64-setup.exe"
 Copy-Item -Force $nsisInstaller.FullName $installerCopy
+
+if ($RequireTrustedSignature) {
+  $signatureCommand = Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue
+  if (-not $signatureCommand) { throw "Get-AuthenticodeSignature is required when -RequireTrustedSignature is set" }
+  $signedBinaries = @(
+    (Join-Path $portableDir "ConvenientWindow.exe"),
+    (Join-Path $portableDir "helper\magic-corners-helper.exe"),
+    $installerCopy
+  )
+  foreach ($binary in $signedBinaries) {
+    $signature = & $signatureCommand $binary
+    if (-not $signature -or $signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+      throw "Trusted Authenticode signature required for $binary; status=$($signature.Status)"
+    }
+  }
+}
 
 $deliverables = @($installerCopy, $portableZip) | ForEach-Object {
   $file = Get-Item $_
