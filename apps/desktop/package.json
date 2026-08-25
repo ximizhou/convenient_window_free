@@ -1,7 +1,7 @@
 {
   "name": "convenient-window-desktop",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Convenient Window standalone desktop app for Windows 11",
   "type": "module",
   "engines": {

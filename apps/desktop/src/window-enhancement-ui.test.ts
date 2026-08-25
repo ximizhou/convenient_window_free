@@ -29,6 +29,15 @@ describe("window enhancement UI wiring", () => {
     expect(monitorStage).toContain("pointer-events:auto");
   });
 
+  it("updates edge controls from a reactive immutable monitor profile", () => {
+    expect(monitorStage).toContain("on:click={() => onToggleEdge(edge as Edge)}");
+    expect(source).toContain("currentDisplayEdgeHideEdges = settings.edgeHide.monitorProfiles.find(");
+    expect(source).toContain("edgeHideEdges={currentDisplayEdgeHideEdges}");
+    expect(source).not.toContain("edgeHideEdges={currentEdgeHideEdges()}");
+    expect(source).toContain("settings = {");
+    expect(source).toContain("monitorProfiles: profile");
+  });
+
   it("keeps only the focused edge-hide tutorial", () => {
     expect(source).toContain('showFeatureTutorial("edge-hide")');
     expect(source).toContain('id="edge-hide-tutorial"');

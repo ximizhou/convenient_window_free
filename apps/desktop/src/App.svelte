@@ -95,6 +95,9 @@
   $: currentDisplayHotzones = settings.monitorProfiles.find(
     (profile) => profile.monitorId === selectedDisplayId
   )?.hotzones ?? settings.hotzones;
+  $: currentDisplayEdgeHideEdges = settings.edgeHide.monitorProfiles.find(
+    (profile) => profile.monitorId === selectedDisplayId
+  )?.edges ?? settings.edgeHide.edges;
   $: currentHotzoneModifierActions = currentDisplayHotzones
     .find((zone) => zone.id === selectedZone)?.actions
     .find((slot) => slot.trigger === activeTrigger)?.modifierActions ?? [];
@@ -497,20 +500,19 @@
   }
 
   function toggleEdge(edge: Edge): void {
-    let profile = settings.edgeHide.monitorProfiles.find((item) => item.monitorId === selectedDisplayId);
-    if (!profile) {
-      profile = { monitorId: selectedDisplayId, edges: [...settings.edgeHide.edges] };
-      settings.edgeHide.monitorProfiles = [...settings.edgeHide.monitorProfiles, profile];
-    }
-    profile.edges = profile.edges.includes(edge)
-      ? profile.edges.filter((item) => item !== edge)
-      : [...profile.edges, edge];
-    persist();
-  }
-
-  function currentEdgeHideEdges(): Edge[] {
-    return settings.edgeHide.monitorProfiles.find((profile) => profile.monitorId === selectedDisplayId)?.edges
-      ?? settings.edgeHide.edges;
+    const profile = settings.edgeHide.monitorProfiles.find((item) => item.monitorId === selectedDisplayId);
+    const current = profile?.edges ?? settings.edgeHide.edges;
+    const edges = current.includes(edge) ? current.filter((item) => item !== edge) : [...current, edge];
+    settings = {
+      ...settings,
+      edgeHide: {
+        ...settings.edgeHide,
+        monitorProfiles: profile
+          ? settings.edgeHide.monitorProfiles.map((item) => item.monitorId === selectedDisplayId ? { ...item, edges } : item)
+          : [...settings.edgeHide.monitorProfiles, { monitorId: selectedDisplayId, edges }]
+      }
+    };
+    persist("边条状态已更新");
   }
 
   function addForeground(target: "hotzones" | "edge" | "gestures"): void {
@@ -915,7 +917,7 @@
         {selectedDisplayId}
         {selectedZone}
         edgeHideEnabled={settings.edgeHide.enabled}
-        edgeHideEdges={currentEdgeHideEdges()}
+        edgeHideEdges={currentDisplayEdgeHideEdges}
         hotzonesEnabled={settings.hotzonesEnabled}
         hotzones={currentDisplayHotzones}
         onSelectDisplay={selectDisplay}
