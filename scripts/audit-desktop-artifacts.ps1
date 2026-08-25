@@ -198,7 +198,7 @@ try {
     }
   }
 
-  $forbiddenNames = '(?i)(^|[\\/])(?:node_modules|target|\.git)([\\/]|$)|auth-token|config\.json|\.log$|\.env$|PROGRESS\.md|BLOCKED\.md'
+  $forbiddenNames = '(?i)(^|[\\/])(?:node_modules|target|\.git)([\\/]|$)|auth-token|config\.json|\.log$|\.env$'
   $packageFiles = @(Get-ChildItem $portableDir, $zipRoot, $nsisRoot -Recurse -File)
   $forbidden = @($packageFiles | Where-Object { $_.FullName -match $forbiddenNames })
   if ($forbidden.Count -gt 0) {

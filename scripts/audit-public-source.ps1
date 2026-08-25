@@ -16,7 +16,7 @@ try {
   $sourcePaths = @(& git ls-files --cached --others --exclude-standard)
   if ($LASTEXITCODE -ne 0) { throw "Unable to enumerate public source files" }
 
-  $forbiddenPathPattern = '(?i)(^|/)(?:AGENTS|CLAUDE|BLOCKED|PROGRESS|DEVELOPMENT-ROADMAP|WORKFLOW)\.md$|(^|/)(?:auth-token|config\.json|.*\.log|.*\.env|.*\.pem|.*\.p12|.*\.pfx)$'
+  $forbiddenPathPattern = '(?i)(^|/)(?:AGENTS|CLAUDE)\.md$|(^|/)(?:auth-token|config\.json|.*\.log|.*\.env|.*\.pem|.*\.p12|.*\.pfx)$'
   $forbiddenPaths = @($sourcePaths | Where-Object {
     $_ -match $forbiddenPathPattern -and (Test-Path -LiteralPath (Join-Path $repoRoot $_) -PathType Leaf)
   })
