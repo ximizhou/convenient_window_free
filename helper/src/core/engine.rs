@@ -227,7 +227,9 @@ impl Engine {
                                     None
                                 }
                             }
-                        } else if !dragging && input.left_down {
+                        } else if !dragging
+                            && native_drag_preview_started(input.left_down, cursor, previous_cursor)
+                        {
                             foreground.as_ref().and_then(|window| {
                                 edge_hide.collapse_preview(
                                     &config.edge_hide,
@@ -807,6 +809,14 @@ fn hotzone_hint_for(
         .map(|item| item.id)
 }
 
+fn native_drag_preview_started(
+    left_button_down: bool,
+    cursor: platform::Point,
+    previous_cursor: Option<platform::Point>,
+) -> bool {
+    left_button_down && previous_cursor.is_some_and(|previous| previous != cursor)
+}
+
 fn hotzones_for_cursor<'a>(
     config: &'a AppConfig,
     cursor: platform::Point,
@@ -938,6 +948,30 @@ mod tests {
         assert_eq!(engine_poll_interval(33, true), Duration::from_millis(16));
         assert_eq!(engine_poll_interval(10, true), Duration::from_millis(10));
         assert_eq!(engine_poll_interval(250, false), Duration::from_millis(250));
+    }
+
+    #[test]
+    fn native_drag_preview_requires_pointer_motion() {
+        assert!(!native_drag_preview_started(
+            true,
+            Point { x: 10, y: 10 },
+            Some(Point { x: 10, y: 10 }),
+        ));
+        assert!(!native_drag_preview_started(
+            true,
+            Point { x: 10, y: 10 },
+            None,
+        ));
+        assert!(native_drag_preview_started(
+            true,
+            Point { x: 11, y: 10 },
+            Some(Point { x: 10, y: 10 }),
+        ));
+        assert!(!native_drag_preview_started(
+            false,
+            Point { x: 11, y: 10 },
+            Some(Point { x: 10, y: 10 }),
+        ));
     }
 
     #[test]
