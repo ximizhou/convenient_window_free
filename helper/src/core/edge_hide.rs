@@ -68,23 +68,50 @@ impl EdgeHideController {
     }
 
     /// Returns the visible strip rects for all collapsed windows (for rendering hints).
-    pub fn collapsed_strips(&self, monitors: &[Monitor]) -> Vec<Rect> {
+    #[cfg(test)]
+    fn collapsed_strips(&self, monitors: &[Monitor]) -> Vec<Rect> {
+        self.collapsed_strips_filtered(monitors, |_, _| true)
+    }
+
+    /// Returns strip hints only for collapsed windows that still occupy their hidden rect.
+    ///
+    /// A live window query is kept at the rendering boundary so an externally moved or hidden
+    /// window cannot leave a stale white restore strip behind. Minimized windows intentionally
+    /// remain eligible because their edge state is still recoverable from the strip.
+    pub fn collapsed_strips_with_live_state(
+        &self,
+        monitors: &[Monitor],
+        mut window_state: impl FnMut(WindowHandle) -> Option<(Option<Rect>, bool)>,
+    ) -> Vec<Rect> {
+        self.collapsed_strips_filtered(monitors, |handle, hidden_rect| {
+            window_state(handle).is_some_and(|(rect, minimized)| {
+                minimized || rect.is_some_and(|rect| rects_roughly_equal(rect, hidden_rect))
+            })
+        })
+    }
+
+    fn collapsed_strips_filtered(
+        &self,
+        monitors: &[Monitor],
+        mut keep: impl FnMut(WindowHandle, Rect) -> bool,
+    ) -> Vec<Rect> {
         self.states
-            .values()
-            .filter_map(|state| {
-                if let EdgeHideState::Collapsed {
+            .iter()
+            .filter_map(|(handle, state)| {
+                let EdgeHideState::Collapsed {
                     restore_rect,
                     hidden_rect,
                     ..
                 } = state
-                {
-                    let work_area = monitor_for_rect(*restore_rect, monitors)
-                        .map(|m| m.work_area)
-                        .unwrap_or(*hidden_rect);
-                    Some(strip_rect(*hidden_rect, work_area))
-                } else {
-                    None
+                else {
+                    return None;
+                };
+                if !keep(*handle, *hidden_rect) {
+                    return None;
                 }
+                let work_area = render_monitor_for_rect(*restore_rect, monitors)?.work_area;
+                let strip = strip_rect(*hidden_rect, work_area);
+                (strip.width() > 0 && strip.height() > 0).then_some(strip)
             })
             .collect()
     }
@@ -827,6 +854,13 @@ fn monitor_for_rect(rect: Rect, monitors: &[Monitor]) -> Option<&Monitor> {
 
         (overlap_area > 0, overlap_area, -distance_squared)
     })
+}
+
+fn render_monitor_for_rect(rect: Rect, monitors: &[Monitor]) -> Option<&Monitor> {
+    let monitor = monitor_for_rect(rect, monitors)?;
+    let overlap_width = rect.right.min(monitor.bounds.right) - rect.left.max(monitor.bounds.left);
+    let overlap_height = rect.bottom.min(monitor.bounds.bottom) - rect.top.max(monitor.bounds.top);
+    (overlap_width > 0 && overlap_height > 0).then_some(monitor)
 }
 
 fn outside_amount(rect: Rect, area: Rect, edge: Edge) -> i32 {
@@ -2176,6 +2210,161 @@ mod tests {
         controller.prune_invalid_windows(|_| false);
 
         assert!(controller.collapsed_strips(&[monitor()]).is_empty());
+    }
+
+    #[test]
+    fn moved_collapsed_windows_no_longer_render_stale_strip_hints() {
+        let mut controller = EdgeHideController::new();
+        controller.states.insert(
+            WindowHandle(42),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect: Rect {
+                    left: 0,
+                    top: 120,
+                    right: 600,
+                    bottom: 700,
+                },
+                hidden_rect: Rect {
+                    left: -592,
+                    top: 120,
+                    right: 8,
+                    bottom: 700,
+                },
+                original_topmost: false,
+                was_foreground: false,
+            },
+        );
+        assert_eq!(controller.collapsed_strips(&[monitor()]).len(), 1);
+
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_| {
+                Some((
+                    Some(Rect {
+                        left: 240,
+                        top: 180,
+                        right: 840,
+                        bottom: 780,
+                    }),
+                    false,
+                ))
+            })
+            .is_empty());
+    }
+
+    #[test]
+    fn collapsed_windows_do_not_render_strips_without_a_current_monitor() {
+        let mut controller = EdgeHideController::new();
+        controller.states.insert(
+            WindowHandle(42),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect: Rect {
+                    left: 0,
+                    top: 120,
+                    right: 600,
+                    bottom: 700,
+                },
+                hidden_rect: Rect {
+                    left: -592,
+                    top: 120,
+                    right: 8,
+                    bottom: 700,
+                },
+                original_topmost: false,
+                was_foreground: false,
+            },
+        );
+
+        assert!(controller.collapsed_strips(&[]).is_empty());
+    }
+
+    #[test]
+    fn collapsed_windows_do_not_render_strips_for_a_removed_monitor() {
+        let mut controller = EdgeHideController::new();
+        controller.states.insert(
+            WindowHandle(42),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect: Rect {
+                    left: -1920,
+                    top: 120,
+                    right: -1320,
+                    bottom: 700,
+                },
+                hidden_rect: Rect {
+                    left: -2504,
+                    top: 120,
+                    right: -1904,
+                    bottom: 700,
+                },
+                original_topmost: false,
+                was_foreground: false,
+            },
+        );
+
+        assert!(controller.collapsed_strips(&[monitor()]).is_empty());
+    }
+
+    #[test]
+    fn hidden_collapsed_windows_do_not_render_stale_strip_hints() {
+        let mut controller = EdgeHideController::new();
+        controller.states.insert(
+            WindowHandle(42),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect: Rect {
+                    left: 0,
+                    top: 120,
+                    right: 600,
+                    bottom: 700,
+                },
+                hidden_rect: Rect {
+                    left: -592,
+                    top: 120,
+                    right: 8,
+                    bottom: 700,
+                },
+                original_topmost: false,
+                was_foreground: false,
+            },
+        );
+
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_| None)
+            .is_empty());
+    }
+
+    #[test]
+    fn minimized_collapsed_windows_keep_their_restore_strip() {
+        let mut controller = EdgeHideController::new();
+        controller.states.insert(
+            WindowHandle(42),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect: Rect {
+                    left: 0,
+                    top: 120,
+                    right: 600,
+                    bottom: 700,
+                },
+                hidden_rect: Rect {
+                    left: -592,
+                    top: 120,
+                    right: 8,
+                    bottom: 700,
+                },
+                original_topmost: false,
+                was_foreground: false,
+            },
+        );
+
+        assert_eq!(
+            controller
+                .collapsed_strips_with_live_state(&[monitor()], |_| Some((None, true)))
+                .len(),
+            1
+        );
     }
 
     #[test]

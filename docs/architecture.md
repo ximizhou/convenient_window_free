@@ -44,6 +44,8 @@ The NSIS pre-uninstall hook signals `Local\com.ximizhou.convenientwindow.shutdow
 
 Automated runtime tests may set the absolute `CONVENIENT_WINDOW_DATA_DIR` override. In that mode desktop settings, helper data, and WebView data all stay below the explicit root. Production startup uses the platform application-data path.
 
+Edge-hide state keeps the target edge and restore geometry across monitor changes. The helper renders a restore strip only when the restore rectangle still intersects the current monitor topology and the live window rectangle still matches the hidden rectangle. Empty or changed monitor snapshots, externally moved or hidden windows, and removed displays therefore cannot leave a stale pale outline; minimized windows retain their recoverable strip.
+
 ## Platform and Release Boundary
 
 Only Windows 11 x64 is accepted. The package produces a per-user NSIS installer and a portable archive, with tray controls and optional startup registration. Public GitHub Releases use immutable final-version assets: a clean `main` build is published as a Pre-release for online acceptance, then promoted in place. Automatic updates and trusted commercial code signing are not implemented.

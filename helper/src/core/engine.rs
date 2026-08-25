@@ -242,7 +242,18 @@ impl Engine {
                             None
                         };
                         platform::update_edge_hide_preview(edge_hide_preview);
-                        platform::update_strip_hints(&edge_hide.collapsed_strips(monitors));
+                        platform::update_strip_hints(&edge_hide.collapsed_strips_with_live_state(
+                            monitors,
+                            |handle| {
+                                if platform::window_is_minimized(handle) {
+                                    return Some((None, true));
+                                }
+                                match platform::window_info_for_handle(handle) {
+                                    Ok(Some(window)) => Some((Some(window.rect), false)),
+                                    Ok(None) | Err(_) => None,
+                                }
+                            },
+                        ));
                         previous_cursor = Some(cursor);
                     }
                     (cursor, monitors, foreground) => {
