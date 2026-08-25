@@ -5,10 +5,10 @@
 ```text
 Standalone desktop (Tauri 2 + Svelte) ----\
                                            > shared localhost protocol -> Rust helper
-Private uTools host (Svelte + preload) ----/
+Host integration (Svelte + preload) --------/
 ```
 
-This repository is authoritative for the standalone desktop and the helper. The private integration consumes it as a submodule and supplies only its uTools-specific host adapter.
+This repository is authoritative for the standalone desktop and the helper. Host integrations consume it as a submodule and supply only their host-specific adapters.
 
 ## Source Layout
 

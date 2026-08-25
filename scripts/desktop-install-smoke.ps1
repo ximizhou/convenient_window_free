@@ -21,18 +21,10 @@ $installer = Get-ChildItem $ArtifactsDir -Filter "*setup.exe" -File | Select-Obj
 if (-not $installer) { throw "NSIS installer is missing from $ArtifactsDir" }
 
 if (-not $WorkRoot) {
-  $temporaryBase = if (Test-Path "D:\biancheng\temp") {
-    "D:\biancheng\temp"
-  } else {
-    [System.IO.Path]::GetTempPath()
-  }
-  $WorkRoot = Join-Path $temporaryBase ("convenient-window-install-" + [guid]::NewGuid().ToString("N"))
+  $WorkRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("convenient-window-install-" + [guid]::NewGuid().ToString("N"))
 }
 $WorkRoot = [System.IO.Path]::GetFullPath($WorkRoot)
-$allowedRoots = @(
-  [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd("\"),
-  [System.IO.Path]::GetFullPath("D:\biancheng\temp").TrimEnd("\")
-)
+$allowedRoots = @([System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd("\"))
 $insideAllowedRoot = $allowedRoots | Where-Object {
   $WorkRoot.StartsWith($_ + "\", [System.StringComparison]::OrdinalIgnoreCase)
 } | Select-Object -First 1

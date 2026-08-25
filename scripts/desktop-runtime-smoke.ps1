@@ -62,10 +62,7 @@ if (-not $DataRoot) {
   $DataRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("convenient-window-runtime-" + [guid]::NewGuid().ToString("N"))
 }
 $DataRoot = [System.IO.Path]::GetFullPath($DataRoot)
-$allowedRoots = @(
-  [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd("\"),
-  [System.IO.Path]::GetFullPath("D:\biancheng\temp").TrimEnd("\")
-)
+$allowedRoots = @([System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd("\"))
 $insideAllowedRoot = $allowedRoots | Where-Object {
   $DataRoot.StartsWith($_ + "\", [System.StringComparison]::OrdinalIgnoreCase)
 } | Select-Object -First 1

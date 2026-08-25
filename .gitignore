@@ -16,3 +16,7 @@ config.json
 auth-token
 apps/desktop/src-tauri/resources/helper/payload-manifest.json
 apps/desktop/src-tauri/gen/
+
+# Local agent guidance stays outside the public source repository.
+AGENTS.md
+CLAUDE.md

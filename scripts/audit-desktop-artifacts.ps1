@@ -7,6 +7,8 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "hash-file.ps1")
+& (Join-Path $PSScriptRoot "audit-public-source.ps1")
+if ($LASTEXITCODE -ne 0) { throw "Public source audit failed" }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $ArtifactsDir) { $ArtifactsDir = Join-Path $repoRoot "artifacts" }
@@ -213,7 +215,6 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "git ls-files failed while enumerating public source" }
     if ($sourcePaths.Count -eq 0) { throw "No public source files were found for credential scanning" }
     $secretPattern = 'github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY'
-    $privateRemotePattern = 'https://github\.com/ximizhou/convenient_window(?:\.git)?(?:[\s"''`]|$)'
     $sourceMatches = @()
     foreach ($relativePath in $sourcePaths) {
       $fullPath = Join-Path $repoRoot $relativePath
@@ -221,9 +222,6 @@ try {
       $content = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($fullPath))
       if ($content -match $secretPattern) {
         $sourceMatches += "$relativePath`: potential credential"
-      }
-      if ($content -match $privateRemotePattern) {
-        $sourceMatches += "$relativePath`: private repository URL"
       }
     }
     if ($sourceMatches.Count -gt 0) {

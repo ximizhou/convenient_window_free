@@ -2,7 +2,7 @@
 
 The standalone desktop has two user acceptance points:
 
-1. During daily `develop` work, acceptance normally stays in the private uTools host for faster iteration. Only when the user explicitly requests desktop synchronization, port the applicable shared behavior, preserve desktop-specific lifecycle and UI differences, build the current NSIS package, and give the user its absolute local path. Do not publish this build.
+1. During daily `develop` work, acceptance normally stays in the host integration for faster iteration. Only when the user explicitly requests desktop synchronization, port the applicable shared behavior, preserve desktop-specific lifecycle and UI differences, build the current NSIS package, and give the user its absolute local path. Do not publish this build.
 2. Before release, freeze a clean `main`, build once with the final version, publish those exact assets as a GitHub Pre-release, and have the user download and test the public installer and portable archive. Promote the same release without replacing assets.
 
 ## Develop Acceptance

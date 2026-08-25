@@ -59,16 +59,16 @@ mod tests {
         let args = vec![
             OsString::from("helper.exe"),
             OsString::from("--data-dir"),
-            OsString::from(r"D:\AppData\ConvenientWindow\data"),
+            OsString::from(r"C:\AppData\ConvenientWindow\data"),
         ];
 
         assert_eq!(
             resolve_data_dir(
                 &args,
-                Path::new(r"D:\AppData\ConvenientWindow\helper\0.3.0\helper.exe")
+                Path::new(r"C:\AppData\ConvenientWindow\helper\0.3.0\helper.exe")
             )
             .unwrap(),
-            PathBuf::from(r"D:\AppData\ConvenientWindow\data")
+            PathBuf::from(r"C:\AppData\ConvenientWindow\data")
         );
     }
 
@@ -77,10 +77,10 @@ mod tests {
         assert_eq!(
             resolve_data_dir(
                 &[OsString::from("helper.exe")],
-                Path::new(r"D:\project\helper\helper.exe")
+                Path::new(r"C:\project\helper\helper.exe")
             )
             .unwrap(),
-            PathBuf::from(r"D:\project\helper")
+            PathBuf::from(r"C:\project\helper")
         );
     }
 
@@ -92,6 +92,6 @@ mod tests {
             OsString::from("data"),
         ];
 
-        assert!(resolve_data_dir(&args, Path::new(r"D:\helper.exe")).is_err());
+        assert!(resolve_data_dir(&args, Path::new(r"C:\helper.exe")).is_err());
     }
 }

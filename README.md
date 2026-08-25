@@ -74,7 +74,7 @@ Closing the settings window keeps the tray application running. Use the tray men
 - OCR is performed through local Windows APIs. Screenshots are not uploaded for recognition.
 - Configuration, authentication tokens, usage data, and logs stay in the application's local data directory.
 - Local WebSocket access is protected by a random token.
-- A global Windows single-instance lock prevents the standalone app and the private uTools integration from controlling competing helper processes.
+- A global Windows single-instance lock prevents separate host integrations from controlling competing helper processes.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 
@@ -90,10 +90,10 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 This repository is the source of truth for:
 
 - `apps/desktop/`: the Tauri 2 desktop host and reusable Svelte interface.
-- `helper/`: the shared Rust helper used by the standalone desktop app and the private uTools integration.
+- `helper/`: the shared Rust helper used by the standalone desktop app and supported host integrations.
 - `scripts/`: reproducible build, packaging, smoke-test, and artifact-audit entry points.
 
-The private uTools project consumes this repository as a submodule and supplies its own host adapter. It does not maintain a second copy of the helper source.
+Host integrations consume this repository as a submodule and supply their own host adapters. They do not maintain a second copy of the helper source.
 
 ### Prerequisites
 
@@ -125,6 +125,7 @@ npm run desktop:runtime-conflict-smoke
 npm run desktop:runtime-force-kill-smoke
 npm run desktop:install-smoke
 npm run desktop:audit
+npm run desktop:source-audit
 ```
 
 For helper-only development, run commands from `helper/` so its linker configuration is applied:

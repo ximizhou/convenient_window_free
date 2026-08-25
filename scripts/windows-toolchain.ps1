@@ -6,7 +6,6 @@ function Initialize-MsvcEnvironment {
 
   $candidates = @()
   if ($env:VSINSTALLDIR) { $candidates += $env:VSINSTALLDIR }
-  $candidates += "D:\biancheng\vs-buildtools"
 
   $vswhereCandidates = @(
     (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"),

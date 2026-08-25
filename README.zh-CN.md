@@ -74,7 +74,7 @@
 - OCR 通过 Windows 本地 API 完成，识别过程不会上传截图。
 - 配置、鉴权令牌、使用数据和日志都保存在应用的本地数据目录中。
 - 本地 WebSocket 使用随机令牌保护。
-- Windows 全局单实例锁会阻止独立桌面版与私有 uTools 集成同时控制不同的 helper 进程。
+- Windows 全局单实例锁会阻止不同宿主集成同时控制不同的 helper 进程。
 
 如需私下报告安全问题，请查看 [SECURITY.md](SECURITY.md)。
 
@@ -90,10 +90,10 @@
 本仓库是以下内容的权威源码：
 
 - `apps/desktop/`：Tauri 2 独立桌面宿主和可复用的 Svelte 界面。
-- `helper/`：独立桌面版和私有 uTools 集成共同使用的 Rust helper。
+- `helper/`：独立桌面版和宿主集成共同使用的 Rust helper。
 - `scripts/`：可复现的构建、打包、烟测和产物审计入口。
 
-私有 uTools 项目通过 submodule 使用本仓库，并提供自己的宿主适配层；不会维护第二份 helper 源码。
+宿主集成通过 submodule 使用本仓库，并提供自己的宿主适配层；不会维护第二份 helper 源码。
 
 ### 开发环境
 
@@ -125,6 +125,7 @@ npm run desktop:runtime-conflict-smoke
 npm run desktop:runtime-force-kill-smoke
 npm run desktop:install-smoke
 npm run desktop:audit
+npm run desktop:source-audit
 ```
 
 只开发 helper 时，请在 `helper/` 目录中运行命令，以应用该目录的链接器配置：

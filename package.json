@@ -14,6 +14,7 @@
     "desktop:frontend": "npm --prefix apps/desktop run build",
     "desktop:sidecar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-desktop-sidecar.ps1",
     "desktop:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
+    "desktop:source-audit": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit-public-source.ps1",
     "desktop:audit": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit-desktop-artifacts.ps1",
     "desktop:runtime-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe",
     "desktop:runtime-conflict-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-runtime-smoke.ps1 -AppPath artifacts/ConvenientWindow-portable/ConvenientWindow.exe -ExpectConflict",
