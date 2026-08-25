@@ -7,9 +7,9 @@ Migration work must preserve at least:
 - 71 frontend tests in the private uTools integration.
 - 129 passing default Rust tests and 2 explicitly ignored Windows OCR tests in the shared helper.
 
-The current verified baseline is 88 frontend tests in the private integration and 138 passing Rust tests with 2 OCR tests ignored.
+The current verified baseline is 97 frontend tests in the private integration and 142 passing Rust tests with 2 OCR tests ignored.
 
-The standalone desktop baseline is 68 frontend tests across 13 files, zero Svelte check errors or warnings, and 13 Tauri host tests.
+The standalone desktop baseline is 74 frontend tests across 13 files, zero Svelte check errors or warnings, and 13 Tauri host tests.
 
 ## Local Gates
 
