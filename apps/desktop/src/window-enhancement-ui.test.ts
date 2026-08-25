@@ -47,6 +47,12 @@ describe("window enhancement UI wiring", () => {
     expect(source).not.toContain('id="topmost-pin-tutorial"');
   });
 
+  it("exposes the restore outline toggle", () => {
+    expect(source).toContain("显示展开轮廓");
+    expect(source).toContain("关闭只隐藏窗口收纳后的淡白轮廓，边缘恢复仍可触发");
+    expect(source).toContain("bind:checked={settings.edgeHide.showRestoreHint}");
+  });
+
   it("animates one window through drag, collapse, hover and restore", () => {
     expect(source).toContain("拖到屏幕外边缘并松开，窗口自动收起；移到露出区域即可恢复。");
     expect(source.match(/class="tutorial-edge-window"/g)).toHaveLength(1);

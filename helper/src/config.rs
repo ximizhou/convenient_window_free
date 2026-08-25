@@ -564,6 +564,8 @@ pub struct EdgeHideConfig {
     #[serde(default = "default_true")]
     pub show_preview: bool,
     #[serde(default = "default_true")]
+    pub show_restore_hint: bool,
+    #[serde(default = "default_true")]
     pub keep_expanded_when_foreground: bool,
     #[serde(default = "default_edges")]
     pub edges: Vec<Edge>,
@@ -592,6 +594,7 @@ impl Default for EdgeHideConfig {
         Self {
             enabled: false,
             show_preview: true,
+            show_restore_hint: true,
             keep_expanded_when_foreground: true,
             edges: default_edges(),
             monitor_profiles: Vec::new(),
@@ -963,6 +966,7 @@ mod tests {
             "pausedApps": config.paused_apps,
             "stripSize": config.edge_hide.strip_size,
             "edgeHidePreviewEnabled": config.edge_hide.show_preview,
+            "showRestoreHint": config.edge_hide.show_restore_hint,
             "keepExpandedWhenForeground": config.edge_hide.keep_expanded_when_foreground,
             "triggerDistance": config.edge_hide.trigger_distance,
             "triggerRatio": config.edge_hide.trigger_ratio,
@@ -991,6 +995,7 @@ mod tests {
         assert_eq!(config.hotzones.len(), 8);
         assert_eq!(config.edge_hide.strip_size, 16);
         assert!(config.edge_hide.show_preview);
+        assert!(config.edge_hide.show_restore_hint);
         assert!(config.edge_hide.keep_expanded_when_foreground);
         assert!(config.edge_hide.distance_trigger_enabled);
         assert!(config.edge_hide.ratio_trigger_enabled);
@@ -1007,6 +1012,16 @@ mod tests {
 
         assert!(defaulted.edge_hide.keep_expanded_when_foreground);
         assert!(!disabled.edge_hide.keep_expanded_when_foreground);
+    }
+
+    #[test]
+    fn restore_hint_visibility_defaults_on_and_preserves_an_explicit_off() {
+        let defaulted: AppConfig = serde_json::from_str(r#"{"edgeHide":{}}"#).unwrap();
+        let disabled: AppConfig =
+            serde_json::from_str(r#"{"edgeHide":{"showRestoreHint":false}}"#).unwrap();
+
+        assert!(defaulted.edge_hide.show_restore_hint);
+        assert!(!disabled.edge_hide.show_restore_hint);
     }
 
     #[test]

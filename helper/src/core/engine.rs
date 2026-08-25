@@ -1,6 +1,8 @@
 use crate::config::{ActionKind, AppConfig, HotzoneId, HotzoneSetting, TriggerKind};
 use crate::core::actions::ActionDispatcher;
-use crate::core::edge_hide::{EdgeHideCommand, EdgeHideController, EdgeHideInput};
+use crate::core::edge_hide::{
+    EdgeHideCommand, EdgeHideController, EdgeHideInput, EdgeHideLiveState,
+};
 use crate::core::gesture::{path_length_pixels, recognize};
 use crate::core::hotzone::{detect_hotzone, hotzone_rect};
 use crate::core::trigger::HotzoneTriggerController;
@@ -196,6 +198,7 @@ impl Engine {
                             config.mouse_gestures.enabled && !gestures_paused && !dragging,
                         );
 
+                        let mut edge_hide_live_states = HashMap::new();
                         if !dragging {
                             self.handle_edge_hide(
                                 &config,
@@ -211,6 +214,7 @@ impl Engine {
                                         .context_menu_dismissed_since(previous_input),
                                     suppress_foreground_restore,
                                 },
+                                &mut edge_hide_live_states,
                             );
                         }
                         let edge_hide_preview = if let Some((handle, rect)) = drag_activity.target {
@@ -242,18 +246,14 @@ impl Engine {
                             None
                         };
                         platform::update_edge_hide_preview(edge_hide_preview);
-                        platform::update_strip_hints(&edge_hide.collapsed_strips_with_live_state(
-                            monitors,
-                            |handle| {
-                                if platform::window_is_minimized(handle) {
-                                    return Some((None, true));
-                                }
-                                match platform::window_info_for_handle(handle) {
-                                    Ok(Some(window)) => Some((Some(window.rect), false)),
-                                    Ok(None) | Err(_) => None,
-                                }
-                            },
-                        ));
+                        let strip_hints = if config.edge_hide.show_restore_hint {
+                            edge_hide.collapsed_strips_with_live_state(monitors, |handle, _| {
+                                cached_edge_hide_live_state(&mut edge_hide_live_states, handle)
+                            })
+                        } else {
+                            Vec::new()
+                        };
+                        platform::update_strip_hints(&strip_hints);
                         previous_cursor = Some(cursor);
                     }
                     (cursor, monitors, foreground) => {
@@ -262,6 +262,7 @@ impl Engine {
                             config.mouse_gestures.trigger_button,
                         );
                         platform::update_edge_hide_preview(None);
+                        platform::update_strip_hints(&[]);
                         platform::cancel_window_drag_capture();
                         if let Some((handle, rect)) = window_drag.cancel() {
                             let _ = platform::set_window_rect(handle, rect);
@@ -288,6 +289,7 @@ impl Engine {
                     0,
                 );
                 platform::update_edge_hide_preview(None);
+                platform::update_strip_hints(&[]);
                 if let Some((handle, rect)) = window_drag.cancel() {
                     let _ = platform::set_window_rect(handle, rect);
                 }
@@ -298,7 +300,17 @@ impl Engine {
                 previous_cursor = None;
                 foreground_tracker.reset();
                 platform::hide_hotzone_hints();
-                self.restore_edge_hide_if_needed(&mut edge_hide);
+                if edge_hide.has_restore_work() {
+                    match platform::monitors() {
+                        Ok(monitors) => cached_monitors = monitors,
+                        Err(error) => self.report_runtime_error(error),
+                    }
+                    self.restore_edge_hide_if_needed(
+                        &mut edge_hide,
+                        &cached_monitors,
+                        config.edge_hide.strip_size,
+                    );
+                }
             }
             self.handle_ocr_completions();
             previous_input = input;
@@ -324,13 +336,24 @@ impl Engine {
             0,
         );
         platform::update_edge_hide_preview(None);
+        platform::update_strip_hints(&[]);
         if let Some((handle, rect)) = window_drag.cancel() {
             let _ = platform::set_window_rect(handle, rect);
         }
         platform::configure_gesture_capture(false, config.mouse_gestures.trigger_button);
         platform::hide_gesture_overlay();
         platform::hide_hotzone_hints();
-        self.restore_edge_hide_if_needed(&mut edge_hide);
+        if edge_hide.has_restore_work() {
+            match platform::monitors() {
+                Ok(monitors) => cached_monitors = monitors,
+                Err(error) => self.report_runtime_error(error),
+            }
+            self.restore_edge_hide_if_needed(
+                &mut edge_hide,
+                &cached_monitors,
+                config.edge_hide.strip_size,
+            );
+        }
         platform::stop_mouse_hook();
         logging::write_line("engine: stopped");
 
@@ -622,25 +645,36 @@ impl Engine {
         monitors: &[platform::Monitor],
         foreground: Option<&platform::WindowInfo>,
         input: EdgeHideInput,
+        live_states: &mut HashMap<platform::WindowHandle, EdgeHideLiveState>,
     ) {
-        if let Some(command) =
-            edge_hide.tick_with_input(now, &config.edge_hide, cursor, monitors, foreground, input)
-        {
-            let result = match command {
-                EdgeHideCommand::Collapse { handle, rect } => {
-                    platform::set_window_rect_topmost(handle, rect, true)
-                        .map(|_| ("edge-hide.collapse", rect))
-                }
-                EdgeHideCommand::Restore {
-                    handle,
-                    rect,
-                    topmost,
-                } => platform::set_window_rect_topmost(handle, rect, topmost)
-                    .map(|_| ("edge-hide.restore", rect)),
-            };
-
-            match result {
+        if let Some(command) = edge_hide.tick_with_live_state(
+            now,
+            &config.edge_hide,
+            cursor,
+            monitors,
+            foreground,
+            input,
+            |handle, _| cached_edge_hide_live_state(live_states, handle),
+        ) {
+            match execute_edge_hide_command(command) {
                 Ok((kind, rect)) => {
+                    let handle = edge_hide_command_handle(command);
+                    let live_state = edge_hide_live_state(handle);
+                    live_states.insert(handle, live_state);
+                    if let Some(cleanup) = edge_hide.command_succeeded(command, live_state, now) {
+                        match execute_edge_hide_command(cleanup) {
+                            Ok(_) => {
+                                let cleanup_live_state = edge_hide_live_state(handle);
+                                edge_hide.command_succeeded(cleanup, cleanup_live_state, now);
+                                live_states.insert(handle, cleanup_live_state);
+                            }
+                            Err(error) => {
+                                edge_hide.command_failed(cleanup, now);
+                                self.report_runtime_error(error);
+                                live_states.insert(handle, edge_hide_live_state(handle));
+                            }
+                        }
+                    }
                     let _ = self.event_tx.send(HelperMessage::new(
                         "action.triggered",
                         json!({
@@ -655,22 +689,40 @@ impl Engine {
                     ));
                 }
                 Err(error) => {
-                    edge_hide.command_failed(command);
+                    edge_hide.command_failed(command, now);
                     self.report_runtime_error(error);
                 }
             }
         }
     }
 
-    fn restore_edge_hide_if_needed(&self, edge_hide: &mut EdgeHideController) {
-        while let Some(EdgeHideCommand::Restore {
-            handle,
-            rect,
-            topmost,
-        }) = edge_hide.restore_if_needed()
-        {
-            if let Err(error) = platform::set_window_rect_topmost(handle, rect, topmost) {
-                self.report_runtime_error(error);
+    fn restore_edge_hide_if_needed(
+        &self,
+        edge_hide: &mut EdgeHideController,
+        monitors: &[platform::Monitor],
+        strip_size: i32,
+    ) {
+        edge_hide.prepare_restore_all(monitors, strip_size);
+        for _ in 0..3 {
+            let Some(
+                command @ EdgeHideCommand::Restore {
+                    handle,
+                    rect,
+                    topmost,
+                },
+            ) = edge_hide.restore_if_needed()
+            else {
+                break;
+            };
+            let now = Instant::now();
+            match platform::set_window_rect_topmost(handle, rect, topmost) {
+                Ok(()) => {
+                    edge_hide.command_succeeded(command, edge_hide_live_state(handle), now);
+                }
+                Err(error) => {
+                    edge_hide.command_failed(command, now);
+                    self.report_runtime_error(error);
+                }
             }
         }
     }
@@ -693,6 +745,56 @@ fn engine_poll_interval(configured_ms: u64, dragging: bool) -> Duration {
     } else {
         configured_ms
     })
+}
+
+fn execute_edge_hide_command(command: EdgeHideCommand) -> Result<(&'static str, platform::Rect)> {
+    match command {
+        EdgeHideCommand::Collapse { handle, rect } => {
+            platform::set_window_rect_topmost(handle, rect, true)
+                .map(|_| ("edge-hide.collapse", rect))
+        }
+        EdgeHideCommand::Restore {
+            handle,
+            rect,
+            topmost,
+        } => platform::set_window_rect_topmost(handle, rect, topmost)
+            .map(|_| ("edge-hide.restore", rect)),
+    }
+}
+
+fn edge_hide_command_handle(command: EdgeHideCommand) -> platform::WindowHandle {
+    match command {
+        EdgeHideCommand::Collapse { handle, .. } | EdgeHideCommand::Restore { handle, .. } => {
+            handle
+        }
+    }
+}
+
+fn cached_edge_hide_live_state(
+    states: &mut HashMap<platform::WindowHandle, EdgeHideLiveState>,
+    handle: platform::WindowHandle,
+) -> EdgeHideLiveState {
+    *states
+        .entry(handle)
+        .or_insert_with(|| edge_hide_live_state(handle))
+}
+
+fn edge_hide_live_state(handle: platform::WindowHandle) -> EdgeHideLiveState {
+    let Ok(Some(window)) = platform::window_info_for_handle(handle) else {
+        return EdgeHideLiveState::Unavailable;
+    };
+    classify_edge_hide_live_state(Some(window.rect), platform::window_is_minimized(handle))
+}
+
+fn classify_edge_hide_live_state(
+    rect: Option<platform::Rect>,
+    minimized: bool,
+) -> EdgeHideLiveState {
+    match rect {
+        None => EdgeHideLiveState::Unavailable,
+        Some(_) if minimized => EdgeHideLiveState::Minimized,
+        Some(rect) => EdgeHideLiveState::Visible(rect),
+    }
 }
 
 const MINIMIZED_FOREGROUND_GUARD: Duration = Duration::from_millis(250);
@@ -983,6 +1085,26 @@ mod tests {
             Point { x: 11, y: 10 },
             Some(Point { x: 10, y: 10 }),
         ));
+    }
+
+    #[test]
+    fn hidden_windows_stay_unavailable_even_if_windows_reports_them_minimized() {
+        assert_eq!(
+            classify_edge_hide_live_state(None, true),
+            EdgeHideLiveState::Unavailable
+        );
+        assert_eq!(
+            classify_edge_hide_live_state(
+                Some(Rect {
+                    left: 0,
+                    top: 0,
+                    right: 100,
+                    bottom: 100,
+                }),
+                true,
+            ),
+            EdgeHideLiveState::Minimized
+        );
     }
 
     #[test]

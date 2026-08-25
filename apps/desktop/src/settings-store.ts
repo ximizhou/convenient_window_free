@@ -61,6 +61,7 @@ export const defaultSettings: AppSettings = {
   edgeHide: {
     enabled: false,
     showPreview: true,
+    showRestoreHint: true,
     keepExpandedWhenForeground: true,
     edges: ["left", "top", "right", "bottom"],
     monitorProfiles: [],
@@ -143,6 +144,10 @@ export function normalizeSettings(stored: Partial<AppSettings> | null | undefine
     edgeHide: {
       enabled: booleanValue(edgeHide?.enabled, defaultSettings.edgeHide.enabled),
       showPreview: booleanValue(edgeHide?.showPreview, defaultSettings.edgeHide.showPreview),
+      showRestoreHint: booleanValue(
+        edgeHide?.showRestoreHint,
+        defaultSettings.edgeHide.showRestoreHint
+      ),
       keepExpandedWhenForeground: booleanValue(
         edgeHide?.keepExpandedWhenForeground,
         defaultSettings.edgeHide.keepExpandedWhenForeground

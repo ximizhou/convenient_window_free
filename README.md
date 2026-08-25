@@ -23,7 +23,7 @@ Release assets are currently unsigned. Windows may show an unknown-publisher or 
 ## Features
 
 - **Hot zones**: configure the four corners and four edges of each monitor independently, with hover, mouse-button, wheel, and edge-movement triggers.
-- **Window edge hiding**: move windows partly off-screen and restore them from a visible edge strip, with multi-window and multi-monitor support.
+- **Window edge hiding**: move windows partly off-screen and restore them from a visible edge strip, with multi-window and multi-monitor support. The pale restore outline can be hidden independently without disabling edge restoration.
 - **Anywhere move and resize**: move or resize the active window with configurable modifier-and-mouse combinations.
 - **Topmost controls**: keep a window above others and optionally use a small on-window pin to release it quickly.
 - **Global mouse gestures**: bind gestures to shortcuts, system actions, commands, and window controls; create and manage custom gesture samples.

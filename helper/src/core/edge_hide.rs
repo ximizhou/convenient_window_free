@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
 const EDGE_HIDE_PREVIEW_THICKNESS: i32 = 4;
+const RELOCATION_RETRY_DELAY: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EdgeHideCommand {
@@ -16,6 +17,13 @@ pub enum EdgeHideCommand {
         rect: Rect,
         topmost: bool,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EdgeHideLiveState {
+    Visible(Rect),
+    Minimized,
+    Unavailable,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -35,10 +43,33 @@ enum EdgeHideState {
         original_topmost: bool,
         since: Instant,
     },
+    Collapsing {
+        edge: Edge,
+        restore_rect: Rect,
+        hidden_rect: Rect,
+        original_topmost: bool,
+        was_foreground: bool,
+    },
     Collapsed {
         edge: Edge,
         restore_rect: Rect,
         hidden_rect: Rect,
+        original_topmost: bool,
+        was_foreground: bool,
+    },
+    Expanding {
+        edge: Edge,
+        restore_rect: Rect,
+        hidden_rect: Rect,
+        original_topmost: bool,
+        pointer_entered: bool,
+    },
+    Relocating {
+        edge: Edge,
+        restore_rect: Rect,
+        hidden_rect: Rect,
+        previous_restore_rect: Rect,
+        previous_hidden_rect: Rect,
         original_topmost: bool,
         was_foreground: bool,
     },
@@ -50,11 +81,16 @@ enum EdgeHideState {
         pointer_entered: bool,
         leave_since: Option<Instant>,
     },
+    CleaningUp {
+        rect: Rect,
+        original_topmost: bool,
+    },
 }
 
 pub struct EdgeHideController {
     states: HashMap<WindowHandle, EdgeHideState>,
     restore_queue: VecDeque<EdgeHideCommand>,
+    relocation_retry_after: HashMap<WindowHandle, Instant>,
     context_menu_guard: Option<WindowHandle>,
 }
 
@@ -63,30 +99,23 @@ impl EdgeHideController {
         Self {
             states: HashMap::new(),
             restore_queue: VecDeque::new(),
+            relocation_retry_after: HashMap::new(),
             context_menu_guard: None,
         }
-    }
-
-    /// Returns the visible strip rects for all collapsed windows (for rendering hints).
-    #[cfg(test)]
-    fn collapsed_strips(&self, monitors: &[Monitor]) -> Vec<Rect> {
-        self.collapsed_strips_filtered(monitors, |_, _| true)
     }
 
     /// Returns strip hints only for collapsed windows that still occupy their hidden rect.
     ///
     /// A live window query is kept at the rendering boundary so an externally moved or hidden
-    /// window cannot leave a stale white restore strip behind. Minimized windows intentionally
-    /// remain eligible because their edge state is still recoverable from the strip.
+    /// window cannot leave a stale white restore strip behind. Minimized and unavailable windows
+    /// keep their recoverable state but do not expose a misleading strip or hotzone.
     pub fn collapsed_strips_with_live_state(
         &self,
         monitors: &[Monitor],
-        mut window_state: impl FnMut(WindowHandle) -> Option<(Option<Rect>, bool)>,
+        mut window_state: impl FnMut(WindowHandle, Rect) -> EdgeHideLiveState,
     ) -> Vec<Rect> {
         self.collapsed_strips_filtered(monitors, |handle, hidden_rect| {
-            window_state(handle).is_some_and(|(rect, minimized)| {
-                minimized || rect.is_some_and(|rect| rects_roughly_equal(rect, hidden_rect))
-            })
+            live_window_matches_hidden_rect(hidden_rect, window_state(handle, hidden_rect))
         })
     }
 
@@ -99,6 +128,7 @@ impl EdgeHideController {
             .iter()
             .filter_map(|(handle, state)| {
                 let EdgeHideState::Collapsed {
+                    edge,
                     restore_rect,
                     hidden_rect,
                     ..
@@ -106,11 +136,12 @@ impl EdgeHideController {
                 else {
                     return None;
                 };
-                if !keep(*handle, *hidden_rect) {
+                if self.relocation_retry_after.contains_key(handle) || !keep(*handle, *hidden_rect)
+                {
                     return None;
                 }
-                let work_area = render_monitor_for_rect(*restore_rect, monitors)?.work_area;
-                let strip = strip_rect(*hidden_rect, work_area);
+                let monitor = exposed_monitor_for_restore(*restore_rect, *edge, monitors)?;
+                let strip = strip_rect(*hidden_rect, monitor.work_area);
                 (strip.width() > 0 && strip.height() > 0).then_some(strip)
             })
             .collect()
@@ -143,6 +174,8 @@ impl EdgeHideController {
 
     pub fn prune_invalid_windows(&mut self, mut window_exists: impl FnMut(WindowHandle) -> bool) {
         self.states.retain(|handle, _| window_exists(*handle));
+        self.relocation_retry_after
+            .retain(|handle, _| window_exists(*handle));
         self.restore_queue.retain(|command| {
             let handle = match command {
                 EdgeHideCommand::Collapse { handle, .. }
@@ -165,36 +198,370 @@ impl EdgeHideController {
         self.restore_queue.pop_front()
     }
 
-    pub fn command_failed(&mut self, command: EdgeHideCommand) {
+    pub fn has_restore_work(&self) -> bool {
+        !self.states.is_empty() || !self.restore_queue.is_empty()
+    }
+
+    pub fn prepare_restore_all(&mut self, monitors: &[Monitor], strip_size: i32) {
+        if self.restore_queue.is_empty() {
+            self.reconcile_for_restore(monitors, strip_size);
+        }
+    }
+
+    pub fn command_succeeded(
+        &mut self,
+        command: EdgeHideCommand,
+        live_state: EdgeHideLiveState,
+        now: Instant,
+    ) -> Option<EdgeHideCommand> {
         match command {
-            EdgeHideCommand::Collapse { handle, rect } => {
-                let failed_current_collapse = matches!(
-                    self.states.get(&handle),
-                    Some(EdgeHideState::Collapsed { hidden_rect, .. }) if *hidden_rect == rect
-                );
-                if failed_current_collapse {
-                    self.states.remove(&handle);
-                }
-            }
-            EdgeHideCommand::Restore { handle, .. } => {
-                let collapsed = match self.states.get(&handle) {
+            EdgeHideCommand::Restore {
+                handle,
+                rect,
+                topmost,
+            } => {
+                match self.states.get(&handle).cloned() {
+                    Some(EdgeHideState::CleaningUp {
+                        rect: cleanup_rect,
+                        original_topmost,
+                    }) if cleanup_rect == rect && original_topmost == topmost => {
+                        if live_window_matches_rect(rect, live_state) {
+                            self.states.remove(&handle);
+                            self.relocation_retry_after.remove(&handle);
+                        } else {
+                            self.relocation_retry_after
+                                .insert(handle, now + RELOCATION_RETRY_DELAY);
+                        }
+                    }
+                    Some(EdgeHideState::Expanding {
+                        edge,
+                        restore_rect,
+                        hidden_rect,
+                        original_topmost,
+                        pointer_entered,
+                    }) if restore_rect == rect && original_topmost == topmost => match live_state {
+                        EdgeHideLiveState::Visible(actual)
+                            if rects_roughly_equal(actual, restore_rect) =>
+                        {
+                            self.states.insert(
+                                handle,
+                                EdgeHideState::Expanded {
+                                    edge,
+                                    restore_rect,
+                                    hidden_rect,
+                                    original_topmost,
+                                    pointer_entered,
+                                    leave_since: None,
+                                },
+                            );
+                            self.relocation_retry_after.remove(&handle);
+                        }
+                        EdgeHideLiveState::Visible(actual)
+                            if rects_roughly_equal(actual, hidden_rect) =>
+                        {
+                            self.states.insert(
+                                handle,
+                                EdgeHideState::Collapsed {
+                                    edge,
+                                    restore_rect,
+                                    hidden_rect,
+                                    original_topmost,
+                                    was_foreground: false,
+                                },
+                            );
+                            self.relocation_retry_after.remove(&handle);
+                        }
+                        EdgeHideLiveState::Visible(_) => {
+                            self.states.remove(&handle);
+                            self.relocation_retry_after.remove(&handle);
+                        }
+                        EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => {
+                            self.relocation_retry_after
+                                .insert(handle, now + RELOCATION_RETRY_DELAY);
+                        }
+                    },
                     Some(EdgeHideState::Expanded {
                         edge,
                         restore_rect,
                         hidden_rect,
                         original_topmost,
+                        pointer_entered,
+                        leave_since,
+                    }) if restore_rect == rect && original_topmost == topmost => match live_state {
+                        EdgeHideLiveState::Visible(actual)
+                            if rects_roughly_equal(actual, hidden_rect) =>
+                        {
+                            self.states.insert(
+                                handle,
+                                EdgeHideState::Collapsed {
+                                    edge,
+                                    restore_rect,
+                                    hidden_rect,
+                                    original_topmost,
+                                    was_foreground: false,
+                                },
+                            );
+                            self.relocation_retry_after.remove(&handle);
+                        }
+                        EdgeHideLiveState::Visible(actual)
+                            if rects_roughly_equal(actual, restore_rect) =>
+                        {
+                            self.states.insert(
+                                handle,
+                                EdgeHideState::Expanded {
+                                    edge,
+                                    restore_rect,
+                                    hidden_rect,
+                                    original_topmost,
+                                    pointer_entered,
+                                    leave_since,
+                                },
+                            );
+                            self.relocation_retry_after.remove(&handle);
+                        }
+                        EdgeHideLiveState::Visible(_) => {
+                            self.states.remove(&handle);
+                            self.relocation_retry_after.remove(&handle);
+                        }
+                        EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => {
+                            self.states.insert(
+                                handle,
+                                EdgeHideState::Expanding {
+                                    edge,
+                                    restore_rect,
+                                    hidden_rect,
+                                    original_topmost,
+                                    pointer_entered,
+                                },
+                            );
+                            self.relocation_retry_after
+                                .insert(handle, now + RELOCATION_RETRY_DELAY);
+                        }
+                    },
+                    None if !live_window_matches_rect(rect, live_state) => {
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::CleaningUp {
+                                rect,
+                                original_topmost: topmost,
+                            },
+                        );
+                        self.relocation_retry_after
+                            .insert(handle, now + RELOCATION_RETRY_DELAY);
+                    }
+                    _ => {}
+                }
+                None
+            }
+            EdgeHideCommand::Collapse { handle, rect } => match self.states.get(&handle).cloned() {
+                Some(EdgeHideState::Collapsing {
+                    edge,
+                    restore_rect,
+                    hidden_rect,
+                    original_topmost,
+                    was_foreground,
+                }) if hidden_rect == rect => match live_state {
+                    EdgeHideLiveState::Visible(actual)
+                        if rects_roughly_equal(actual, hidden_rect) =>
+                    {
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::Collapsed {
+                                edge,
+                                restore_rect,
+                                hidden_rect,
+                                original_topmost,
+                                was_foreground,
+                            },
+                        );
+                        None
+                    }
+                    EdgeHideLiveState::Visible(actual) => {
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::CleaningUp {
+                                rect: actual,
+                                original_topmost,
+                            },
+                        );
+                        Some(EdgeHideCommand::Restore {
+                            handle,
+                            rect: actual,
+                            topmost: original_topmost,
+                        })
+                    }
+                    EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => None,
+                },
+                Some(EdgeHideState::Relocating {
+                    edge,
+                    restore_rect,
+                    hidden_rect,
+                    previous_restore_rect,
+                    previous_hidden_rect,
+                    original_topmost,
+                    was_foreground,
+                }) if hidden_rect == rect => match live_state {
+                    EdgeHideLiveState::Visible(actual)
+                        if rects_roughly_equal(actual, hidden_rect) =>
+                    {
+                        self.relocation_retry_after.remove(&handle);
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::Collapsed {
+                                edge,
+                                restore_rect,
+                                hidden_rect,
+                                original_topmost,
+                                was_foreground,
+                            },
+                        );
+                        None
+                    }
+                    EdgeHideLiveState::Visible(actual)
+                        if !rects_roughly_equal(actual, previous_hidden_rect) =>
+                    {
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::CleaningUp {
+                                rect: actual,
+                                original_topmost,
+                            },
+                        );
+                        self.relocation_retry_after.remove(&handle);
+                        Some(EdgeHideCommand::Restore {
+                            handle,
+                            rect: actual,
+                            topmost: original_topmost,
+                        })
+                    }
+                    _ => {
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::Collapsed {
+                                edge,
+                                restore_rect: previous_restore_rect,
+                                hidden_rect: previous_hidden_rect,
+                                original_topmost,
+                                was_foreground,
+                            },
+                        );
+                        self.relocation_retry_after
+                            .insert(handle, now + RELOCATION_RETRY_DELAY);
+                        None
+                    }
+                },
+                _ => None,
+            },
+        }
+    }
+
+    pub fn command_failed(&mut self, command: EdgeHideCommand, now: Instant) {
+        match command {
+            EdgeHideCommand::Collapse { handle, rect } => {
+                let previous = match self.states.get(&handle) {
+                    Some(EdgeHideState::Relocating {
+                        edge,
+                        hidden_rect,
+                        previous_restore_rect,
+                        previous_hidden_rect,
+                        original_topmost,
+                        was_foreground,
                         ..
-                    }) => Some(EdgeHideState::Collapsed {
+                    }) if *hidden_rect == rect => Some(EdgeHideState::Collapsed {
                         edge: *edge,
-                        restore_rect: *restore_rect,
-                        hidden_rect: *hidden_rect,
+                        restore_rect: *previous_restore_rect,
+                        hidden_rect: *previous_hidden_rect,
                         original_topmost: *original_topmost,
-                        was_foreground: false,
+                        was_foreground: *was_foreground,
                     }),
                     _ => None,
                 };
-                if let Some(collapsed) = collapsed {
-                    self.states.insert(handle, collapsed);
+                if let Some(previous) = previous {
+                    self.states.insert(handle, previous);
+                    self.relocation_retry_after
+                        .insert(handle, now + RELOCATION_RETRY_DELAY);
+                    return;
+                }
+                let cleanup = match self.states.get(&handle) {
+                    Some(EdgeHideState::Collapsing {
+                        hidden_rect,
+                        restore_rect,
+                        original_topmost,
+                        ..
+                    }) if *hidden_rect == rect => Some((*restore_rect, *original_topmost)),
+                    _ => None,
+                };
+                if let Some((rect, original_topmost)) = cleanup {
+                    self.states.insert(
+                        handle,
+                        EdgeHideState::CleaningUp {
+                            rect,
+                            original_topmost,
+                        },
+                    );
+                    self.relocation_retry_after
+                        .insert(handle, now + RELOCATION_RETRY_DELAY);
+                }
+            }
+            EdgeHideCommand::Restore {
+                handle,
+                rect,
+                topmost,
+            } => {
+                if matches!(
+                    self.states.get(&handle),
+                    Some(EdgeHideState::CleaningUp {
+                        rect: cleanup_rect,
+                        original_topmost,
+                    }) if *cleanup_rect == rect && *original_topmost == topmost
+                ) {
+                    self.relocation_retry_after
+                        .insert(handle, now + RELOCATION_RETRY_DELAY);
+                    return;
+                }
+                let next_state = match self.states.get(&handle) {
+                    Some(EdgeHideState::Expanding {
+                        edge,
+                        restore_rect,
+                        hidden_rect,
+                        original_topmost,
+                        pointer_entered,
+                    }) if *restore_rect == rect && *original_topmost == topmost => {
+                        Some(EdgeHideState::Expanding {
+                            edge: *edge,
+                            restore_rect: *restore_rect,
+                            hidden_rect: *hidden_rect,
+                            original_topmost: *original_topmost,
+                            pointer_entered: *pointer_entered,
+                        })
+                    }
+                    Some(EdgeHideState::Expanded {
+                        edge,
+                        restore_rect,
+                        hidden_rect,
+                        original_topmost,
+                        pointer_entered,
+                        leave_since,
+                    }) if *restore_rect == rect && *original_topmost == topmost => {
+                        Some(EdgeHideState::Expanded {
+                            edge: *edge,
+                            restore_rect: *restore_rect,
+                            hidden_rect: *hidden_rect,
+                            original_topmost: *original_topmost,
+                            pointer_entered: *pointer_entered,
+                            leave_since: *leave_since,
+                        })
+                    }
+                    None => Some(EdgeHideState::CleaningUp {
+                        rect,
+                        original_topmost: topmost,
+                    }),
+                    _ => None,
+                };
+                if let Some(next_state) = next_state {
+                    self.states.insert(handle, next_state);
+                    self.relocation_retry_after
+                        .insert(handle, now + RELOCATION_RETRY_DELAY);
                 }
             }
         }
@@ -242,6 +609,7 @@ impl EdgeHideController {
         )
     }
 
+    #[cfg(test)]
     pub fn tick_with_input(
         &mut self,
         now: Instant,
@@ -251,15 +619,65 @@ impl EdgeHideController {
         foreground: Option<&WindowInfo>,
         input: EdgeHideInput,
     ) -> Option<EdgeHideCommand> {
+        self.tick_with_live_state(
+            now,
+            config,
+            cursor,
+            monitors,
+            foreground,
+            input,
+            |_, hidden_rect| EdgeHideLiveState::Visible(hidden_rect),
+        )
+    }
+
+    pub fn tick_with_live_state(
+        &mut self,
+        now: Instant,
+        config: &EdgeHideConfig,
+        cursor: Point,
+        monitors: &[Monitor],
+        foreground: Option<&WindowInfo>,
+        input: EdgeHideInput,
+        mut window_state: impl FnMut(WindowHandle, Rect) -> EdgeHideLiveState,
+    ) -> Option<EdgeHideCommand> {
+        self.relocation_retry_after
+            .retain(|_, retry_after| now < *retry_after);
         if let Some(command) = self.restore_queue.pop_front() {
             return Some(command);
         }
 
-        self.reconcile_monitors(monitors, config.strip_size);
-
         if !config.enabled {
+            self.reconcile_for_restore(monitors, config.strip_size);
             return self.disable();
         }
+
+        if let Some(command) =
+            self.reconcile_monitors(monitors, config.strip_size, &mut window_state)
+        {
+            return Some(command);
+        }
+        let active_collapsed = self
+            .states
+            .iter()
+            .filter_map(|(handle, state)| {
+                let EdgeHideState::Collapsed {
+                    edge,
+                    restore_rect,
+                    hidden_rect,
+                    ..
+                } = state
+                else {
+                    return None;
+                };
+                (!self.relocation_retry_after.contains_key(handle)
+                    && exposed_monitor_for_restore(*restore_rect, *edge, monitors).is_some()
+                    && live_window_matches_hidden_rect(
+                        *hidden_rect,
+                        window_state(*handle, *hidden_rect),
+                    ))
+                .then_some(*handle)
+            })
+            .collect::<Vec<_>>();
 
         if input.context_menu_dismissed || input.left_button_down {
             self.context_menu_guard = None;
@@ -279,6 +697,7 @@ impl EdgeHideController {
             monitors,
             foreground,
             !input.suppress_foreground_restore,
+            &active_collapsed,
         ) {
             return Some(command);
         }
@@ -308,7 +727,14 @@ impl EdgeHideController {
 
         if matches!(
             self.states.get(&window.handle),
-            Some(EdgeHideState::Collapsed { .. } | EdgeHideState::Expanded { .. })
+            Some(
+                EdgeHideState::Collapsing { .. }
+                    | EdgeHideState::Expanding { .. }
+                    | EdgeHideState::Collapsed { .. }
+                    | EdgeHideState::Relocating { .. }
+                    | EdgeHideState::Expanded { .. }
+                    | EdgeHideState::CleaningUp { .. }
+            )
         ) {
             return None;
         }
@@ -342,7 +768,7 @@ impl EdgeHideController {
                         hidden_rect_for(*restore_rect, monitor.work_area, edge, config.strip_size);
                     self.states.insert(
                         window.handle,
-                        EdgeHideState::Collapsed {
+                        EdgeHideState::Collapsing {
                             edge,
                             restore_rect: *restore_rect,
                             hidden_rect,
@@ -381,6 +807,7 @@ impl EdgeHideController {
         monitors: &[Monitor],
         foreground: Option<&WindowInfo>,
         allow_foreground_restore: bool,
+        active_collapsed: &[WindowHandle],
     ) -> Option<EdgeHideCommand> {
         let manually_moved = foreground.and_then(|window| {
             let EdgeHideState::Collapsed {
@@ -416,6 +843,10 @@ impl EdgeHideController {
             } = state
             {
                 let is_foreground = foreground_handle == Some(*handle);
+                if !active_collapsed.contains(handle) {
+                    *was_foreground = is_foreground;
+                    continue;
+                }
                 if allow_foreground_restore && is_foreground && !*was_foreground {
                     activated = Some((
                         *handle,
@@ -438,9 +869,11 @@ impl EdgeHideController {
                 ..
             } = state
             {
-                let work_area = monitor_for_rect(*restore_rect, monitors)
-                    .map(|m| m.work_area)
-                    .unwrap_or(*hidden_rect);
+                if !active_collapsed.contains(handle) {
+                    return None;
+                }
+                let work_area =
+                    exposed_monitor_for_restore(*restore_rect, *edge, monitors)?.work_area;
                 let visible = strip_rect(*hidden_rect, work_area);
                 if visible
                     .inflate(config.trigger_distance.max(1))
@@ -483,13 +916,12 @@ impl EdgeHideController {
             };
         self.states.insert(
             handle,
-            EdgeHideState::Expanded {
+            EdgeHideState::Expanding {
                 edge,
                 restore_rect,
                 hidden_rect,
                 original_topmost,
                 pointer_entered,
-                leave_since: None,
             },
         );
         Some(EdgeHideCommand::Restore {
@@ -580,7 +1012,7 @@ impl EdgeHideController {
         let (handle, edge, restore_rect, hidden_rect, original_topmost) = target?;
         self.states.insert(
             handle,
-            EdgeHideState::Collapsed {
+            EdgeHideState::Collapsing {
                 edge,
                 restore_rect,
                 hidden_rect,
@@ -595,8 +1027,20 @@ impl EdgeHideController {
     }
 
     fn queue_restore_all(&mut self) {
+        self.relocation_retry_after.clear();
         for (handle, state) in self.states.drain() {
             match state {
+                EdgeHideState::Collapsing {
+                    restore_rect,
+                    original_topmost,
+                    ..
+                } => {
+                    self.restore_queue.push_back(EdgeHideCommand::Restore {
+                        handle,
+                        rect: restore_rect,
+                        topmost: original_topmost,
+                    });
+                }
                 EdgeHideState::Collapsed {
                     restore_rect,
                     original_topmost,
@@ -612,10 +1056,30 @@ impl EdgeHideController {
                     restore_rect,
                     original_topmost,
                     ..
+                }
+                | EdgeHideState::Expanding {
+                    restore_rect,
+                    original_topmost,
+                    ..
+                }
+                | EdgeHideState::Relocating {
+                    restore_rect,
+                    original_topmost,
+                    ..
                 } => {
                     self.restore_queue.push_back(EdgeHideCommand::Restore {
                         handle,
                         rect: restore_rect,
+                        topmost: original_topmost,
+                    });
+                }
+                EdgeHideState::CleaningUp {
+                    rect,
+                    original_topmost,
+                } => {
+                    self.restore_queue.push_back(EdgeHideCommand::Restore {
+                        handle,
+                        rect,
                         topmost: original_topmost,
                     });
                 }
@@ -638,7 +1102,191 @@ impl EdgeHideController {
             .retain(|_, state| !matches!(state, EdgeHideState::Pending { .. }));
     }
 
-    fn reconcile_monitors(&mut self, monitors: &[Monitor], strip_size: i32) {
+    fn reconcile_monitors(
+        &mut self,
+        monitors: &[Monitor],
+        strip_size: i32,
+        window_state: &mut impl FnMut(WindowHandle, Rect) -> EdgeHideLiveState,
+    ) -> Option<EdgeHideCommand> {
+        for state in self.states.values_mut() {
+            let (EdgeHideState::Expanded {
+                edge,
+                restore_rect,
+                hidden_rect,
+                ..
+            }
+            | EdgeHideState::Expanding {
+                edge,
+                restore_rect,
+                hidden_rect,
+                ..
+            }) = state
+            else {
+                continue;
+            };
+            let Some(monitor) = monitor_for_edge_restore(*restore_rect, *edge, monitors) else {
+                continue;
+            };
+            let adjusted_restore = restore_rect_for(*restore_rect, monitor.work_area);
+            *restore_rect = adjusted_restore;
+            *hidden_rect = hidden_rect_for(adjusted_restore, monitor.work_area, *edge, strip_size);
+        }
+
+        let handles = self.states.keys().copied().collect::<Vec<_>>();
+        for handle in handles {
+            if self.relocation_retry_after.contains_key(&handle) {
+                continue;
+            }
+            match self.states.get(&handle).cloned() {
+                Some(EdgeHideState::Expanding {
+                    edge,
+                    restore_rect,
+                    hidden_rect,
+                    original_topmost,
+                    pointer_entered,
+                }) => match window_state(handle, restore_rect) {
+                    EdgeHideLiveState::Visible(actual)
+                        if rects_roughly_equal(actual, restore_rect) =>
+                    {
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::Expanded {
+                                edge,
+                                restore_rect,
+                                hidden_rect,
+                                original_topmost,
+                                pointer_entered,
+                                leave_since: None,
+                            },
+                        );
+                    }
+                    EdgeHideLiveState::Visible(actual)
+                        if rects_roughly_equal(actual, hidden_rect) =>
+                    {
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::Collapsed {
+                                edge,
+                                restore_rect,
+                                hidden_rect,
+                                original_topmost,
+                                was_foreground: false,
+                            },
+                        );
+                    }
+                    EdgeHideLiveState::Visible(_) => {
+                        self.states.remove(&handle);
+                    }
+                    EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => {}
+                },
+                Some(EdgeHideState::Collapsing {
+                    edge,
+                    restore_rect,
+                    hidden_rect,
+                    original_topmost,
+                    was_foreground,
+                }) => match window_state(handle, hidden_rect) {
+                    EdgeHideLiveState::Visible(actual)
+                        if rects_roughly_equal(actual, hidden_rect) =>
+                    {
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::Collapsed {
+                                edge,
+                                restore_rect,
+                                hidden_rect,
+                                original_topmost,
+                                was_foreground,
+                            },
+                        );
+                    }
+                    EdgeHideLiveState::Visible(actual) => {
+                        self.states.insert(
+                            handle,
+                            EdgeHideState::CleaningUp {
+                                rect: actual,
+                                original_topmost,
+                            },
+                        );
+                        return Some(EdgeHideCommand::Restore {
+                            handle,
+                            rect: actual,
+                            topmost: original_topmost,
+                        });
+                    }
+                    EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => {}
+                },
+                Some(EdgeHideState::CleaningUp {
+                    rect,
+                    original_topmost,
+                }) => {
+                    return Some(EdgeHideCommand::Restore {
+                        handle,
+                        rect,
+                        topmost: original_topmost,
+                    });
+                }
+                _ => {}
+            }
+            let Some(EdgeHideState::Collapsed {
+                edge,
+                restore_rect,
+                hidden_rect,
+                original_topmost,
+                was_foreground,
+            }) = self.states.get(&handle).cloned()
+            else {
+                continue;
+            };
+            let Some(monitor) = monitor_for_edge_restore(restore_rect, edge, monitors) else {
+                continue;
+            };
+            let adjusted_restore = restore_rect_for(restore_rect, monitor.work_area);
+            let adjusted_hidden =
+                hidden_rect_for(adjusted_restore, monitor.work_area, edge, strip_size);
+            if adjusted_restore == restore_rect && adjusted_hidden == hidden_rect {
+                continue;
+            }
+
+            let live_state = window_state(handle, hidden_rect);
+            if live_window_matches_hidden_rect(adjusted_hidden, live_state) {
+                self.states.insert(
+                    handle,
+                    EdgeHideState::Collapsed {
+                        edge,
+                        restore_rect: adjusted_restore,
+                        hidden_rect: adjusted_hidden,
+                        original_topmost,
+                        was_foreground,
+                    },
+                );
+                continue;
+            }
+            if !live_window_matches_hidden_rect(hidden_rect, live_state) {
+                continue;
+            }
+
+            self.states.insert(
+                handle,
+                EdgeHideState::Relocating {
+                    edge,
+                    restore_rect: adjusted_restore,
+                    hidden_rect: adjusted_hidden,
+                    previous_restore_rect: restore_rect,
+                    previous_hidden_rect: hidden_rect,
+                    original_topmost,
+                    was_foreground,
+                },
+            );
+            return Some(EdgeHideCommand::Collapse {
+                handle,
+                rect: adjusted_hidden,
+            });
+        }
+        None
+    }
+
+    fn reconcile_for_restore(&mut self, monitors: &[Monitor], strip_size: i32) {
         for state in self.states.values_mut() {
             let (edge, restore_rect, hidden_rect) = match state {
                 EdgeHideState::Collapsed {
@@ -652,8 +1300,26 @@ impl EdgeHideController {
                     restore_rect,
                     hidden_rect,
                     ..
+                }
+                | EdgeHideState::Expanding {
+                    edge,
+                    restore_rect,
+                    hidden_rect,
+                    ..
+                }
+                | EdgeHideState::Relocating {
+                    edge,
+                    restore_rect,
+                    hidden_rect,
+                    ..
                 } => (edge, restore_rect, hidden_rect),
-                EdgeHideState::Pending { .. } => continue,
+                EdgeHideState::Collapsing {
+                    edge,
+                    restore_rect,
+                    hidden_rect,
+                    ..
+                } => (edge, restore_rect, hidden_rect),
+                EdgeHideState::Pending { .. } | EdgeHideState::CleaningUp { .. } => continue,
             };
             let Some(monitor) = monitor_for_rect(*restore_rect, monitors) else {
                 continue;
@@ -830,30 +1496,54 @@ fn is_edge_exposed_for_rect(
 }
 
 fn monitor_for_rect(rect: Rect, monitors: &[Monitor]) -> Option<&Monitor> {
-    monitors.iter().max_by_key(|monitor| {
-        let area = monitor.bounds;
-        let overlap_width = (rect.right.min(area.right) - rect.left.max(area.left)).max(0) as i64;
-        let overlap_height = (rect.bottom.min(area.bottom) - rect.top.max(area.top)).max(0) as i64;
-        let overlap_area = overlap_width * overlap_height;
+    monitors
+        .iter()
+        .max_by_key(|monitor| monitor_rect_score(rect, monitor.bounds))
+}
 
-        let dx = if rect.right < area.left {
-            (area.left - rect.right) as i64
-        } else if rect.left > area.right {
-            (rect.left - area.right) as i64
-        } else {
-            0
-        };
-        let dy = if rect.bottom < area.top {
-            (area.top - rect.bottom) as i64
-        } else if rect.top > area.bottom {
-            (rect.top - area.bottom) as i64
-        } else {
-            0
-        };
-        let distance_squared = dx * dx + dy * dy;
+fn monitor_for_edge_restore(
+    restore_rect: Rect,
+    edge: Edge,
+    monitors: &[Monitor],
+) -> Option<&Monitor> {
+    if let Some(monitor) = monitor_for_rect(restore_rect, monitors) {
+        let adjusted = restore_rect_for(restore_rect, monitor.work_area);
+        if is_edge_exposed_for_rect(monitor, edge, adjusted, monitors) {
+            return Some(monitor);
+        }
+    }
 
-        (overlap_area > 0, overlap_area, -distance_squared)
-    })
+    monitors
+        .iter()
+        .filter(|monitor| {
+            let adjusted = restore_rect_for(restore_rect, monitor.work_area);
+            is_edge_exposed_for_rect(monitor, edge, adjusted, monitors)
+        })
+        .max_by_key(|monitor| monitor_rect_score(restore_rect, monitor.bounds))
+}
+
+fn monitor_rect_score(rect: Rect, area: Rect) -> (bool, i64, i64) {
+    let overlap_width = (rect.right.min(area.right) - rect.left.max(area.left)).max(0) as i64;
+    let overlap_height = (rect.bottom.min(area.bottom) - rect.top.max(area.top)).max(0) as i64;
+    let overlap_area = overlap_width * overlap_height;
+
+    let dx = if rect.right < area.left {
+        (area.left - rect.right) as i64
+    } else if rect.left > area.right {
+        (rect.left - area.right) as i64
+    } else {
+        0
+    };
+    let dy = if rect.bottom < area.top {
+        (area.top - rect.bottom) as i64
+    } else if rect.top > area.bottom {
+        (rect.top - area.bottom) as i64
+    } else {
+        0
+    };
+    let distance_squared = dx * dx + dy * dy;
+
+    (overlap_area > 0, overlap_area, -distance_squared)
 }
 
 fn render_monitor_for_rect(rect: Rect, monitors: &[Monitor]) -> Option<&Monitor> {
@@ -861,6 +1551,15 @@ fn render_monitor_for_rect(rect: Rect, monitors: &[Monitor]) -> Option<&Monitor>
     let overlap_width = rect.right.min(monitor.bounds.right) - rect.left.max(monitor.bounds.left);
     let overlap_height = rect.bottom.min(monitor.bounds.bottom) - rect.top.max(monitor.bounds.top);
     (overlap_width > 0 && overlap_height > 0).then_some(monitor)
+}
+
+fn exposed_monitor_for_restore(
+    restore_rect: Rect,
+    edge: Edge,
+    monitors: &[Monitor],
+) -> Option<&Monitor> {
+    let monitor = render_monitor_for_rect(restore_rect, monitors)?;
+    is_edge_exposed_for_rect(monitor, edge, restore_rect, monitors).then_some(monitor)
 }
 
 fn outside_amount(rect: Rect, area: Rect, edge: Edge) -> i32 {
@@ -891,6 +1590,14 @@ fn rects_roughly_equal(a: Rect, b: Rect) -> bool {
         && (a.top - b.top).abs() <= 2
         && (a.right - b.right).abs() <= 2
         && (a.bottom - b.bottom).abs() <= 2
+}
+
+fn live_window_matches_hidden_rect(hidden_rect: Rect, state: EdgeHideLiveState) -> bool {
+    matches!(state, EdgeHideLiveState::Visible(rect) if rects_roughly_equal(rect, hidden_rect))
+}
+
+fn live_window_matches_rect(rect: Rect, state: EdgeHideLiveState) -> bool {
+    matches!(state, EdgeHideLiveState::Visible(actual) if rects_roughly_equal(actual, rect))
 }
 
 fn restore_rect_for(original: Rect, work_area: Rect) -> Rect {
@@ -1055,6 +1762,56 @@ mod tests {
                 device_id: [0; 128],
             },
         ]
+    }
+
+    fn collapsed_controller_on_left_monitor() -> EdgeHideController {
+        let mut controller = EdgeHideController::new();
+        controller.states.insert(
+            WindowHandle(42),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect: Rect {
+                    left: 0,
+                    top: 120,
+                    right: 600,
+                    bottom: 700,
+                },
+                hidden_rect: Rect {
+                    left: -592,
+                    top: 120,
+                    right: 8,
+                    bottom: 700,
+                },
+                original_topmost: false,
+                was_foreground: false,
+            },
+        );
+        controller
+    }
+
+    fn collapsed_controller_on_removed_left_monitor() -> EdgeHideController {
+        let mut controller = EdgeHideController::new();
+        controller.states.insert(
+            WindowHandle(42),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect: Rect {
+                    left: -1920,
+                    top: 120,
+                    right: -1320,
+                    bottom: 700,
+                },
+                hidden_rect: Rect {
+                    left: -2504,
+                    top: 120,
+                    right: -1904,
+                    bottom: 700,
+                },
+                original_topmost: false,
+                was_foreground: false,
+            },
+        );
+        controller
     }
 
     #[test]
@@ -2205,11 +2962,22 @@ mod tests {
                 was_foreground: false,
             },
         );
-        assert_eq!(controller.collapsed_strips(&[monitor()]).len(), 1);
+        assert_eq!(
+            controller
+                .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                    EdgeHideLiveState::Visible(hidden)
+                })
+                .len(),
+            1
+        );
 
         controller.prune_invalid_windows(|_| false);
 
-        assert!(controller.collapsed_strips(&[monitor()]).is_empty());
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
     }
 
     #[test]
@@ -2235,19 +3003,14 @@ mod tests {
                 was_foreground: false,
             },
         );
-        assert_eq!(controller.collapsed_strips(&[monitor()]).len(), 1);
-
         assert!(controller
-            .collapsed_strips_with_live_state(&[monitor()], |_| {
-                Some((
-                    Some(Rect {
-                        left: 240,
-                        top: 180,
-                        right: 840,
-                        bottom: 780,
-                    }),
-                    false,
-                ))
+            .collapsed_strips_with_live_state(&[monitor()], |_, _| {
+                EdgeHideLiveState::Visible(Rect {
+                    left: 240,
+                    top: 180,
+                    right: 840,
+                    bottom: 780,
+                })
             })
             .is_empty());
     }
@@ -2276,7 +3039,11 @@ mod tests {
             },
         );
 
-        assert!(controller.collapsed_strips(&[]).is_empty());
+        assert!(controller
+            .collapsed_strips_with_live_state(&[], |_, hidden| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
     }
 
     #[test]
@@ -2303,7 +3070,71 @@ mod tests {
             },
         );
 
-        assert!(controller.collapsed_strips(&[monitor()]).is_empty());
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
+    }
+
+    #[test]
+    fn adding_an_adjacent_monitor_relocates_before_showing_the_new_outer_edge_hint() {
+        let mut controller = collapsed_controller_on_left_monitor();
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..EdgeHideConfig::default()
+        };
+        let adjacent_monitors = [
+            monitor(),
+            Monitor {
+                bounds: Rect {
+                    left: -1920,
+                    top: 0,
+                    right: 0,
+                    bottom: 1080,
+                },
+                work_area: Rect {
+                    left: -1920,
+                    top: 0,
+                    right: 0,
+                    bottom: 1040,
+                },
+                primary: false,
+                device_id: [1; 128],
+            },
+        ];
+        let hidden = Rect {
+            left: -592,
+            top: 120,
+            right: 8,
+            bottom: 700,
+        };
+
+        assert_eq!(
+            controller.tick_with_live_state(
+                Instant::now(),
+                &config,
+                Point { x: 1000, y: 900 },
+                &adjacent_monitors,
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(hidden),
+            ),
+            Some(EdgeHideCommand::Collapse {
+                handle: WindowHandle(42),
+                rect: Rect {
+                    left: -2504,
+                    top: 120,
+                    right: -1904,
+                    bottom: 700,
+                },
+            })
+        );
+        assert!(controller
+            .collapsed_strips_with_live_state(&adjacent_monitors, |_, _| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
     }
 
     #[test]
@@ -2331,12 +3162,14 @@ mod tests {
         );
 
         assert!(controller
-            .collapsed_strips_with_live_state(&[monitor()], |_| None)
+            .collapsed_strips_with_live_state(&[monitor()], |_, _| {
+                EdgeHideLiveState::Unavailable
+            })
             .is_empty());
     }
 
     #[test]
-    fn minimized_collapsed_windows_keep_their_restore_strip() {
+    fn minimized_collapsed_windows_do_not_render_restore_strips() {
         let mut controller = EdgeHideController::new();
         controller.states.insert(
             WindowHandle(42),
@@ -2359,11 +3192,396 @@ mod tests {
             },
         );
 
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, _| EdgeHideLiveState::Minimized)
+            .is_empty());
+    }
+
+    #[test]
+    fn inactive_collapsed_windows_have_no_invisible_restore_hotzone() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            strip_size: 8,
+            ..EdgeHideConfig::default()
+        };
+        for live_state in [
+            EdgeHideLiveState::Unavailable,
+            EdgeHideLiveState::Minimized,
+            EdgeHideLiveState::Visible(Rect {
+                left: 240,
+                top: 180,
+                right: 840,
+                bottom: 780,
+            }),
+        ] {
+            let mut controller = collapsed_controller_on_left_monitor();
+            assert_eq!(
+                controller.tick_with_live_state(
+                    Instant::now(),
+                    &config,
+                    Point { x: 1, y: 300 },
+                    &[monitor()],
+                    None,
+                    EdgeHideInput::default(),
+                    |_, _| live_state,
+                ),
+                None
+            );
+            assert!(matches!(
+                controller.states.get(&WindowHandle(42)),
+                Some(EdgeHideState::Collapsed { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn transient_live_query_failure_does_not_fake_a_foreground_activation() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            strip_size: 8,
+            ..EdgeHideConfig::default()
+        };
+        let hidden_rect = Rect {
+            left: -592,
+            top: 120,
+            right: 8,
+            bottom: 700,
+        };
+        let foreground = window(hidden_rect);
+        let mut controller = collapsed_controller_on_left_monitor();
+
+        assert_eq!(
+            controller.tick_with_live_state(
+                Instant::now(),
+                &config,
+                Point { x: 1000, y: 900 },
+                &[monitor()],
+                Some(&foreground),
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Unavailable,
+            ),
+            None
+        );
+        assert_eq!(
+            controller.tick_with_live_state(
+                Instant::now(),
+                &config,
+                Point { x: 1000, y: 900 },
+                &[monitor()],
+                Some(&foreground),
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(hidden_rect),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn monitor_reconciliation_moves_the_window_before_reenabling_its_strip() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..EdgeHideConfig::default()
+        };
+        let old_hidden_rect = Rect {
+            left: -2504,
+            top: 120,
+            right: -1904,
+            bottom: 700,
+        };
+        let mut controller = collapsed_controller_on_removed_left_monitor();
+
+        let relocation = controller
+            .tick_with_live_state(
+                Instant::now(),
+                &config,
+                Point { x: 1, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(old_hidden_rect),
+            )
+            .expect("the collapsed window should move to the current monitor");
+        let EdgeHideCommand::Collapse {
+            rect: relocated_hidden,
+            ..
+        } = relocation
+        else {
+            panic!("monitor reconciliation should issue a collapse relocation")
+        };
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, _| {
+                EdgeHideLiveState::Visible(old_hidden_rect)
+            })
+            .is_empty());
+
+        controller.command_succeeded(
+            relocation,
+            EdgeHideLiveState::Visible(relocated_hidden),
+            Instant::now(),
+        );
+
         assert_eq!(
             controller
-                .collapsed_strips_with_live_state(&[monitor()], |_| Some((None, true)))
+                .collapsed_strips_with_live_state(&[monitor()], |_, _| {
+                    EdgeHideLiveState::Visible(relocated_hidden)
+                })
                 .len(),
             1
+        );
+        assert!(matches!(
+            controller.tick_with_live_state(
+                Instant::now(),
+                &config,
+                Point { x: 1, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(relocated_hidden),
+            ),
+            Some(EdgeHideCommand::Restore { .. })
+        ));
+    }
+
+    #[test]
+    fn monitor_reconciliation_adopts_a_window_already_moved_by_windows() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..EdgeHideConfig::default()
+        };
+        let relocated_hidden = Rect {
+            left: -584,
+            top: 120,
+            right: 16,
+            bottom: 700,
+        };
+        let mut controller = collapsed_controller_on_removed_left_monitor();
+
+        assert_eq!(
+            controller.tick_with_live_state(
+                Instant::now(),
+                &config,
+                Point { x: 1000, y: 900 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(relocated_hidden),
+            ),
+            None
+        );
+        assert!(matches!(
+            controller.states.get(&WindowHandle(42)),
+            Some(EdgeHideState::Collapsed {
+                restore_rect,
+                hidden_rect,
+                ..
+            }) if *restore_rect == Rect {
+                left: 0,
+                top: 120,
+                right: 600,
+                bottom: 700,
+            } && *hidden_rect == relocated_hidden
+        ));
+        assert_eq!(
+            controller
+                .collapsed_strips_with_live_state(&[monitor()], |_, _| {
+                    EdgeHideLiveState::Visible(relocated_hidden)
+                })
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn relocation_success_is_not_committed_without_matching_live_geometry() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..EdgeHideConfig::default()
+        };
+        let old_hidden_rect = Rect {
+            left: -2504,
+            top: 120,
+            right: -1904,
+            bottom: 700,
+        };
+        let actual_rect = Rect {
+            left: 200,
+            top: 160,
+            right: 800,
+            bottom: 740,
+        };
+        let mut controller = collapsed_controller_on_removed_left_monitor();
+        let relocation = controller
+            .tick_with_live_state(
+                Instant::now(),
+                &config,
+                Point { x: 1000, y: 900 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(old_hidden_rect),
+            )
+            .expect("relocation command");
+
+        let cleanup = controller
+            .command_succeeded(
+                relocation,
+                EdgeHideLiveState::Visible(actual_rect),
+                Instant::now(),
+            )
+            .expect("unexpected relocation geometry should be cleaned up");
+        assert_eq!(
+            cleanup,
+            EdgeHideCommand::Restore {
+                handle: WindowHandle(42),
+                rect: actual_rect,
+                topmost: false,
+            }
+        );
+        assert!(matches!(
+            controller.states.get(&WindowHandle(42)),
+            Some(EdgeHideState::CleaningUp { .. })
+        ));
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, _| {
+                EdgeHideLiveState::Visible(actual_rect)
+            })
+            .is_empty());
+
+        controller.command_succeeded(
+            cleanup,
+            EdgeHideLiveState::Visible(actual_rect),
+            Instant::now(),
+        );
+
+        assert!(!controller.states.contains_key(&WindowHandle(42)));
+    }
+
+    #[test]
+    fn failed_monitor_relocation_rolls_back_and_can_retry() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..EdgeHideConfig::default()
+        };
+        let old_hidden_rect = Rect {
+            left: -2504,
+            top: 120,
+            right: -1904,
+            bottom: 700,
+        };
+        let mut controller = collapsed_controller_on_removed_left_monitor();
+        let relocation = controller
+            .tick_with_live_state(
+                Instant::now(),
+                &config,
+                Point { x: 1, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(old_hidden_rect),
+            )
+            .expect("first relocation attempt");
+
+        let failed_at = Instant::now();
+        controller.command_failed(relocation, failed_at);
+
+        assert!(matches!(
+            controller.states.get(&WindowHandle(42)),
+            Some(EdgeHideState::Collapsed { hidden_rect, .. }) if *hidden_rect == old_hidden_rect
+        ));
+        assert!(matches!(
+            controller.tick_with_live_state(
+                failed_at + RELOCATION_RETRY_DELAY,
+                &config,
+                Point { x: 1, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(old_hidden_rect),
+            ),
+            Some(EdgeHideCommand::Collapse { .. })
+        ));
+    }
+
+    #[test]
+    fn failed_monitor_relocation_does_not_block_other_restore_hotzones() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..EdgeHideConfig::default()
+        };
+        let old_hidden_rect = Rect {
+            left: -2504,
+            top: 120,
+            right: -1904,
+            bottom: 700,
+        };
+        let other_hidden_rect = Rect {
+            left: -584,
+            top: 720,
+            right: 16,
+            bottom: 1000,
+        };
+        let mut controller = collapsed_controller_on_removed_left_monitor();
+        controller.states.insert(
+            WindowHandle(43),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect: Rect {
+                    left: 0,
+                    top: 720,
+                    right: 600,
+                    bottom: 1000,
+                },
+                hidden_rect: other_hidden_rect,
+                original_topmost: false,
+                was_foreground: false,
+            },
+        );
+        let started_at = Instant::now();
+        let relocation = controller
+            .tick_with_live_state(
+                started_at,
+                &config,
+                Point { x: 1000, y: 900 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |handle, _| {
+                    EdgeHideLiveState::Visible(if handle == WindowHandle(42) {
+                        old_hidden_rect
+                    } else {
+                        other_hidden_rect
+                    })
+                },
+            )
+            .expect("first window relocation");
+        controller.command_failed(relocation, started_at);
+
+        assert_eq!(
+            controller.tick_with_live_state(
+                started_at + Duration::from_millis(1),
+                &config,
+                Point { x: 1, y: 800 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |handle, _| {
+                    EdgeHideLiveState::Visible(if handle == WindowHandle(42) {
+                        old_hidden_rect
+                    } else {
+                        other_hidden_rect
+                    })
+                },
+            ),
+            Some(EdgeHideCommand::Restore {
+                handle: WindowHandle(43),
+                rect: Rect {
+                    left: 0,
+                    top: 720,
+                    right: 600,
+                    bottom: 1000,
+                },
+                topmost: false,
+            })
         );
     }
 
@@ -2780,7 +3998,14 @@ mod tests {
             ),
             None
         );
-        assert_eq!(controller.collapsed_strips(&[monitor()]).len(), 1);
+        assert_eq!(
+            controller
+                .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                    EdgeHideLiveState::Visible(hidden)
+                })
+                .len(),
+            1
+        );
 
         assert_eq!(
             controller.tick(
@@ -2858,7 +4083,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_collapse_drops_the_unconfirmed_state() {
+    fn failed_collapse_keeps_cleanup_state_until_restore_succeeds() {
         let config = EdgeHideConfig {
             enabled: true,
             collapse_delay_ms: 0,
@@ -2892,11 +4117,230 @@ mod tests {
                 Some(&visible),
             )
             .expect("collapse command");
-        assert!(!controller.collapsed_strips(&[monitor()]).is_empty());
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
 
-        controller.command_failed(command);
+        let failed_at = start + Duration::from_millis(2);
+        controller.command_failed(command, failed_at);
 
-        assert!(controller.collapsed_strips(&[monitor()]).is_empty());
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
+        assert!(matches!(
+            controller.states.get(&visible.handle),
+            Some(EdgeHideState::CleaningUp { .. })
+        ));
+        assert_eq!(
+            controller.tick_with_live_state(
+                failed_at + RELOCATION_RETRY_DELAY - Duration::from_millis(1),
+                &config,
+                Point { x: 300, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(visible.rect),
+            ),
+            None
+        );
+        let cleanup = controller
+            .tick_with_live_state(
+                failed_at + RELOCATION_RETRY_DELAY,
+                &config,
+                Point { x: 300, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(visible.rect),
+            )
+            .expect("cleanup restore should retry");
+        assert_eq!(
+            cleanup,
+            EdgeHideCommand::Restore {
+                handle: visible.handle,
+                rect: visible.rect,
+                topmost: false,
+            }
+        );
+
+        controller.command_succeeded(
+            cleanup,
+            EdgeHideLiveState::Visible(visible.rect),
+            failed_at + RELOCATION_RETRY_DELAY,
+        );
+
+        assert!(!controller.states.contains_key(&visible.handle));
+    }
+
+    #[test]
+    fn successful_collapse_is_cleaned_up_when_live_geometry_did_not_move() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            collapse_delay_ms: 0,
+            ..EdgeHideConfig::default()
+        };
+        let mut controller = EdgeHideController::new();
+        let visible = window(Rect {
+            left: 0,
+            top: 120,
+            right: 600,
+            bottom: 700,
+        });
+        let start = Instant::now();
+        controller.tick(
+            start,
+            &config,
+            Point { x: 300, y: 300 },
+            &[monitor()],
+            Some(&visible),
+        );
+        let command = controller
+            .tick(
+                start + Duration::from_millis(1),
+                &config,
+                Point { x: 300, y: 300 },
+                &[monitor()],
+                Some(&visible),
+            )
+            .expect("collapse command");
+
+        let cleanup = controller
+            .command_succeeded(
+                command,
+                EdgeHideLiveState::Visible(visible.rect),
+                start + Duration::from_millis(1),
+            )
+            .expect("mismatched geometry should be restored");
+        assert_eq!(
+            cleanup,
+            EdgeHideCommand::Restore {
+                handle: visible.handle,
+                rect: visible.rect,
+                topmost: false,
+            }
+        );
+        assert!(matches!(
+            controller.states.get(&visible.handle),
+            Some(EdgeHideState::CleaningUp { .. })
+        ));
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
+
+        let failed_at = start + Duration::from_millis(2);
+        controller.command_failed(cleanup, failed_at);
+        let retry = controller
+            .tick_with_live_state(
+                failed_at + RELOCATION_RETRY_DELAY,
+                &config,
+                Point { x: 300, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(visible.rect),
+            )
+            .expect("failed cleanup should retry");
+        assert_eq!(retry, cleanup);
+        controller.command_succeeded(
+            retry,
+            EdgeHideLiveState::Visible(visible.rect),
+            failed_at + RELOCATION_RETRY_DELAY,
+        );
+
+        assert!(!controller.states.contains_key(&visible.handle));
+    }
+
+    #[test]
+    fn unavailable_collapse_never_exposes_hint_and_cleans_up_after_query_recovers() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            collapse_delay_ms: 0,
+            ..EdgeHideConfig::default()
+        };
+        let mut controller = EdgeHideController::new();
+        let visible = window(Rect {
+            left: 0,
+            top: 120,
+            right: 600,
+            bottom: 700,
+        });
+        let start = Instant::now();
+        controller.tick(
+            start,
+            &config,
+            Point { x: 300, y: 300 },
+            &[monitor()],
+            Some(&visible),
+        );
+        let command = controller
+            .tick(
+                start + Duration::from_millis(1),
+                &config,
+                Point { x: 300, y: 300 },
+                &[monitor()],
+                Some(&visible),
+            )
+            .expect("collapse command");
+
+        assert_eq!(
+            controller.command_succeeded(
+                command,
+                EdgeHideLiveState::Unavailable,
+                start + Duration::from_millis(1),
+            ),
+            None
+        );
+        assert!(matches!(
+            controller.states.get(&visible.handle),
+            Some(EdgeHideState::Collapsing { .. })
+        ));
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
+
+        let cleanup = controller
+            .tick_with_live_state(
+                start + Duration::from_millis(2),
+                &config,
+                Point { x: 300, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(visible.rect),
+            )
+            .expect("recovered query should clean up the mismatched window");
+        assert_eq!(
+            cleanup,
+            EdgeHideCommand::Restore {
+                handle: visible.handle,
+                rect: visible.rect,
+                topmost: false,
+            }
+        );
+        assert!(matches!(
+            controller.states.get(&visible.handle),
+            Some(EdgeHideState::CleaningUp { .. })
+        ));
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
+
+        controller.command_succeeded(
+            cleanup,
+            EdgeHideLiveState::Visible(visible.rect),
+            start + Duration::from_millis(2),
+        );
+
         assert!(!controller.states.contains_key(&visible.handle));
     }
 
@@ -2939,13 +4383,203 @@ mod tests {
             )
             .expect("restore command");
 
-        controller.command_failed(command);
+        let failed_at = start + Duration::from_millis(3);
+        controller.command_failed(command, failed_at);
 
         assert!(matches!(
             controller.states.get(&visible.handle),
+            Some(EdgeHideState::Expanding { .. })
+        ));
+        assert_eq!(
+            controller
+                .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                    EdgeHideLiveState::Visible(hidden)
+                })
+                .len(),
+            0
+        );
+        controller.tick_with_live_state(
+            failed_at + RELOCATION_RETRY_DELAY,
+            &config,
+            Point { x: 500, y: 500 },
+            &[monitor()],
+            None,
+            EdgeHideInput::default(),
+            |_, _| {
+                EdgeHideLiveState::Visible(Rect {
+                    left: -584,
+                    top: 120,
+                    right: 16,
+                    bottom: 700,
+                })
+            },
+        );
+        assert_eq!(
+            controller
+                .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                    EdgeHideLiveState::Visible(hidden)
+                })
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn restore_success_requires_live_geometry_before_expanding() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..EdgeHideConfig::default()
+        };
+        let visible_rect = Rect {
+            left: 0,
+            top: 120,
+            right: 600,
+            bottom: 700,
+        };
+        let hidden_rect = Rect {
+            left: -584,
+            top: 120,
+            right: 16,
+            bottom: 700,
+        };
+        let mut controller = EdgeHideController::new();
+        controller.states.insert(
+            WindowHandle(42),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect: visible_rect,
+                hidden_rect,
+                original_topmost: false,
+                was_foreground: false,
+            },
+        );
+        let start = Instant::now();
+        let command = controller
+            .tick_with_live_state(
+                start,
+                &config,
+                Point { x: 1, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(hidden_rect),
+            )
+            .expect("restore command");
+        assert_eq!(
+            command,
+            EdgeHideCommand::Restore {
+                handle: WindowHandle(42),
+                rect: visible_rect,
+                topmost: false,
+            }
+        );
+        assert!(matches!(
+            controller.states.get(&WindowHandle(42)),
+            Some(EdgeHideState::Expanding { .. })
+        ));
+
+        controller.command_succeeded(command, EdgeHideLiveState::Visible(hidden_rect), start);
+        assert!(matches!(
+            controller.states.get(&WindowHandle(42)),
             Some(EdgeHideState::Collapsed { .. })
         ));
-        assert_eq!(controller.collapsed_strips(&[monitor()]).len(), 1);
+        assert_eq!(
+            controller
+                .collapsed_strips_with_live_state(&[monitor()], |_, _| {
+                    EdgeHideLiveState::Visible(hidden_rect)
+                })
+                .len(),
+            1
+        );
+
+        let command = controller
+            .tick_with_live_state(
+                start + Duration::from_millis(1),
+                &config,
+                Point { x: 1, y: 300 },
+                &[monitor()],
+                None,
+                EdgeHideInput::default(),
+                |_, _| EdgeHideLiveState::Visible(hidden_rect),
+            )
+            .expect("second restore command");
+        controller.command_succeeded(command, EdgeHideLiveState::Unavailable, start);
+        assert!(matches!(
+            controller.states.get(&WindowHandle(42)),
+            Some(EdgeHideState::Expanding { .. })
+        ));
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, _| {
+                EdgeHideLiveState::Visible(hidden_rect)
+            })
+            .is_empty());
+
+        controller.tick_with_live_state(
+            start + RELOCATION_RETRY_DELAY,
+            &config,
+            Point { x: 500, y: 500 },
+            &[monitor()],
+            None,
+            EdgeHideInput::default(),
+            |_, _| EdgeHideLiveState::Visible(visible_rect),
+        );
+        assert!(matches!(
+            controller.states.get(&WindowHandle(42)),
+            Some(EdgeHideState::Expanded { .. })
+        ));
+    }
+
+    #[test]
+    fn failed_batch_restore_keeps_state_for_a_later_retry() {
+        let mut controller = EdgeHideController::new();
+        let restore_rect = Rect {
+            left: 0,
+            top: 120,
+            right: 600,
+            bottom: 700,
+        };
+        controller.states.insert(
+            WindowHandle(42),
+            EdgeHideState::Collapsed {
+                edge: Edge::Left,
+                restore_rect,
+                hidden_rect: Rect {
+                    left: -584,
+                    top: 120,
+                    right: 16,
+                    bottom: 700,
+                },
+                original_topmost: true,
+                was_foreground: false,
+            },
+        );
+
+        controller.prepare_restore_all(&[monitor()], 16);
+        let command = controller.restore_if_needed().expect("batch restore");
+        assert_eq!(
+            command,
+            EdgeHideCommand::Restore {
+                handle: WindowHandle(42),
+                rect: restore_rect,
+                topmost: true,
+            }
+        );
+        assert!(controller.states.is_empty());
+
+        let failed_at = Instant::now();
+        controller.command_failed(command, failed_at);
+        assert!(matches!(
+            controller.states.get(&WindowHandle(42)),
+            Some(EdgeHideState::CleaningUp { .. })
+        ));
+        let retry = controller.restore_if_needed().expect("batch restore retry");
+        assert_eq!(retry, command);
+        controller.command_succeeded(
+            retry,
+            EdgeHideLiveState::Visible(restore_rect),
+            failed_at + RELOCATION_RETRY_DELAY,
+        );
+        assert!(controller.states.is_empty());
     }
 
     #[test]
@@ -2975,11 +4609,15 @@ mod tests {
         controller.prune_invalid_windows(|_| false);
 
         assert!(controller.states.is_empty());
-        assert!(controller.collapsed_strips(&[monitor()]).is_empty());
+        assert!(controller
+            .collapsed_strips_with_live_state(&[monitor()], |_, hidden| {
+                EdgeHideLiveState::Visible(hidden)
+            })
+            .is_empty());
     }
 
     #[test]
-    fn removed_monitor_reclamps_collapsed_window_to_current_work_area() {
+    fn disabled_restore_reclamps_collapsed_window_to_current_work_area() {
         let mut controller = EdgeHideController::new();
         controller.states.insert(
             WindowHandle(42),
@@ -3002,20 +4640,21 @@ mod tests {
             },
         );
 
-        controller.reconcile_monitors(&[monitor()], 16);
+        controller.prepare_restore_all(&[monitor()], 16);
 
-        let Some(EdgeHideState::Collapsed {
-            restore_rect,
-            hidden_rect,
-            ..
-        }) = controller.states.get(&WindowHandle(42))
-        else {
-            panic!("collapsed state should remain")
-        };
-        assert_eq!(restore_rect.left, 0);
-        assert_eq!(restore_rect.right, 600);
-        assert_eq!(hidden_rect.right, 16);
-        assert!(controller.collapsed_strips(&[monitor()])[0].width() > 0);
+        assert_eq!(
+            controller.restore_if_needed(),
+            Some(EdgeHideCommand::Restore {
+                handle: WindowHandle(42),
+                rect: Rect {
+                    left: 0,
+                    top: 120,
+                    right: 600,
+                    bottom: 700,
+                },
+                topmost: false,
+            })
+        );
     }
 
     #[test]

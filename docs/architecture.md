@@ -25,7 +25,7 @@ Shared UI code depends on a typed bridge for lifecycle, configuration, token acc
 
 ## Configuration Ownership
 
-The shared schema v7 `edgeHide.keepExpandedWhenForeground` setting defaults to `true`. An expanded edge-hidden window remains open while it is still the active foreground window; when the setting is disabled, leaving the window starts the normal restore-delay countdown even if that window remains foreground. Missing fields preserve the prior behavior, while an explicit `false` survives host normalization and helper deserialization.
+The shared schema v7 `edgeHide.keepExpandedWhenForeground` setting defaults to `true`. An expanded edge-hidden window remains open while it is still the active foreground window; when the setting is disabled, leaving the window starts the normal restore-delay countdown even if that window remains foreground. `edgeHide.showRestoreHint` also defaults to `true`; disabling it hides only the pale collapsed-window outline while preserving the pointer restore hotzone. Missing fields preserve the prior behavior, while an explicit `false` survives host normalization and helper deserialization.
 
 The desktop host and helper never write the same file:
 
@@ -44,7 +44,7 @@ The NSIS pre-uninstall hook signals `Local\com.ximizhou.convenientwindow.shutdow
 
 Automated runtime tests may set the absolute `CONVENIENT_WINDOW_DATA_DIR` override. In that mode desktop settings, helper data, and WebView data all stay below the explicit root. Production startup uses the platform application-data path.
 
-Edge-hide state keeps the target edge and restore geometry across monitor changes. The helper renders a restore strip only when the restore rectangle still intersects the current monitor topology and the live window rectangle still matches the hidden rectangle. Empty or changed monitor snapshots, externally moved or hidden windows, and removed displays therefore cannot leave a stale pale outline; minimized windows retain their recoverable strip.
+Edge-hide state keeps the target edge and restore geometry across monitor changes. The helper enables a restore strip and its pointer hotzone only when the restore rectangle still intersects the current monitor topology, its edge remains exposed on the virtual desktop, and a visible live window still matches the hidden rectangle. Empty or changed monitor snapshots, failed platform queries, externally moved, hidden, or minimized windows, and removed displays therefore cannot leave either a stale pale outline or an invisible hotzone. Initial and repeated collapse commands remain unconfirmed until that live-geometry check succeeds; an expand command likewise remains unconfirmed until the live window reaches its restore rectangle. A mismatch enters a hint-free cleanup state, and cleanup or batch-restore failures back off and retry instead of losing the original topmost state. After a topology change, the helper relocates a window that remains at its old collapsed geometry, including when an added display turns the old outer edge into a seam, or adopts the expected new geometry when Windows already moved it. A relocation is committed only after the same check; failures back off without blocking other windows. Disabling or stopping the engine reclamps restore geometry, makes up to three immediate recovery attempts, and explicitly clears the final rendered hint frame.
 
 ## Platform and Release Boundary
 

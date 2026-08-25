@@ -122,6 +122,7 @@ export interface MouseGestureSettings {
 export interface EdgeHideSettings {
   enabled: boolean;
   showPreview: boolean;
+  showRestoreHint: boolean;
   keepExpandedWhenForeground: boolean;
   edges: Edge[];
   monitorProfiles: EdgeHideMonitorProfile[];

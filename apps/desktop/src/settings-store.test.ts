@@ -28,6 +28,7 @@ describe("normalizeSettings", () => {
       pausedApps: settings.pausedApps,
       stripSize: settings.edgeHide.stripSize,
       edgeHidePreviewEnabled: settings.edgeHide.showPreview,
+      showRestoreHint: settings.edgeHide.showRestoreHint,
       keepExpandedWhenForeground: settings.edgeHide.keepExpandedWhenForeground,
       triggerDistance: settings.edgeHide.triggerDistance,
       triggerRatio: settings.edgeHide.triggerRatio,
@@ -70,6 +71,7 @@ describe("normalizeSettings", () => {
     expect(settings.hotzones[1]).toMatchObject(defaultSettings.hotzones[1]);
     expect(settings.edgeHide.stripSize).toBe(defaultSettings.edgeHide.stripSize);
     expect(settings.edgeHide.showPreview).toBe(true);
+    expect(settings.edgeHide.showRestoreHint).toBe(true);
     expect(settings.edgeHide.keepExpandedWhenForeground).toBe(true);
     expect(settings.edgeHide.distanceTriggerEnabled).toBe(true);
     expect(settings.edgeHide.ratioTriggerEnabled).toBe(true);
@@ -220,6 +222,7 @@ describe("normalizeSettings", () => {
       edgeHide: {
         ...defaultSettings.edgeHide,
         showPreview: false,
+        showRestoreHint: false,
         keepExpandedWhenForeground: false,
         stripSize: 999,
         triggerDistance: 0,
@@ -234,6 +237,7 @@ describe("normalizeSettings", () => {
     expect(settings.pausedApps).toEqual(["explorer.exe"]);
     expect(settings.edgeHide.stripSize).toBe(64);
     expect(settings.edgeHide.showPreview).toBe(false);
+    expect(settings.edgeHide.showRestoreHint).toBe(false);
     expect(settings.edgeHide.keepExpandedWhenForeground).toBe(false);
     expect(settings.edgeHide.triggerDistance).toBe(4);
     expect(settings.edgeHide.triggerRatio).toBe(100);
