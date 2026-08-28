@@ -164,6 +164,8 @@ try {
     "convenient-window.exe",
     "LICENSE",
     "THIRD-PARTY-NOTICES.txt",
+    "uninstall.exe",
+    "helper/.gitkeep",
     "helper/payload-manifest.json"
   ) + @($nsisManifest.files | ForEach-Object { "helper/$($_.name)" })
   Assert-ExactFiles -Root $nsisRoot -Expected $nsisFiles

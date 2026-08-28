@@ -50,6 +50,15 @@ jobs:
           npm --prefix apps/desktop test
           npm --prefix apps/desktop run build
 
+      - name: Generate native third-party notices
+        shell: bash
+        env:
+          NOTICE_CARGO_TOOLCHAIN: stable
+          # The desktop release notice set is audited against this common locked graph.
+          # Native jobs need the same resource for Tauri host compilation; they do not publish it.
+          NOTICE_CARGO_TARGET: x86_64-pc-windows-msvc
+        run: node scripts/generate-third-party-notices.mjs target/THIRD-PARTY-NOTICES.txt
+
       - name: Start X11 display
         if: runner.os == 'Linux'
         shell: bash

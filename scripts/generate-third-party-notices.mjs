@@ -9,6 +9,12 @@ const desktopDir = join(repoRoot, "apps", "desktop");
 const outputPath = resolve(process.argv[2] || join(repoRoot, "target", "THIRD-PARTY-NOTICES.txt"));
 const expectedNode = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).engines.node;
 
+const requestedCargoToolchain = process.env.NOTICE_CARGO_TOOLCHAIN?.trim();
+const requestedCargoTarget = process.env.NOTICE_CARGO_TARGET?.trim();
+if (Boolean(requestedCargoToolchain) !== Boolean(requestedCargoTarget)) {
+  throw new Error("NOTICE_CARGO_TOOLCHAIN and NOTICE_CARGO_TARGET must be provided together");
+}
+
 if (process.version !== `v${expectedNode}`) {
   throw new Error(`Node ${expectedNode} is required, found ${process.version}`);
 }
@@ -31,10 +37,13 @@ const explicitUpstreamTexts = new Map([
   ["cargo:webview2-com@0.38.2", webview2LicenseText()]
 ]);
 
+const cargoDependencies = requestedCargoToolchain
+  ? (manifestPath) => collectCargoDependencies(manifestPath, requestedCargoToolchain, requestedCargoTarget)
+  : (manifestPath, windowsToolchain, windowsTarget) => collectCargoDependencies(manifestPath, windowsToolchain, windowsTarget);
 const components = [
   ...collectNpmRuntimeDependencies(),
-  ...collectCargoDependencies(join(repoRoot, "helper", "Cargo.toml"), "1.96.0-x86_64-pc-windows-gnullvm", "x86_64-pc-windows-gnullvm"),
-  ...collectCargoDependencies(join(desktopDir, "src-tauri", "Cargo.toml"), "1.96.0-x86_64-pc-windows-msvc", "x86_64-pc-windows-msvc")
+  ...cargoDependencies(join(repoRoot, "helper", "Cargo.toml"), "1.96.0-x86_64-pc-windows-gnullvm", "x86_64-pc-windows-gnullvm"),
+  ...cargoDependencies(join(desktopDir, "src-tauri", "Cargo.toml"), "1.96.0-x86_64-pc-windows-msvc", "x86_64-pc-windows-msvc")
 ];
 const componentIndex = new Map(components.map((component) => [component.id, component]));
 
