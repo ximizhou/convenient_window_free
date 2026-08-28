@@ -90,14 +90,14 @@ function Assert-ThirdPartyNotices {
 }
 
 function Assert-HelperPayload {
-  param([string]$HelperDir)
+  param([string]$HelperDir, [string[]]$ExtraFiles = @())
   $payloadManifestPath = Join-Path $HelperDir "payload-manifest.json"
   if (-not (Test-Path $payloadManifestPath)) { throw "Sidecar payload manifest is missing" }
   $payloadManifest = [System.IO.File]::ReadAllText($payloadManifestPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
   if ($payloadManifest.helperVersion -ne "0.5.7" -or $payloadManifest.target -ne "x86_64-pc-windows-gnullvm") {
     throw "Sidecar payload manifest declares an unexpected helper"
   }
-  $expected = @("payload-manifest.json") + @($payloadManifest.files | ForEach-Object { $_.name })
+  $expected = @("payload-manifest.json") + @($ExtraFiles) + @($payloadManifest.files | ForEach-Object { $_.name })
   Assert-ExactFiles -Root $HelperDir -Expected $expected
   foreach ($declared in $payloadManifest.files) {
     $path = Join-Path $HelperDir $declared.name
@@ -164,13 +164,12 @@ try {
     "convenient-window.exe",
     "LICENSE",
     "THIRD-PARTY-NOTICES.txt",
-    "uninstall.exe",
     "helper/.gitkeep",
     "helper/payload-manifest.json"
   ) + @($nsisManifest.files | ForEach-Object { "helper/$($_.name)" })
   Assert-ExactFiles -Root $nsisRoot -Expected $nsisFiles
   Assert-ThirdPartyNotices -Path (Join-Path $nsisRoot "THIRD-PARTY-NOTICES.txt")
-  Assert-HelperPayload -HelperDir (Join-Path $nsisRoot "helper")
+  Assert-HelperPayload -HelperDir (Join-Path $nsisRoot "helper") -ExtraFiles @(".gitkeep")
 
   $signatureCommand = Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue
   $signedBinaries = @(
