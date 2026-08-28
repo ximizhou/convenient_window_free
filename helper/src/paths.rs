@@ -56,32 +56,43 @@ mod tests {
 
     #[test]
     fn explicit_data_directory_is_separate_from_versioned_binary() {
+        let data_directory = native_path("ConvenientWindow", "data");
+        let executable = native_path("helper", "0.3.0").join(executable_name());
         let args = vec![
-            OsString::from("helper.exe"),
+            OsString::from(executable_name()),
             OsString::from("--data-dir"),
-            OsString::from(r"C:\AppData\ConvenientWindow\data"),
+            data_directory.clone().into_os_string(),
         ];
 
         assert_eq!(
-            resolve_data_dir(
-                &args,
-                Path::new(r"C:\AppData\ConvenientWindow\helper\0.3.0\helper.exe")
-            )
-            .unwrap(),
-            PathBuf::from(r"C:\AppData\ConvenientWindow\data")
+            resolve_data_dir(&args, &executable).unwrap(),
+            data_directory
         );
     }
 
     #[test]
     fn development_build_falls_back_to_executable_directory() {
+        let executable = native_path("project", "helper").join(executable_name());
         assert_eq!(
-            resolve_data_dir(
-                &[OsString::from("helper.exe")],
-                Path::new(r"C:\project\helper\helper.exe")
-            )
-            .unwrap(),
-            PathBuf::from(r"C:\project\helper")
+            resolve_data_dir(&[OsString::from(executable_name())], &executable).unwrap(),
+            executable.parent().unwrap().to_path_buf()
         );
+    }
+
+    fn executable_name() -> &'static str {
+        if cfg!(windows) {
+            "helper.exe"
+        } else {
+            "helper"
+        }
+    }
+
+    fn native_path(first: &str, second: &str) -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(r"C:\AppData").join(first).join(second)
+        } else {
+            PathBuf::from("/tmp").join(first).join(second)
+        }
     }
 
     #[test]

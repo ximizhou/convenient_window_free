@@ -77,13 +77,13 @@ pub fn monitors() -> Result<Vec<Monitor>> {
     let (connection, screen) = connect()?;
     let root = &connection.setup().roots[screen];
     let resources = connection
-        .get_screen_resources_current(root.root)?
+        .randr_get_screen_resources_current(root.root)?
         .reply()
         .context("query X11 RandR resources")?;
     let mut monitors = Vec::new();
     for (index, crtc) in resources.crtcs.iter().enumerate() {
         let info = connection
-            .get_crtc_info(*crtc, resources.config_timestamp)?
+            .randr_get_crtc_info(*crtc, resources.config_timestamp)?
             .reply()?;
         if info.mode == 0 || info.width == 0 || info.height == 0 {
             continue;
@@ -93,7 +93,7 @@ pub fn monitors() -> Result<Vec<Monitor>> {
             .first()
             .and_then(|output| {
                 connection
-                    .get_output_info(*output, resources.config_timestamp)
+                    .randr_get_output_info(*output, resources.config_timestamp)
                     .ok()?
                     .reply()
                     .ok()
@@ -148,7 +148,8 @@ pub fn foreground_window() -> Result<Option<WindowInfo>> {
     let window = handle.filter(|window| *window != 0).unwrap_or_else(|| {
         connection
             .get_input_focus()
-            .and_then(|cookie| cookie.reply())
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
             .map(|reply| reply.focus)
             .unwrap_or(0)
     });
@@ -164,8 +165,9 @@ pub fn window_exists(handle: WindowHandle) -> bool {
     };
     connection
         .get_geometry(handle.0 as Window)
-        .and_then(|cookie| cookie.reply())
-        .is_ok()
+        .ok()
+        .and_then(|cookie| cookie.reply().ok())
+        .is_some()
 }
 
 pub fn window_is_minimized(handle: WindowHandle) -> bool {
@@ -174,7 +176,8 @@ pub fn window_is_minimized(handle: WindowHandle) -> bool {
     };
     connection
         .get_window_attributes(handle.0 as Window)
-        .and_then(|cookie| cookie.reply())
+        .ok()
+        .and_then(|cookie| cookie.reply().ok())
         .map(|reply| reply.map_state != MapState::VIEWABLE)
         .unwrap_or(true)
 }
@@ -453,9 +456,10 @@ fn window_title(connection: &RustConnection, window: Window) -> String {
         .flatten()
     {
         let type_ = utf8.unwrap_or(AtomEnum::STRING.into());
-        if let Ok(reply) = connection
+        if let Some(reply) = connection
             .get_property(false, window, property, type_, 0, 4096)
-            .and_then(|cookie| cookie.reply())
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
         {
             let value = String::from_utf8_lossy(&reply.value)
                 .trim_matches('\0')
@@ -471,7 +475,8 @@ fn window_title(connection: &RustConnection, window: Window) -> String {
 fn window_class(connection: &RustConnection, window: Window) -> String {
     connection
         .get_property(false, window, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 256)
-        .and_then(|cookie| cookie.reply())
+        .ok()
+        .and_then(|cookie| cookie.reply().ok())
         .map(|reply| {
             String::from_utf8_lossy(&reply.value)
                 .split('\0')

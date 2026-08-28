@@ -333,7 +333,9 @@ mod tests {
         assert_eq!(config.edge_size, 48);
         assert!(adjusted);
 
-        let normalized = serde_json::to_value(AppConfig::default().normalized()).unwrap();
+        let mut normalized_config = AppConfig::default().normalized();
+        crate::platform::apply_capability_limits(&mut normalized_config);
+        let normalized = serde_json::to_value(normalized_config).unwrap();
         let (_, revision, adjusted) = parse_config_update(serde_json::json!({
             "revision": 8,
             "config": normalized
