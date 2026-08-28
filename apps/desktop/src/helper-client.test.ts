@@ -92,6 +92,24 @@ describe("HelperClient", () => {
     expect(MockWebSocket.instances[0].protocols).toBe("abc123");
   });
 
+  it("retains a validated platform capability report from helper.ready", () => {
+    const client = new HelperClient();
+    client.connect();
+    MockWebSocket.instances[0].receive("helper.ready", {
+      protocolVersion: 6,
+      platform: {
+        system: "linux", architecture: "x86_64", session: "x11",
+        capabilities: {
+          globalInput: true, windowControl: true, windowTopmost: true, screenCapture: true,
+          ocr: false, audio: false, systemActions: false, edgeHide: true
+        }
+      }
+    });
+    expect(client.platformInfo).toMatchObject({ system: "linux", architecture: "x86_64" });
+    expect(client.platformInfo?.capabilities.ocr).toBe(false);
+    expect(client.platformInfo?.capabilities.windowTopmost).toBe(true);
+  });
+
   it("keeps the latest config and resends it after reconnecting", () => {
     const client = new HelperClient();
     const settings = { enabled: true } as Parameters<typeof client.sendConfig>[0];

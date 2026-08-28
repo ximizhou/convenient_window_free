@@ -91,9 +91,7 @@ impl ActionDispatcher {
                 scale,
             )?),
             ActionKind::OpenCommand => {
-                Command::new("cmd")
-                    .args(["/C", required_value(action, "command")?])
-                    .spawn()?;
+                open_command(required_value(action, "command")?)?;
                 Ok(())
             }
             ActionKind::HostAction => {
@@ -121,6 +119,14 @@ impl ActionDispatcher {
 
         Ok(())
     }
+}
+
+fn open_command(command: &str) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    Command::new("cmd").args(["/C", command]).spawn()?;
+    #[cfg(not(target_os = "windows"))]
+    Command::new("sh").args(["-c", command]).spawn()?;
+    Ok(())
 }
 
 fn scaled_volume_delta(value: &str, scale: f32) -> Result<f32> {

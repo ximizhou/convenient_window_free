@@ -16,7 +16,7 @@
   import { getHostBridge } from "./host-bridge";
   import { defaultSettings, loadSettings, MAX_GESTURE_TEMPLATES, normalizeSettings, saveSettings } from "./settings-store";
   import type {
-    ActionKind, AppSettings, DisplayInfo, Edge, HelperStatus, HotzoneAction,
+    ActionKind, AppSettings, DisplayInfo, Edge, HelperPlatformInfo, HelperStatus, HotzoneAction,
     GesturePoint, GestureTemplate, HotzoneId, HotzoneSetting, ModifierKey,
     OcrLanguage, TriggerAction, TriggerKind
   } from "./types";
@@ -74,10 +74,30 @@
   const maxCustomGestures = MAX_GESTURE_TEMPLATES - defaultSettings.mouseGestures.gestures.length;
   const CONFIG_APPLY_DEBOUNCE_MS = 260;
   const HELPER_STABILITY_MS = 60_000;
+  const capabilityLabels: Record<keyof HelperPlatformInfo["capabilities"], string> = {
+    globalInput: "全局输入",
+    windowControl: "窗口控制",
+    windowTopmost: "窗口置顶",
+    screenCapture: "屏幕截图",
+    ocr: "文字识别",
+    audio: "音量控制",
+    systemActions: "系统动作",
+    edgeHide: "贴边隐藏"
+  };
+
+  function unavailableCapabilityText(platform: HelperPlatformInfo): string {
+    const unavailable = Object.entries(platform.capabilities)
+      .filter(([, enabled]) => !enabled)
+      .map(([name]) => capabilityLabels[name as keyof HelperPlatformInfo["capabilities"]] ?? name);
+    return unavailable.length > 0
+      ? `暂不支持：${unavailable.join("、")}`
+      : "基础能力可用";
+  }
 
   let settings: AppSettings = loadSettings();
   let mode: Mode | null = null;
   let helperStatus: HelperStatus = "disconnected";
+  let helperPlatform: HelperPlatformInfo | null = null;
   let displays: DisplayInfo[] = [fallbackDisplay];
   let selectedDisplayId = fallbackDisplay.id;
   let selectedZone: HotzoneId = "right";
@@ -163,6 +183,7 @@
       if (status === "connected") lastMessage = "helper 已连接，正在同步配置";
       if (status === "disconnected" && connectionTestState === "testing") finishConnectionTest(false, "连接已断开");
       if (status === "disconnected") {
+        helperPlatform = null;
         const wasReady = helperWasReady;
         helperWasReady = false;
         if (upgradingHelper) scheduleHelperUpgradeRestart();
@@ -172,7 +193,8 @@
     });
     const offMessage = helper.onMessage((message) => {
       if (message.type === "helper.ready") {
-        const data = message.data as { version?: unknown; protocolVersion?: unknown; ocrLanguages?: unknown } | null;
+        const data = message.data as { version?: unknown; protocolVersion?: unknown; ocrLanguages?: unknown; platform?: HelperPlatformInfo } | null;
+        helperPlatform = helper.platformInfo ?? (data?.platform ?? null);
         availableOcrLanguages = Array.isArray(data?.ocrLanguages)
           ? data.ocrLanguages.filter((language): language is OcrLanguage => language === "auto" || language === "zh-Hans" || language === "en")
           : null;
@@ -210,6 +232,11 @@
       } else if (message.type === "action.triggered") {
         const data = message.data as { source?: string; kind?: string };
         lastAction = [data.source, data.kind].filter(Boolean).join(" · ") || "动作已触发";
+      } else if (message.type === "gesture.recognized") {
+        const data = message.data as { name?: string; capturePath?: unknown };
+        lastAction = typeof data.capturePath === "string" && data.capturePath.length
+          ? `${data.name || "截图贴图"} · ${data.capturePath}`
+          : data.name || "手势已识别";
       } else if (message.type === "ocr.completed") {
         const data = message.data as { characters?: number };
         lastAction = "OCR · 文字已复制";
@@ -1133,7 +1160,7 @@
               <div class="power-summary"><div class="power-orb" class:on={settings.enabled && helperStatus === "connected"}><span></span></div><h2>{settings.enabled ? helperStatus === "connected" ? "功能正在运行" : "正在启动后台助手" : "功能已关闭"}</h2><p>{settings.enabled ? helperStatus === "connected" ? `${runtimeSummary}，已启用规则正在生效` : "总开关打开后会自动启动并连接后台助手" : "总开关关闭时后台助手同步停止，不占用后台资源"}</p></div>
               <div class="power-facts desktop-power-facts">
                 <div><span>功能总开关</span><strong class:on={settings.enabled}>{settings.enabled ? "已打开" : "已关闭"}</strong><p>同时控制规则运行与助手生命周期</p></div>
-                <div><span>后台助手</span><strong class:on={helperStatus === "connected"}>{helperStatus === "connected" ? "已连接" : helperStatus === "connecting" ? "连接中" : "未连接"}</strong><p>负责系统监听与窗口操作</p></div>
+                <div><span>后台助手</span><strong class:on={helperStatus === "connected"}>{helperStatus === "connected" ? "已连接" : helperStatus === "connecting" ? "连接中" : "未连接"}</strong><p>负责系统监听与窗口操作</p>{#if helperPlatform}<small class="platform-capabilities">{helperPlatform.system} · {helperPlatform.architecture}{helperPlatform.session ? ` · ${helperPlatform.session}` : ""} · {unavailableCapabilityText(helperPlatform)}</small>{/if}</div>
               </div>
               <div class="power-actions"><button class="apply" disabled={!helperInstallState.installed || settings.enabled || starting || stopping} on:click={() => setPowerEnabled(true)} type="button">打开功能</button><button class="quiet" disabled={starting || stopping || (!settings.enabled && helperStatus === "disconnected")} on:click={() => setPowerEnabled(false)} type="button">关闭功能</button><button aria-live="polite" class:failed={connectionTestState === "failed"} class:success={connectionTestState === "success"} class:testing={connectionTestState === "testing"} class="quiet connection-test" disabled={helperStatus !== "connected" || connectionTestState === "testing"} on:click={runConnectionTest} type="button"><i aria-hidden="true"></i><span>{connectionTestState === "testing" ? "测试中" : connectionTestState === "success" ? "连接正常" : connectionTestState === "failed" ? "测试失败" : "连接测试"}</span></button><button class="quiet" on:click={copyDiagnostics} type="button">复制诊断</button></div>
               <div class="helper-meta"><span>助手 {helperInstallState.version}</span><button on:click={() => openHelperPage("repository")} type="button">公开下载仓库</button><code>{helperInstallState.installDir ?? "尚未确定安装目录"}</code></div>

@@ -7,9 +7,9 @@ Migration work must preserve at least:
 - 71 frontend tests in the host integration.
 - 129 passing default Rust tests and 2 explicitly ignored Windows OCR tests in the shared helper.
 
-The current verified baseline is 98 frontend tests in the host integration and 162 passing Rust tests with 2 OCR tests ignored.
+The current verified Windows baseline is 98 frontend tests in the host integration and 162 passing Rust tests with 2 OCR tests ignored. The 0.5.8 working tree currently reports 101 host tests, 76 standalone frontend tests, 164 helper tests, and 13 Tauri host tests; native runner counts are recorded separately and must not reduce this Windows baseline.
 
-The standalone desktop baseline is 75 frontend tests across 13 files, zero Svelte check errors or warnings, and 13 Tauri host tests.
+The standalone desktop baseline is 75 frontend tests across 13 files, zero Svelte check errors or warnings, and 13 Tauri host tests. The 0.5.8 working tree currently reports 101 uTools tests, 76 standalone frontend tests, 164 Windows helper tests with 2 OCR tests ignored, and 13 Tauri host tests.
 
 ## Local Gates
 
@@ -18,14 +18,23 @@ Every cross-host change runs the closest unit and contract tests first, followed
 1. Svelte type checking, frontend tests, and production build.
 2. Rust formatting and the full helper test suite with the pinned Windows gnullvm toolchain.
 3. Tauri compilation and package build on Windows 11 x64.
-4. IPC, 64-update configuration stress, gesture, window-drag, and reliability smoke tests.
-5. Artifact inventory and secret scan for installers and portable output.
+4. Native macOS and Linux X11 helper/Tauri compilation on their own runners; Linux uses Xvfb for display-backed checks.
+5. IPC, 64-update configuration stress, gesture, window-drag, and reliability smoke tests.
+6. Artifact inventory and secret scan for installers and portable output.
 
 Tests must not be skipped, converted to TODOs, weakened, or replaced with mocks of the behavior under test merely to satisfy a gate.
 
 Cross-host UI acceptance requires settings to persist on each valid change without a generic manual-save button. The hot-zone master switch must leave saved configuration, preview, and configured markers visible while the editing controls are inert. Window enhancement currently exposes only the edge-hide tutorial: one circled question mark beside its heading, a hover/focus card that remains readable while the pointer enters it, the center-to-right/collapse/restore CSS sequence, no drag or pin tutorial, no horizontal overflow at 1280x720, 900x600, or 640x600, and no positional animation under reduced motion. Both hosts expose `showRestoreHint`, default it on for missing legacy fields, preserve an explicit off value, and explain that disabling it hides only the pale outline while edge restore remains active.
 
-The capture-exclusion assertions remain strict on the supported Windows 11 workstation target. Windows Server CI may report display affinity `0` after a successful `SetWindowDisplayAffinity` call; tests recognize that product type explicitly rather than weakening the Windows 11 assertion.
+The capture-exclusion assertions remain strict on the supported Windows 11 workstation target. Windows Server CI may report display affinity `0` after a successful `SetWindowDisplayAffinity` call; tests recognize that product type explicitly rather than weakening the Windows 11 assertion. macOS capture tests require Screen Recording permission, and Accessibility permission is required for global input/window control; a permission denial must be surfaced as unavailable, never counted as a passing capability. Linux helper tests run under X11 (`DISPLAY` and `XDG_SESSION_TYPE=x11`); Wayland tests verify detection and explicit degradation only.
+
+## Native Runner Gates
+
+The repository pins a Windows GNU target in `rust-toolchain` and `helper/.cargo/config.toml`, so native jobs invoke `cargo +stable` and pass their host target explicitly. Cross-compiling Linux X11 from Windows is not a substitute for a native runner because `rdev` links to system X11 libraries through `pkg-config`.
+
+The `macOS and Linux X11` workflow runs the desktop frontend checks, helper format/tests, and Tauri host tests/checks on macOS x64, macOS arm64, and Ubuntu x64. Ubuntu installs the X11/Tauri development libraries, starts Xvfb, then runs `scripts/helper-instance-smoke.mjs` against the native helper. The smoke requires helper readiness, intentional single-instance conflict with a nonzero exit and `HELPER_INSTANCE_CONFLICT`, authenticated stop, and clean recovery.
+
+Native acceptance still needs one real macOS machine with Accessibility and Screen Recording enabled, plus one Linux X11 desktop (not only Xvfb), to verify hot zones, global gestures, move/resize, foreground selection, topmost, and screenshot output. Linux Wayland is intentionally limited to the capability/degradation contract.
 
 ## Lifecycle and Compatibility
 
@@ -53,6 +62,6 @@ The gate silently installs the current-user NSIS package below a disposable dire
 
 The install gate first runs `scripts/read-text-file-with-retry.test.ps1`, which holds a synthetic helper log with `FileShare.None` and requires the shared reader to recover after the lock is released. Runtime and install scripts retry only transient `IOException` reads within a bounded deadline; readiness markers, process identity, port closure, uninstall cleanup, and helper-ownership assertions remain strict.
 
-A clean clone of this repository must reproduce the desktop build. Manual Windows checks remain required for tray behavior, optional startup, global input, hot zones, gestures, drag, edge hiding, screenshots, OCR, and topmost controls; passing unit tests alone is not release evidence.
+A clean clone of this repository must reproduce the desktop build. Manual Windows checks remain required for tray behavior, optional startup, global input, hot zones, gestures, drag, edge hiding, screenshots, OCR, and topmost controls. macOS checks must include permission prompts and supported window/screenshot actions; Linux checks must run under X11 and verify explicit Wayland degradation. Passing unit tests or a cross-compile alone is not release evidence.
 
 There are only two user acceptance phases. Daily `develop` acceptance normally uses the host integration; build and hand off a local NSIS package only when the user explicitly requests desktop synchronization. Before release, rebuild from clean `main`, publish the exact final installer and portable archive as a GitHub Pre-release, and test the public downloads end to end. The final manifest must identify the clean `main` commit and `SHA256SUMS` must match both deliverables. Stable promotion is allowed only for the same remote assets; changed binaries require a new patch version and tag.

@@ -20,6 +20,12 @@ pub use screenshot::*;
 pub use topmost_pin::*;
 pub use window::*;
 
+/// Windows renders the captured bitmap in a native pin window. Unix backends
+/// save the bitmap to a file and expose that path through the same engine hook.
+pub fn take_capture_result() -> Option<String> {
+    None
+}
+
 #[cfg(test)]
 pub(crate) fn assert_capture_exclusion_affinity(affinity: u32) {
     use std::mem::size_of;

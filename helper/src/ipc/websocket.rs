@@ -146,6 +146,7 @@ async fn handle_connection(
                 serde_json::json!({
                     "version": env!("CARGO_PKG_VERSION"),
                     "protocolVersion": 6,
+                    "platform": crate::platform::platform_info(),
                     "ocrLanguages": ocr_languages,
                     "usage": usage.snapshot()
                 }),
@@ -281,7 +282,8 @@ fn parse_config_update(data: Value) -> serde_json::Result<(AppConfig, Option<u64
     let raw_config = data.get("config").cloned().unwrap_or(data);
     let received = serde_json::from_value::<AppConfig>(raw_config)?;
     let before = serde_json::to_value(&received)?;
-    let config = received.normalized();
+    let mut config = received.normalized();
+    crate::platform::apply_capability_limits(&mut config);
     let adjusted = serde_json::to_value(&config)? != before;
     Ok((config, revision, adjusted))
 }

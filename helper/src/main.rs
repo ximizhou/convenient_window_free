@@ -112,6 +112,10 @@ async fn main() -> Result<()> {
     }
     paths::initialize()?;
     logging::write_line("main: starting");
+    if let Err(error) = platform::preflight() {
+        logging::write_line(format!("main: platform preflight failed: {error:#}"));
+        return Err(error);
+    }
     let Some(_single_instance) = single_instance::SingleInstance::acquire()? else {
         const CONFLICT: &str =
             "HELPER_INSTANCE_CONFLICT: another Convenient Window helper is already running";
@@ -119,7 +123,8 @@ async fn main() -> Result<()> {
         anyhow::bail!(CONFLICT);
     };
 
-    let initial_config = load_config().unwrap_or_default();
+    let mut initial_config = load_config().unwrap_or_default();
+    platform::apply_capability_limits(&mut initial_config);
     let auth_token = auth::load_or_create_token()?;
     let (config_tx, config_rx) = watch::channel(initial_config);
     let (event_tx, _) = broadcast::channel::<HelperMessage>(128);

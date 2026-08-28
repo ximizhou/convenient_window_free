@@ -11,7 +11,6 @@ use tungstenite::client::IntoClientRequest;
 use tungstenite::http::{header::SEC_WEBSOCKET_PROTOCOL, HeaderValue};
 use tungstenite::{client, Message};
 
-const HELPER_EXE: &str = "magic-corners-helper.exe";
 const HELPER_LOG: &str = "magic-corners-helper.log";
 const TOKEN_FILE: &str = "auth-token";
 const INSTANCE_CONFLICT: &str = "HELPER_INSTANCE_CONFLICT";
@@ -41,6 +40,14 @@ pub struct HelperProcess {
     child_job: Option<ChildJob>,
     last_exit_code: Option<i32>,
     last_error: Option<String>,
+}
+
+pub const fn helper_executable_name() -> &'static str {
+    if cfg!(windows) {
+        "magic-corners-helper.exe"
+    } else {
+        "magic-corners-helper"
+    }
 }
 
 impl Default for HelperProcess {
@@ -239,26 +246,44 @@ impl HelperProcess {
 }
 
 pub fn validate_payload(payload_dir: &Path) -> Result<PathBuf, String> {
-    let helper = payload_dir.join(HELPER_EXE);
+    let helper = payload_dir.join(helper_executable_name());
     if !helper.is_file() {
         return Err(format!("后台助手文件缺失：{}", helper.display()));
     }
-    let unwind = payload_dir.join("libunwind.dll");
-    if !unwind.is_file() {
-        return Err(format!("后台助手运行库缺失：{}", unwind.display()));
+    #[cfg(windows)]
+    {
+        let unwind = payload_dir.join("libunwind.dll");
+        if !unwind.is_file() {
+            return Err(format!("后台助手运行库缺失：{}", unwind.display()));
+        }
+        let has_std = fs::read_dir(payload_dir)
+            .map_err(|error| format!("无法检查后台助手目录：{error}"))?
+            .filter_map(Result::ok)
+            .any(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                entry.path().is_file() && name.starts_with("std-") && name.ends_with(".dll")
+            });
+        if !has_std {
+            return Err("后台助手运行库缺失：未找到 std-*.dll".to_string());
+        }
     }
-    let has_std = fs::read_dir(payload_dir)
-        .map_err(|error| format!("无法检查后台助手目录：{error}"))?
-        .filter_map(Result::ok)
-        .any(|entry| {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            entry.path().is_file() && name.starts_with("std-") && name.ends_with(".dll")
-        });
-    if !has_std {
-        return Err("后台助手运行库缺失：未找到 std-*.dll".to_string());
-    }
+    #[cfg(unix)]
+    ensure_executable(&helper)?;
     Ok(helper)
+}
+
+#[cfg(unix)]
+fn ensure_executable(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = fs::metadata(path)
+        .map_err(|error| format!("无法读取后台助手权限：{error}"))?
+        .permissions()
+        .mode();
+    if mode & 0o111 == 0 {
+        return Err(format!("后台助手没有可执行权限：{}", path.display()));
+    }
+    Ok(())
 }
 
 pub fn payload_size(payload_dir: &Path) -> u64 {
@@ -393,10 +418,11 @@ mod tests {
         directory
     }
 
+    #[cfg(windows)]
     #[test]
     fn sidecar_requires_executable_and_every_gnu_runtime_class() {
         let directory = test_dir();
-        fs::write(directory.join(HELPER_EXE), b"exe").unwrap();
+        fs::write(directory.join(helper_executable_name()), b"exe").unwrap();
         assert!(validate_payload(&directory)
             .unwrap_err()
             .contains("libunwind"));
@@ -407,8 +433,26 @@ mod tests {
         fs::write(directory.join("std-test.dll"), b"dll").unwrap();
         assert_eq!(
             validate_payload(&directory).unwrap(),
-            directory.join(HELPER_EXE)
+            directory.join(helper_executable_name())
         );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sidecar_requires_an_executable_unix_helper() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = test_dir();
+        let helper = directory.join(helper_executable_name());
+        fs::write(&helper, b"helper").unwrap();
+        assert!(validate_payload(&directory)
+            .unwrap_err()
+            .contains("可执行权限"));
+        let mut permissions = fs::metadata(&helper).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&helper, permissions).unwrap();
+        assert_eq!(validate_payload(&directory).unwrap(), helper);
         fs::remove_dir_all(directory).unwrap();
     }
 

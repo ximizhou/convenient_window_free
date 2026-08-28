@@ -14,10 +14,12 @@ This repository is authoritative for the standalone desktop and the helper. Host
 
 - `apps/desktop/`: reusable Svelte UI, typed host bridge, and Tauri 2 host.
 - `helper/`: platform-independent core, IPC, storage, and platform adapters.
-- `helper/src/platform/windows/`: accepted Windows implementation.
+- `helper/src/platform/windows/`: complete Windows implementation.
+- `helper/src/platform/macos.rs`: macOS Accessibility, Core Graphics, and permission-gated input/capture boundary.
+- `helper/src/platform/linux.rs`: Linux X11/EWMH boundary; Wayland is detected and degraded.
 - `scripts/`: reproducible development, packaging, smoke-test, and artifact-audit entry points.
 
-Linux and macOS modules may satisfy shared interfaces in the future. Core code must not accumulate host checks or new Linux/macOS conditional branches as a substitute for platform adapters.
+Platform-specific behavior stays behind the helper adapter boundary. Core code must not accumulate host checks or new Linux/macOS conditional branches as a substitute for platform adapters. The `helper.ready` payload includes `platform.system`, `platform.architecture`, `platform.session`, and boolean capability fields (`globalInput`, `windowControl`, `windowTopmost`, `screenCapture`, `ocr`, `audio`, `systemActions`, `edgeHide`). Hosts must display unavailable capabilities and continue only with actions the helper reports as supported.
 
 ## Host Bridge
 
@@ -36,9 +38,9 @@ The UI awaits a successful durable desktop-settings write before sending that ex
 
 ## Helper Lifecycle
 
-Each host starts the helper with an absolute `--data-dir` owned by that product. Authentication tokens, runtime configuration, usage data, and logs remain separate between products. The named mutex `Global\ConvenientWindowHelper` prevents both products from running helpers concurrently; the losing process logs `HELPER_INSTANCE_CONFLICT` and exits nonzero so the host can show a stable error.
+Each host starts the helper with an absolute `--data-dir` owned by that product. Authentication tokens, runtime configuration, usage data, and logs remain separate between products. A platform-native single-instance lock (the `Global\ConvenientWindowHelper` mutex on Windows and an exclusive runtime/cache lock file on Unix) prevents both products from running helpers concurrently; the losing process logs `HELPER_INSTANCE_CONFLICT` and exits nonzero so the host can show a stable error.
 
-The desktop package includes the helper EXE and all GNU runtime DLLs required by that exact build. The Tauri process resolves the packaged sidecar set, assigns every desktop-owned helper to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and retains the Job handle for the helper lifetime. Normal exits first request authenticated `helper.stop`; if the desktop process is terminated before that path runs, closing the Job handle terminates only the assigned child. Cleanup never searches for or kills helpers by executable name, so a separately owned uTools helper is outside the desktop lifecycle boundary.
+The desktop package resolves a platform-native helper payload. Windows includes the helper EXE and all GNU runtime DLLs required by that exact build; macOS and Linux use an executable Unix helper and never reuse Windows paths or launch commands. On Windows, the Tauri process assigns every desktop-owned helper to a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`; Unix hosts use the same authenticated stop/ownership boundary without assuming a Windows process primitive. Cleanup never searches for or kills helpers by executable name, so a separately owned uTools helper is outside the desktop lifecycle boundary.
 
 The NSIS pre-uninstall hook signals `Local\com.ximizhou.convenientwindow.shutdown` and waits briefly for the desktop process to use the same guarded shutdown path before files are removed. Tray quit, Tauri exit events, and uninstall converge on a one-time shutdown guard. Closing the main window only hides it. Optional startup registration is exposed only as the checked `开机自动启动` tray item; autostart launches with `--autostart` and keeps the settings window hidden.
 
@@ -48,4 +50,11 @@ Edge-hide state keeps the target edge and restore geometry across monitor change
 
 ## Platform and Release Boundary
 
-Only Windows 11 x64 is accepted. The package produces a per-user NSIS installer and a portable archive, with tray controls and optional startup registration. Public GitHub Releases use immutable final-version assets: a clean `main` build is published as a Pre-release for online acceptance, then promoted in place. Automatic updates and trusted commercial code signing are not implemented.
+| Host | Runtime boundary | Acceptance status | Explicitly unavailable |
+| --- | --- | --- | --- |
+| Windows 11 x64 | Complete helper and desktop behavior, including OCR, audio, edge hiding, and topmost controls | Release-accepted | None in the current P0 scope |
+| macOS x64/arm64 | Accessibility-gated global input/window control; Core Graphics monitor and screen capture | Cross-compile check; native permission and window smoke pending | OCR, audio, edge hiding, arbitrary-window topmost |
+| Linux x64 X11 | X11 global input/window control, RandR monitors, EWMH topmost, X11 capture | Cross-compile check; native X11 runner smoke pending | OCR, audio, edge hiding |
+| Linux Wayland | Session detection and capability reporting only | Degradation behavior tested; no false-ready support claim | Global input and arbitrary-window control unless a future portal path is proven |
+
+The package produces a per-user NSIS installer and a portable archive for the currently accepted Windows target. macOS/Linux assets stay out of release manifests until native runner and real-machine acceptance records their exact binary, size, and SHA-256. Public GitHub Releases use immutable final-version assets: a clean `main` build is published as a Pre-release for online acceptance, then promoted in place. Automatic updates and trusted commercial code signing are not implemented.

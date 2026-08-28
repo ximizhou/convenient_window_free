@@ -31,16 +31,14 @@
     "active": true,
     "targets": ["nsis"],
     "category": "Utility",
-    "shortDescription": "Windows 11 热区、窗口与鼠标增强工具",
+    "shortDescription": "跨平台热区、窗口与鼠标增强工具",
     "longDescription": "便捷窗口提供热区、贴边隐藏、全局鼠标手势、截图、本地 OCR 和窗口置顶能力。",
     "publisher": "ximizhou",
     "licenseFile": "../../../LICENSE",
     "resources": {
       "../../../LICENSE": "LICENSE",
       "../../../target/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",
-      "resources/helper/*.exe": "helper/",
-      "resources/helper/*.dll": "helper/",
-      "resources/helper/payload-manifest.json": "helper/payload-manifest.json"
+      "resources/helper": "helper/"
     },
     "icon": [
       "icons/32x32.png",

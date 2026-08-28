@@ -1,5 +1,5 @@
 use crate::config::{GestureTriggerButton, MouseButton};
-use crate::platform::{InputState, Point};
+use crate::platform::{GestureCapture, InputState, Point, WindowDragCapture, WindowDragMode};
 use anyhow::{bail, Result};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
@@ -45,13 +45,6 @@ static WINDOW_DRAG_RESIZE_MODIFIERS: AtomicU8 = AtomicU8::new(2);
 static WINDOW_DRAG_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static SUPPRESSED_WINDOW_DRAG_UPS: AtomicU8 = AtomicU8::new(0);
 
-#[derive(Clone, Debug)]
-pub struct GestureCapture {
-    pub trigger: GestureTriggerButton,
-    pub modifiers: u8,
-    pub points: Vec<Point>,
-}
-
 #[derive(Default)]
 struct GestureHookState {
     active_trigger: Option<GestureTriggerButton>,
@@ -64,21 +57,6 @@ struct GestureHookState {
 fn gesture_state() -> &'static Mutex<GestureHookState> {
     static STATE: OnceLock<Mutex<GestureHookState>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(GestureHookState::default()))
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum WindowDragMode {
-    Move,
-    Resize,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct WindowDragCapture {
-    pub sequence: u64,
-    pub mode: WindowDragMode,
-    pub start: Point,
-    pub current: Point,
-    pub finished: bool,
 }
 
 #[derive(Default)]

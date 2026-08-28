@@ -1,4 +1,4 @@
-import type { AppSettings, HelperMessage, HelperStatus } from "./types";
+import type { AppSettings, HelperMessage, HelperPlatformInfo, HelperStatus } from "./types";
 import { settingsForHelper } from "./runtime-settings";
 
 type MessageHandler = (message: HelperMessage) => void;
@@ -20,6 +20,7 @@ export class HelperClient {
   private shouldReconnect = false;
   private stopRequested = false;
   private protocolReady = false;
+  private latestPlatform: HelperPlatformInfo | null = null;
   private generation = 0;
   private readonly messageHandlers = new Set<MessageHandler>();
   private readonly statusHandlers = new Set<StatusHandler>();
@@ -80,7 +81,9 @@ export class HelperClient {
       try {
         const message = JSON.parse(String(event.data)) as HelperMessage;
         if (message.type === "helper.ready") {
-          const protocolVersion = (message.data as { protocolVersion?: unknown } | null)?.protocolVersion;
+          const data = message.data as { protocolVersion?: unknown; platform?: unknown } | null;
+          const protocolVersion = data?.protocolVersion;
+          this.latestPlatform = isPlatformInfo(data?.platform) ? data.platform : null;
           this.protocolReady = isSupportedHelperProtocol(protocolVersion);
           if (this.protocolReady) this.flushLatestConfig();
         }
@@ -96,7 +99,12 @@ export class HelperClient {
     this.stopRequested = false;
     this.clearReconnectTimer();
     this.closeSocket();
+    this.latestPlatform = null;
     this.emitStatus("disconnected");
+  }
+
+  get platformInfo(): HelperPlatformInfo | null {
+    return this.latestPlatform;
   }
 
   private closeSocket(): void {
@@ -202,4 +210,18 @@ export class HelperClient {
       this.reconnectTimer = null;
     }
   }
+}
+
+function isPlatformInfo(value: unknown): value is HelperPlatformInfo {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  if (!data.capabilities || typeof data.capabilities !== "object") return false;
+  const capabilities = data.capabilities as Record<string, unknown>;
+  const names = [
+    "globalInput", "windowControl", "windowTopmost", "screenCapture",
+    "ocr", "audio", "systemActions", "edgeHide"
+  ];
+  return typeof data.system === "string"
+    && typeof data.architecture === "string"
+    && names.every((name) => typeof capabilities[name] === "boolean");
 }

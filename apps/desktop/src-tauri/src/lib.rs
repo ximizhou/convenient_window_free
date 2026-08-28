@@ -97,7 +97,7 @@ fn desktop_status(state: State<'_, DesktopState>) -> Result<DesktopStatus, Strin
         state
             .paths
             .helper_payload_dir
-            .join("magic-corners-helper.exe")
+            .join(supervisor::helper_executable_name())
     });
     let helper_error = payload.err();
     let token = supervisor::read_valid_token(&state.paths.helper_data_dir.join("auth-token")).ok();
@@ -182,7 +182,7 @@ fn diagnostics(state: State<'_, DesktopState>) -> Result<DesktopDiagnostics, Str
     let helper_path = state
         .paths
         .helper_payload_dir
-        .join("magic-corners-helper.exe");
+        .join(supervisor::helper_executable_name());
     Ok(DesktopDiagnostics {
         app_data_dir: path_string(&state.paths.app_data_dir),
         settings_path: path_string(&state.paths.settings_path),
@@ -208,7 +208,10 @@ fn resolve_helper_payload_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .resource_dir()
         .map_err(|error| format!("无法定位应用资源目录：{error}"))?;
     let packaged = resource_dir.join("helper");
-    if packaged.join("magic-corners-helper.exe").is_file() {
+    if packaged
+        .join(supervisor::helper_executable_name())
+        .is_file()
+    {
         return Ok(packaged);
     }
     let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -165,4 +165,22 @@ export interface HelperMessage<T = unknown> {
   data: T;
 }
 
+export interface PlatformCapabilities {
+  globalInput: boolean;
+  windowControl: boolean;
+  windowTopmost: boolean;
+  screenCapture: boolean;
+  ocr: boolean;
+  audio: boolean;
+  systemActions: boolean;
+  edgeHide: boolean;
+}
+
+export interface HelperPlatformInfo {
+  system: string;
+  architecture: string;
+  session?: string | null;
+  capabilities: PlatformCapabilities;
+}
+
 export type HelperStatus = "disconnected" | "connecting" | "connected";

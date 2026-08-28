@@ -4,6 +4,12 @@
   "platform": "win32-x64",
   "repository": "https://github.com/ximizhou/convenient_window_free",
   "release": "https://github.com/ximizhou/convenient_window_free",
+  "targets": {
+    "win32-x64": { "status": "available", "platform": "win32-x64" },
+    "darwin-x64": { "status": "unverified", "platform": "darwin-x64" },
+    "darwin-arm64": { "status": "unverified", "platform": "darwin-arm64" },
+    "linux-x64": { "status": "unverified", "platform": "linux-x64" }
+  },
   "requiredFiles": [
     "magic-corners-helper.exe",
     "libunwind.dll"

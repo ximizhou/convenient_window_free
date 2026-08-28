@@ -16,6 +16,8 @@ socket2 = "0.6"
 tokio = { version = "1.42", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = "0.26"
 uuid = { version = "1.11", features = ["v4", "serde"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
@@ -43,3 +45,16 @@ windows = { version = "0.58", features = [
   "Media_Ocr",
   "Storage_Streams"
 ] }
+
+[target.'cfg(unix)'.dependencies]
+fs2 = "0.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.14", features = ["randr", "xtest"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-graphics = "0.25"
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+rdev = "0.5.3"

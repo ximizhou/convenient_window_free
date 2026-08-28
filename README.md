@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Convenient Window is a Windows 11 desktop utility for hot zones, edge-hidden windows, global mouse gestures, screenshots, local OCR, and topmost-window control.
+Convenient Window is a desktop utility for hot zones, window control, global mouse gestures, screenshots, and topmost-window control. Version 0.5.8 keeps the complete Windows implementation and adds native platform boundaries for macOS and Linux X11.
 
 Settings are saved and applied as they change. The standalone app runs from the system tray and packages its native Rust helper with the desktop application.
 
@@ -12,11 +12,11 @@ Settings are saved and applied as they change. The standalone app runs from the 
 
 ## Download
 
-Download the Windows installer or portable archive from the [latest stable release](https://github.com/ximizhou/convenient_window_free/releases/latest).
+Download the Windows installer or portable archive from the [latest stable release](https://github.com/ximizhou/convenient_window_free/releases/latest). The stable release currently contains Windows assets only; macOS and Linux packages are not published until native acceptance is complete.
 
 - **Installer (`setup.exe`)**: recommended for a normal per-user installation.
 - **Portable ZIP**: extract and run without installing.
-- **System requirement**: Windows 11 x64.
+- **System requirement for the published packages**: Windows 11 x64.
 
 Release assets are currently unsigned. Windows may show an unknown-publisher or Microsoft Defender SmartScreen warning. Checksums and an artifact manifest are included with each release so the downloaded files can be verified.
 
@@ -74,14 +74,17 @@ Closing the settings window keeps the tray application running. Use the tray men
 - OCR is performed through local Windows APIs. Screenshots are not uploaded for recognition.
 - Configuration, authentication tokens, usage data, and logs stay in the application's local data directory.
 - Local WebSocket access is protected by a random token.
-- A global Windows single-instance lock prevents separate host integrations from controlling competing helper processes.
+- A platform-native single-instance lock prevents separate host integrations from controlling competing helper processes.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 
 ## Current Limitations
 
-- Windows 11 x64 is the only supported and accepted platform.
-- Linux and macOS have reserved architecture boundaries but are not implemented or supported.
+- Windows 11 x64 is the release-accepted platform and retains the complete feature set.
+- macOS (x64 and arm64) has a native helper boundary for global input, accessibility window control, monitor discovery, and screen capture. Accessibility and Screen Recording permissions are required. OCR, audio actions, edge hiding, and arbitrary-window topmost are explicitly unavailable.
+- Linux x64 under X11 has native helper support for global input, window control, monitor discovery, screen capture, and EWMH topmost. OCR, audio actions, and edge hiding are explicitly unavailable.
+- Linux Wayland is detected and reports unavailable capabilities; the helper does not pretend to provide global input or arbitrary-window control there.
+- macOS and Linux release assets remain unverified until native runner and real-machine smoke evidence is recorded.
 - The installer and executable are not currently code-signed.
 - Automatic application updates are not implemented.
 
@@ -97,10 +100,11 @@ Host integrations consume this repository as a submodule and supply their own ho
 
 ### Prerequisites
 
-- Windows 11 x64
 - Node.js `24.14.0` as pinned by `.node-version`
-- Rust `1.96.0-x86_64-pc-windows-gnullvm` as pinned by `rust-toolchain`
-- Windows tooling required by Tauri 2 and NSIS packaging
+- Windows 11 x64 for the release installer, portable archive, and full Windows behavior
+- macOS 13+ (x64 or arm64) for native helper checks; grant Accessibility and Screen Recording permissions when running the helper interactively
+- Ubuntu 22.04+ with an X11 display (CI uses Xvfb) for Linux helper checks; Wayland sessions are detection/degradation tests only
+- Rust `1.96.0` or a newer stable toolchain for native macOS/Linux checks. The repository `rust-toolchain` pins the Windows GNU target, so native runners must invoke `cargo +stable` explicitly.
 
 Install dependencies and run the frontend checks:
 
@@ -128,7 +132,7 @@ npm run desktop:audit
 npm run desktop:source-audit
 ```
 
-For helper-only development, run commands from `helper/` so its linker configuration is applied:
+For helper-only Windows development, run commands from `helper/` so its linker configuration is applied:
 
 ```powershell
 rustup toolchain install 1.96.0-x86_64-pc-windows-gnullvm --profile minimal --component rustfmt
@@ -137,7 +141,35 @@ rustup run 1.96.0-x86_64-pc-windows-gnullvm cargo fmt --check
 rustup run 1.96.0-x86_64-pc-windows-gnullvm cargo test
 ```
 
-The build generates `THIRD-PARTY-NOTICES.txt` from the installed npm production tree and locked Windows Cargo dependency graphs. The installer and portable package must contain both that file and the project license; missing or unauditable license text stops the build.
+The Windows build generates `THIRD-PARTY-NOTICES.txt` from the installed npm production tree and locked Cargo dependency graphs. The installer and portable package must contain both that file and the project license; missing or unauditable license text stops the build.
+
+Native macOS checks:
+
+```bash
+npm ci --prefix apps/desktop
+npm --prefix apps/desktop run check
+npm --prefix apps/desktop test
+npm --prefix apps/desktop run build
+cargo +stable fmt --manifest-path helper/Cargo.toml --check
+cargo +stable test --manifest-path helper/Cargo.toml --target x86_64-apple-darwin
+cargo +stable check --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-apple-darwin
+```
+
+Native Linux X11 checks (the display must be available; CI starts Xvfb):
+
+```bash
+sudo apt-get install -y pkg-config libx11-dev libxtst-dev libxi-dev libxinerama-dev libxrandr-dev libxss-dev libwayland-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb
+Xvfb :99 -screen 0 1920x1080x24 &
+export DISPLAY=:99
+export XDG_SESSION_TYPE=x11
+npm ci --prefix apps/desktop
+npm --prefix apps/desktop run check
+npm --prefix apps/desktop test
+npm --prefix apps/desktop run build
+cargo +stable fmt --manifest-path helper/Cargo.toml --check
+cargo +stable test --manifest-path helper/Cargo.toml --target x86_64-unknown-linux-gnu
+cargo +stable check --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-unknown-linux-gnu
+```
 
 More technical information:
 

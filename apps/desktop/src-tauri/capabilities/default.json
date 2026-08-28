@@ -3,7 +3,7 @@
   "identifier": "main-window",
   "description": "Minimum desktop permissions for configuration dialogs and public repository links.",
   "windows": ["main"],
-  "platforms": ["windows"],
+  "platforms": ["windows", "macOS", "linux"],
   "permissions": [
     "core:default",
     "dialog:allow-open",

@@ -482,6 +482,7 @@ impl Engine {
             };
             match dispatch_result {
                 Ok(()) => {
+                    let capture_path = platform::take_capture_result();
                     let _ = self.event_tx.send(HelperMessage::new(
                         "gesture.recognized",
                         json!({
@@ -490,7 +491,8 @@ impl Engine {
                             "score": result.score,
                             "region": result.region.map(|rect| json!({
                                 "left": rect.left, "top": rect.top, "right": rect.right, "bottom": rect.bottom
-                            }))
+                            })),
+                            "capturePath": capture_path
                         }),
                     ));
                 }

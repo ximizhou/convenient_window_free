@@ -2,7 +2,7 @@
 
 简体中文 | [English](README.md)
 
-便捷窗口是一款面向 Windows 11 的桌面增强工具，提供触发角、窗口贴边隐藏、全局鼠标手势、截图贴图、本地 OCR 和窗口置顶控制。
+便捷窗口是一款跨平台桌面增强工具，提供触发角、窗口控制、全局鼠标手势和截图贴图。Windows 保留完整能力，macOS 与 Linux X11 先提供 P0 原生边界，Wayland 只做能力探测和明确降级。
 
 设置会在修改时自动保存并应用。独立桌面版常驻系统托盘，原生 Rust helper 会随桌面应用一同打包。
 
@@ -12,11 +12,11 @@
 
 ## 下载
 
-请从[最新稳定版](https://github.com/ximizhou/convenient_window_free/releases/latest)下载 Windows 安装包或便携版压缩包。
+请从[最新稳定版](https://github.com/ximizhou/convenient_window_free/releases/latest)下载 Windows 安装包或便携版压缩包；macOS/Linux 资产尚未完成 native 验收，当前不会伪装为可下载版本。
 
 - **安装包（`setup.exe`）**：推荐普通用户使用，按当前用户安装。
 - **Portable ZIP**：解压后即可运行，无需安装。
-- **系统要求**：Windows 11 x64。
+- **已发布系统要求**：Windows 11 x64。
 
 当前发布文件尚未进行代码签名，Windows 可能显示“未知发布者”或 Microsoft Defender SmartScreen 提示。每个 Release 都提供校验和与产物清单，可用于核对下载文件。
 
@@ -74,14 +74,17 @@
 - OCR 通过 Windows 本地 API 完成，识别过程不会上传截图。
 - 配置、鉴权令牌、使用数据和日志都保存在应用的本地数据目录中。
 - 本地 WebSocket 使用随机令牌保护。
-- Windows 全局单实例锁会阻止不同宿主集成同时控制不同的 helper 进程。
+- 平台原生单实例锁会阻止不同宿主集成同时控制不同的 helper 进程（Windows 使用全局 mutex，Unix 使用运行时/缓存目录锁文件）。
 
 如需私下报告安全问题，请查看 [SECURITY.md](SECURITY.md)。
 
-## 当前限制
+## 平台支持与限制
 
-- 目前只支持并验收 Windows 11 x64。
-- Linux 和 macOS 仅预留架构边界，尚未实现，也不在支持范围内。
+- Windows 11 x64：完整能力，当前发布和回归平台。
+- macOS x64/arm64：支持全局输入、辅助功能窗口控制、显示器和截图；需要辅助功能与屏幕录制权限。OCR、音频、贴边隐藏和任意窗口置顶暂不支持，真实权限与窗口验收待 native runner/机器证据。
+- Linux x64 X11：支持全局输入、窗口控制、显示器、截图和 EWMH 置顶；OCR、音频和贴边隐藏暂不支持，真实窗口验收待 native runner/机器证据。
+- Linux Wayland：只报告能力并明确降级，不承诺全局输入或任意窗口控制。
+- macOS/Linux 发布资产在 native 验收前保持未验证，不会进入下载清单。
 - 当前安装包和可执行文件尚未进行代码签名。
 - 暂未实现应用自动更新。
 
@@ -97,10 +100,11 @@
 
 ### 开发环境
 
-- Windows 11 x64
 - `.node-version` 固定的 Node.js `24.14.0`
-- `rust-toolchain` 固定的 Rust `1.96.0-x86_64-pc-windows-gnullvm`
-- Tauri 2 和 NSIS 打包所需的 Windows 工具链
+- Windows 11 x64：完整行为、NSIS 安装包和便携版
+- macOS 13+（x64/arm64）：原生 helper 检查；交互运行需授予辅助功能和屏幕录制权限
+- Ubuntu 22.04+ X11：Linux helper 检查；Wayland 仅做能力探测和明确降级
+- Rust `1.96.0` 或更新的 stable 工具链；仓库 `rust-toolchain` 只固定 Windows GNU 目标，macOS/Linux 请显式使用 `cargo +stable`
 
 安装依赖并运行前端检查：
 
@@ -138,6 +142,34 @@ rustup run 1.96.0-x86_64-pc-windows-gnullvm cargo test
 ```
 
 构建过程会根据已安装的 npm 生产依赖和锁定的 Windows Cargo 依赖图生成 `THIRD-PARTY-NOTICES.txt`。安装包和便携版必须同时包含该文件与项目许可证；许可证文本缺失或无法审计时，构建会直接失败。
+
+macOS 原生检查：
+
+```bash
+npm ci --prefix apps/desktop
+npm --prefix apps/desktop run check
+npm --prefix apps/desktop test
+npm --prefix apps/desktop run build
+cargo +stable fmt --manifest-path helper/Cargo.toml --check
+cargo +stable test --manifest-path helper/Cargo.toml --target x86_64-apple-darwin
+cargo +stable check --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-apple-darwin
+```
+
+Linux X11 检查（CI 使用 Xvfb；Wayland 不承诺完整等价）：
+
+```bash
+sudo apt-get install -y pkg-config libx11-dev libxtst-dev libxi-dev libxinerama-dev libxrandr-dev libxss-dev libwayland-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb
+Xvfb :99 -screen 0 1920x1080x24 &
+export DISPLAY=:99
+export XDG_SESSION_TYPE=x11
+npm ci --prefix apps/desktop
+npm --prefix apps/desktop run check
+npm --prefix apps/desktop test
+npm --prefix apps/desktop run build
+cargo +stable fmt --manifest-path helper/Cargo.toml --check
+cargo +stable test --manifest-path helper/Cargo.toml --target x86_64-unknown-linux-gnu
+cargo +stable check --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-unknown-linux-gnu
+```
 
 更多技术资料：
 

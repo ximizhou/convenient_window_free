@@ -1,10 +1,124 @@
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+#[cfg(not(target_os = "windows"))]
+pub mod unix;
+
 #[cfg(target_os = "windows")]
 pub use self::windows::*;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(not(target_os = "windows"))]
+pub use self::unix::*;
+
+use crate::config::AppConfig;
+use serde::Serialize;
+
+#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformCapabilities {
+    pub global_input: bool,
+    pub window_control: bool,
+    pub window_topmost: bool,
+    pub screen_capture: bool,
+    pub ocr: bool,
+    pub audio: bool,
+    pub system_actions: bool,
+    pub edge_hide: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformInfo {
+    pub system: &'static str,
+    pub architecture: &'static str,
+    pub session: Option<String>,
+    pub capabilities: PlatformCapabilities,
+}
+
+pub fn platform_info() -> PlatformInfo {
+    PlatformInfo {
+        system: std::env::consts::OS,
+        architecture: std::env::consts::ARCH,
+        session: session_name(),
+        capabilities: platform_capabilities(),
+    }
+}
+
+pub fn preflight() -> anyhow::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let input_ready = unix::preflight_input()?;
+        let capabilities = platform_capabilities();
+        if !input_ready || !capabilities.global_input {
+            anyhow::bail!(unix::unsupported_message("globalInput"));
+        }
+        if !capabilities.window_control {
+            anyhow::bail!(unix::unsupported_message("windowControl"));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn session_name() -> Option<String> {
+    Some("windows-desktop".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn session_name() -> Option<String> {
+    std::env::var("XDG_SESSION_TYPE")
+        .ok()
+        .or_else(|| {
+            std::env::var("WAYLAND_DISPLAY")
+                .ok()
+                .map(|_| "wayland".to_string())
+        })
+        .or_else(|| std::env::var("DISPLAY").ok().map(|_| "x11".to_string()))
+}
+
+#[cfg(target_os = "windows")]
+fn platform_capabilities() -> PlatformCapabilities {
+    PlatformCapabilities {
+        global_input: true,
+        window_control: true,
+        window_topmost: true,
+        screen_capture: true,
+        ocr: true,
+        audio: true,
+        system_actions: true,
+        edge_hide: true,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn platform_capabilities() -> PlatformCapabilities {
+    unix::capabilities()
+}
+
+pub fn apply_capability_limits(config: &mut AppConfig) -> bool {
+    apply_capability_limits_for(config, &platform_capabilities())
+}
+
+fn apply_capability_limits_for(
+    config: &mut AppConfig,
+    capabilities: &PlatformCapabilities,
+) -> bool {
+    let before_edge_hide = config.edge_hide.enabled;
+    let before_topmost_pin = config.topmost_pin.enabled;
+    if !capabilities.edge_hide {
+        config.edge_hide.enabled = false;
+    }
+    if !capabilities.window_topmost {
+        config.topmost_pin.enabled = false;
+    }
+    before_edge_hide != config.edge_hide.enabled || before_topmost_pin != config.topmost_pin.enabled
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Point {
     pub x: i32,
     pub y: i32,
@@ -103,6 +217,28 @@ pub struct InputState {
     pub left_click_modifier_sequences: [u64; 16],
     pub right_click_modifier_sequences: [u64; 16],
     pub wheel_modifier_sequences: [u64; 16],
+}
+
+#[derive(Clone, Debug)]
+pub struct GestureCapture {
+    pub trigger: crate::config::GestureTriggerButton,
+    pub modifiers: u8,
+    pub points: Vec<Point>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WindowDragMode {
+    Move,
+    Resize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct WindowDragCapture {
+    pub sequence: u64,
+    pub mode: WindowDragMode,
+    pub start: Point,
+    pub current: Point,
+    pub finished: bool,
 }
 
 #[cfg(test)]
@@ -264,5 +400,42 @@ mod tests {
         current.left_click_modifier_sequences[6] = 10;
 
         assert_eq!(current.left_click_modifier_mask_since(previous), Some(6));
+    }
+
+    #[test]
+    fn platform_contract_reports_system_architecture_and_capabilities() {
+        let info = platform_info();
+        assert_eq!(info.system, std::env::consts::OS);
+        assert_eq!(info.architecture, std::env::consts::ARCH);
+        let value = serde_json::to_value(info).unwrap();
+        assert!(value["capabilities"]["globalInput"].is_boolean());
+        assert!(value["capabilities"]["windowControl"].is_boolean());
+        assert!(value["capabilities"]["windowTopmost"].is_boolean());
+        assert!(value["capabilities"]["screenCapture"].is_boolean());
+        assert!(value["capabilities"]["ocr"].is_boolean());
+        assert!(value["capabilities"]["audio"].is_boolean());
+        assert!(value["capabilities"]["systemActions"].is_boolean());
+        assert!(value["capabilities"]["edgeHide"].is_boolean());
+    }
+
+    #[test]
+    fn unavailable_capabilities_disable_runtime_only_features() {
+        let mut config = AppConfig::default();
+        config.edge_hide.enabled = true;
+        config.topmost_pin.enabled = true;
+        let capabilities = PlatformCapabilities {
+            global_input: true,
+            window_control: true,
+            window_topmost: false,
+            screen_capture: true,
+            ocr: false,
+            audio: false,
+            system_actions: false,
+            edge_hide: false,
+        };
+
+        assert!(apply_capability_limits_for(&mut config, &capabilities));
+        assert!(!config.edge_hide.enabled);
+        assert!(!config.topmost_pin.enabled);
     }
 }
