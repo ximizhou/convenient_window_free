@@ -317,6 +317,11 @@ pub fn set_window_rect(handle: WindowHandle, rect: Rect) -> Result<()> {
             .height(rect.height().max(1) as u32),
     )?;
     connection.flush()?;
+    // ConfigureWindow is unchecked on X11: without a round trip the server
+    // may apply it (or report an error for it) after this call returns, and
+    // callers on other connections would observe stale geometry or lose the
+    // error entirely.
+    connection.get_input_focus()?.reply()?;
     Ok(())
 }
 
@@ -361,6 +366,7 @@ pub fn set_window_topmost(handle: WindowHandle, topmost: bool) -> Result<()> {
         }),
     )?;
     connection.flush()?;
+    connection.get_input_focus()?.reply()?;
     Ok(())
 }
 
