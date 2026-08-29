@@ -94,6 +94,13 @@ impl WebSocketServer {
 fn bind_listener(addr: &str) -> Result<TcpListener> {
     let addr: SocketAddr = addr.parse()?;
     let socket = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
+    // After a clean stop, the server side of accepted connections lingers in
+    // TIME_WAIT on the fixed port; on Linux that blocks rebinding unless
+    // SO_REUSEADDR is set. Windows bind semantics do not block on the
+    // TIME_WAIT of closed connections, and it must not get SO_REUSEADDR
+    // because there it allows port hijacking.
+    #[cfg(unix)]
+    socket.set_reuse_address(true)?;
     socket.bind(&addr.into())?;
     socket.listen(128)?;
     socket.set_nonblocking(true)?;
