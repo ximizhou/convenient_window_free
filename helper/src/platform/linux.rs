@@ -540,6 +540,21 @@ mod tests {
         assert!(!capabilities.edge_hide);
     }
 
+    // Window configure requests travel on separate X connections without a
+    // round trip, so the server may process them after an earlier query on
+    // another connection has already been answered. Poll for the observable
+    // server state before asserting; the exact assertions below still fail
+    // with real values if the state never lands.
+    fn wait_for_x11_state(timeout_ms: u64, mut ready: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+        while !ready() {
+            if std::time::Instant::now() >= deadline {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
     #[test]
     fn real_x11_window_move_topmost_and_capture_smoke() {
         assert!(
@@ -586,12 +601,30 @@ mod tests {
         set_window_rect(handle, target).unwrap();
         set_window_topmost(handle, true).unwrap();
         connection.flush().unwrap();
+        wait_for_x11_state(5000, || {
+            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+            (geometry.width, geometry.height) == (120, 90)
+        });
         let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
         assert_eq!((geometry.width, geometry.height), (120, 90));
+        wait_for_x11_state(5000, || {
+            window_info_for_handle(handle)
+                .ok()
+                .flatten()
+                .map(|info| info.rect == target)
+                .unwrap_or(false)
+        });
         assert_eq!(
             window_info_for_handle(handle).unwrap().unwrap().rect,
             target
         );
+        wait_for_x11_state(5000, || {
+            draggable_window_at(Point { x: 80, y: 90 })
+                .ok()
+                .flatten()
+                .map(|candidate| candidate.handle == handle)
+                .unwrap_or(false)
+        });
         assert_eq!(
             draggable_window_at(Point { x: 80, y: 90 })
                 .unwrap()

@@ -162,6 +162,7 @@ try {
     '$PLUGINSDIR/StartMenu.dll',
     '$PLUGINSDIR/NSISdl.dll',
     "convenient-window.exe",
+    "uninstall.exe",
     "LICENSE",
     "THIRD-PARTY-NOTICES.txt",
     "helper/.gitkeep",
