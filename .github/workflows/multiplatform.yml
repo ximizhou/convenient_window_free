@@ -86,6 +86,19 @@ jobs:
           cargo +stable test --manifest-path apps/desktop/src-tauri/Cargo.toml --target "${{ matrix.target }}"
           cargo +stable check --manifest-path apps/desktop/src-tauri/Cargo.toml --target "${{ matrix.target }}"
 
+      - name: Build release helper for acceptance download
+        if: runner.os == 'macOS'
+        shell: bash
+        run: cargo +stable build --manifest-path helper/Cargo.toml --release --target "${{ matrix.target }}"
+
+      - name: Upload helper artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: magic-corners-helper-${{ matrix.target }}
+          path: helper/target/${{ matrix.target }}/release/magic-corners-helper
+          if-no-files-found: error
+
       - name: Linux X11 helper IPC and lock smoke
         if: runner.os == 'Linux'
         shell: bash
@@ -95,6 +108,14 @@ jobs:
         run: |
           cargo +stable build --manifest-path helper/Cargo.toml --target "${{ matrix.target }}" --release
           node scripts/helper-instance-smoke.mjs "helper/target/${{ matrix.target }}/release/magic-corners-helper"
+
+      - name: Upload Linux helper artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: magic-corners-helper-${{ matrix.target }}
+          path: helper/target/${{ matrix.target }}/release/magic-corners-helper
+          if-no-files-found: error
 
       - name: Stop X11 display
         if: always() && runner.os == 'Linux'
