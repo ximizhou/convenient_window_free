@@ -478,6 +478,13 @@ unsafe extern "C" {
         value_type: u32,
         value_ptr: *mut std::ffi::c_void,
     ) -> bool;
+}
+
+// The macOS 15 SDK text-based stubs stop re-exporting HIServices data
+// symbols through the ApplicationServices umbrella in release links, so the
+// AX attribute constants must link against the subframework directly.
+#[link(name = "HIServices", kind = "framework")]
+unsafe extern "C" {
     static kAXWindowsAttribute: CFStringRef;
     static kAXTitleAttribute: CFStringRef;
     static kAXPositionAttribute: CFStringRef;
