@@ -347,7 +347,8 @@ fn ax_find_window_and_set_rect(
     target: &WindowInfo,
     rect: Rect,
 ) -> Result<()> {
-    let windows = ax_copy_attribute(application, unsafe { kAXWindowsAttribute })?
+    let windows_attribute = ax_attribute("AXWindows");
+    let windows = ax_copy_attribute(application, windows_attribute.as_concrete_TypeRef())?
         .ok_or_else(|| anyhow::anyhow!("macOS 应用未返回可访问窗口列表"))?;
     let windows = unsafe { CFArray::<CFType>::wrap_under_create_rule(windows as CFArrayRef) };
     for raw in windows.get_all_values() {
@@ -373,11 +374,21 @@ fn ax_find_window_and_set_rect(
             }
             bail!("无法创建 macOS 窗口位置参数")
         }
+        let position_attribute = ax_attribute("AXPosition");
+        let size_attribute = ax_attribute("AXSize");
         let position_result = unsafe {
-            AXUIElementSetAttributeValue(window, kAXPositionAttribute, position_value as CFTypeRef)
+            AXUIElementSetAttributeValue(
+                window,
+                position_attribute.as_concrete_TypeRef(),
+                position_value as CFTypeRef,
+            )
         };
         let size_result = unsafe {
-            AXUIElementSetAttributeValue(window, kAXSizeAttribute, size_value as CFTypeRef)
+            AXUIElementSetAttributeValue(
+                window,
+                size_attribute.as_concrete_TypeRef(),
+                size_value as CFTypeRef,
+            )
         };
         unsafe {
             CFRelease(position_value as CFTypeRef);
@@ -392,7 +403,10 @@ fn ax_find_window_and_set_rect(
 }
 
 fn ax_window_matches(window: AXUIElementRef, target: &WindowInfo) -> bool {
-    let title = ax_copy_attribute(window, unsafe { kAXTitleAttribute })
+    let title_attribute = ax_attribute("AXTitle");
+    let position_attribute = ax_attribute("AXPosition");
+    let size_attribute = ax_attribute("AXSize");
+    let title = ax_copy_attribute(window, title_attribute.as_concrete_TypeRef())
         .ok()
         .flatten()
         .and_then(|value| {
@@ -405,14 +419,14 @@ fn ax_window_matches(window: AXUIElementRef, target: &WindowInfo) -> bool {
     }
     let Some(position) = ax_copy_value::<CGPoint>(
         window,
-        unsafe { kAXPositionAttribute },
+        position_attribute.as_concrete_TypeRef(),
         AXVALUE_TYPE_CGPOINT,
     ) else {
         return false;
     };
     let Some(size) = ax_copy_value::<core_graphics::geometry::CGSize>(
         window,
-        unsafe { kAXSizeAttribute },
+        size_attribute.as_concrete_TypeRef(),
         AXVALUE_TYPE_CGSIZE,
     ) else {
         return false;
@@ -480,17 +494,12 @@ unsafe extern "C" {
     ) -> bool;
 }
 
-// The macOS 15 SDK text-based stubs stop re-exporting HIServices data
-// symbols through the ApplicationServices umbrella in release links, so the
-// AX attribute constants must link against the subframework directly.
-#[link(name = "HIServices", kind = "framework")]
-unsafe extern "C" {
-    static kAXWindowsAttribute: CFStringRef;
-    static kAXTitleAttribute: CFStringRef;
-    static kAXPositionAttribute: CFStringRef;
-    static kAXSizeAttribute: CFStringRef;
+fn ax_attribute(name: &'static str) -> CFString {
+    // The SDK exposes these as HIServices data symbols. Creating equivalent
+    // CFStrings avoids relying on those symbols, which are not linkable from
+    // macOS 15 release builds even when the HIServices framework is present.
+    CFString::from_static_string(name)
 }
-
 type AXUIElementRef = *const std::ffi::c_void;
 type AXValueRef = *const std::ffi::c_void;
 const AXERROR_SUCCESS: i32 = 0;
