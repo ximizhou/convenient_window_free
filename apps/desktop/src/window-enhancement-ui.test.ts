@@ -18,6 +18,8 @@ describe("window enhancement UI wiring", () => {
 
   it("keeps configured hotzone markers visible in the monitor preview", () => {
     expect(source).toContain("hotzonesEnabled={settings.hotzonesEnabled}");
+    expect(source).toContain("displayReady");
+    expect(source).toContain("检查连接");
   });
 
   it("keeps the selected monitor and edge controls above companion content", () => {
@@ -27,6 +29,8 @@ describe("window enhancement UI wiring", () => {
     expect(monitorStage).toContain(".zone{position:absolute;z-index:30");
     expect(monitorStage).toContain("aria-pressed={edgeHideEdges.includes(edge as Edge)}");
     expect(monitorStage).toContain("pointer-events:auto");
+    expect(monitorStage).toContain(".window-demo button.configured:not(.active){outline:");
+    expect(monitorStage).not.toContain(".window-demo button::before");
   });
 
   it("updates edge controls from a reactive immutable monitor profile", () => {
@@ -36,6 +40,28 @@ describe("window enhancement UI wiring", () => {
     expect(source).not.toContain("edgeHideEdges={currentEdgeHideEdges()}");
     expect(source).toContain("settings = {");
     expect(source).toContain("monitorProfiles: profile");
+  });
+
+  it("labels fallback display data as a preview and only marks live data online", () => {
+    expect(source).toContain("let displayReady = false");
+    expect(source).toContain("let helperError = \"\"");
+    expect(source).toContain("检查连接");
+    expect(source).toContain("class:ready={displayReady}");
+    expect(source).toContain("displayReady={displayReady}");
+    expect(styles).toContain(".display-picker i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint);");
+    expect(styles).toContain(".display-picker i.ready");
+    expect(monitorStage).toContain("class:preview-monitor={!displayReady}");
+    expect(monitorStage).toContain("等待后台助手提供显示器信息");
+  });
+
+  it("keeps disabled settings readable and preserves a persistent error rail", () => {
+    expect(styles).toContain(".feature-settings-body.off { cursor: not-allowed; opacity: 1;");
+    expect(styles).toContain(".app-disabled .feature-settings-body { opacity: 1;");
+    expect(source).toContain("class:error={Boolean(helperError)}");
+    expect(source).toContain('if (status === "connected") lastMessage =');
+    expect(source).toContain("function markHelperReady(): void {\n    helperError = \"\"");
+    expect(source).toContain('aria-live="polite"');
+    expect(styles).toContain(".status-rail.error");
   });
 
   it("keeps only the focused edge-hide tutorial", () => {

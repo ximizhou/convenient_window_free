@@ -1,6 +1,6 @@
 [package]
 name = "magic-corners-helper"
-version = "0.5.7"
+version = "0.5.8"
 edition = "2021"
 license-file = "../LICENSE"
 repository = "https://github.com/ximizhou/convenient_window_free"

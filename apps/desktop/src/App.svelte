@@ -99,6 +99,7 @@
   let helperStatus: HelperStatus = "disconnected";
   let helperPlatform: HelperPlatformInfo | null = null;
   let displays: DisplayInfo[] = [fallbackDisplay];
+  let displayReady = false;
   let selectedDisplayId = fallbackDisplay.id;
   let selectedZone: HotzoneId = "right";
   let activeTrigger: TriggerKind = "hover";
@@ -133,6 +134,7 @@
   let runtimeSummary = "等待 helper 上报显示器";
   let lastAction = "尚无动作";
   let lastMessage = "等待连接";
+  let helperError = "";
   let helperInstallState: HelperInstallState = host.getHelperState();
   const settingsApply = new SettingsApplyController<AppSettings>(
     (value) => saveSettings(value),
@@ -183,9 +185,14 @@
       if (status === "connected") lastMessage = "helper 已连接，正在同步配置";
       if (status === "disconnected" && connectionTestState === "testing") finishConnectionTest(false, "连接已断开");
       if (status === "disconnected") {
+        displayReady = false;
+        runtimeSummary = "等待 helper 上报显示器";
         helperPlatform = null;
         const wasReady = helperWasReady;
         helperWasReady = false;
+        if (!stopping && !upgradingHelper && settings.enabled && !helperError) {
+          helperError = "后台助手连接已断开，正在尝试恢复";
+        }
         if (upgradingHelper) scheduleHelperUpgradeRestart();
         else if (stopping) { stopping = false; lastMessage = "helper 已停止"; }
         else if (!helperRecoveryFailed && settings.enabled && (wasReady || recoveringHelper)) scheduleHelperRecovery();
@@ -200,12 +207,14 @@
           : null;
         if (!isSupportedHelperProtocol(data?.protocolVersion)) {
           lastMessage = `helper 协议不兼容，需要协议 v5-v${SUPPORTED_HELPER_PROTOCOL}`;
+          helperError = lastMessage;
           helperRecoveryFailed = true;
           helper.stop();
         } else if (needsHelperUpgrade(expectedHelperVersion, data?.version)) {
           requestHelperUpgrade(data?.version);
         } else {
           helperUpgradeAttempts = 0;
+          helperError = "";
           markHelperReady();
         }
       } else if (message.type === "config.applied") {
@@ -216,6 +225,7 @@
       } else if (message.type === "runtime.status") {
         const data = message.data as { displays?: DisplayInfo[]; foreground?: string; message?: string };
         if (Array.isArray(data.displays) && data.displays.length) {
+          displayReady = true;
           displays = data.displays;
           const selectedDisplay = displays.find((display) =>
             display.id === selectedDisplayId || display.legacyId === selectedDisplayId
@@ -244,6 +254,7 @@
       } else if (message.type === "runtime.error") {
         const data = message.data as { message?: string };
         lastMessage = data.message ?? "helper 运行错误";
+        helperError = lastMessage;
       } else if (message.type === "helper.pong") {
         if (connectionTestState === "testing") {
           const elapsedMs = Math.max(1, Math.round(performance.now() - connectionTestStartedAt));
@@ -278,6 +289,8 @@
     connectionTestTimer = null;
     connectionTestState = success ? "success" : "failed";
     lastMessage = message;
+    if (success) helperError = "";
+    else helperError = message;
     connectionTestResetTimer = setTimeout(() => {
       connectionTestResetTimer = null;
       connectionTestState = "idle";
@@ -743,6 +756,7 @@
   }
 
   function markHelperReady(): void {
+    helperError = "";
     helperWasReady = true;
     helperRecoveryFailed = false;
     if (recoveringHelper) {
@@ -784,6 +798,7 @@
     recoveringHelper = false;
     helperRecoveryFailed = true;
     helper.disconnect();
+    helperError = message;
     lastMessage = message;
   }
 
@@ -793,6 +808,7 @@
     helperWasReady = false;
     recoveringHelper = false;
     helperRecoveryFailed = false;
+    helperError = "";
   }
 
   function clearHelperRecoveryTimers(): void {
@@ -808,6 +824,7 @@
       ? result.alreadyRunning ? "正在连接 helper" : "helper 已启动，正在连接"
       : result.error ?? "无法启动 helper";
     if (result.ok) helper.connect();
+    else helperError = lastMessage;
     return result.ok;
   }
   function openHelperPage(target: "repository" | "release"): void {
@@ -923,7 +940,7 @@
 <div class:app-disabled={!settings.enabled} class="app-shell">
   <header class="topbar">
     <div class="brand"><img src="app-icon.png" alt="" /><strong>便捷窗口</strong></div>
-    <div class:connected={helperStatus === "connected"} class="connection"><i></i>{helperStatus === "connected" ? "已连接" : helperStatus === "connecting" ? "连接中" : "未连接"}<span>{runtimeSummary}</span></div>
+    <div class:connected={helperStatus === "connected"} class="connection"><i></i>{helperStatus === "connected" ? "已连接" : helperStatus === "connecting" ? "连接中" : "未连接"}<span>{displayReady ? runtimeSummary : helperStatus === "connecting" ? "连接中" : "等待助手"}</span></div>
     <label class="master">功能总开关 <input checked={settings.enabled} disabled={starting || stopping} on:change={togglePower} type="checkbox" /><span></span></label>
     <button aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} class="theme-toggle" on:click={toggleTheme} title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} type="button">
       <svg class="icon-sun" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19" /></svg>
@@ -934,7 +951,7 @@
   <main class:drawer-open={mode !== null} class:gesture-open={mode === "gestures"} class="workspace">
     <section class="scene" aria-label="显示器与功能预览">
       <div class="scene-tools">
-        <button class="display-picker" on:click={() => helper.ping()} type="button"><i></i>{displays.length} 块屏幕 <span>重新识别</span></button>
+        <button class:ready={displayReady} class:pending={!displayReady && helperStatus === "connecting"} class="display-picker" on:click={() => helper.ping()} type="button"><i class:ready={displayReady} class:pending={!displayReady && helperStatus === "connecting"}></i><span class="display-status">{displayReady ? `${displays.length} 块屏幕` : helperStatus === "connecting" ? "连接中" : "等待助手"}</span><span class="display-action">检查连接</span></button>
         {#if mode === "hotzones"}<p>点击屏幕边角选择区域</p>{:else if mode === "edge-hide"}<p>点击窗口边缘启用收缩</p>{:else if mode === "gestures"}<p>按住触发键，在任意位置画出轨迹</p>{:else}<p>选择下方功能开始设置</p>{/if}
       </div>
 
@@ -943,6 +960,7 @@
         {mode}
         {selectedDisplayId}
         {selectedZone}
+        displayReady={displayReady}
         edgeHideEnabled={settings.edgeHide.enabled}
         edgeHideEdges={currentDisplayEdgeHideEdges}
         hotzonesEnabled={settings.hotzonesEnabled}
@@ -1164,7 +1182,7 @@
               </div>
               <div class="power-actions"><button class="apply" disabled={!helperInstallState.installed || settings.enabled || starting || stopping} on:click={() => setPowerEnabled(true)} type="button">打开功能</button><button class="quiet" disabled={starting || stopping || (!settings.enabled && helperStatus === "disconnected")} on:click={() => setPowerEnabled(false)} type="button">关闭功能</button><button aria-live="polite" class:failed={connectionTestState === "failed"} class:success={connectionTestState === "success"} class:testing={connectionTestState === "testing"} class="quiet connection-test" disabled={helperStatus !== "connected" || connectionTestState === "testing"} on:click={runConnectionTest} type="button"><i aria-hidden="true"></i><span>{connectionTestState === "testing" ? "测试中" : connectionTestState === "success" ? "连接正常" : connectionTestState === "failed" ? "测试失败" : "连接测试"}</span></button><button class="quiet" on:click={copyDiagnostics} type="button">复制诊断</button></div>
               <div class="helper-meta"><span>助手 {helperInstallState.version}</span><button on:click={() => openHelperPage("repository")} type="button">公开下载仓库</button><code>{helperInstallState.installDir ?? "尚未确定安装目录"}</code></div>
-              <div class="status-rail"><div><span>最近动作</span><strong>{lastAction}</strong></div><div><span>当前状态</span><strong>{lastMessage}</strong></div></div>
+              <div class:error={Boolean(helperError)} class="status-rail"><div><span>最近动作</span><strong>{lastAction}</strong></div><div><span>当前状态</span><strong aria-live="polite">{helperError || lastMessage}</strong></div></div>
             {:else}
               <div class="setting-title"><div><h2>全局参数</h2><p>调整所有显示器共用的基础参数</p></div></div>
               <div class="form-grid"><label><span>热区宽度</span><div><input bind:value={settings.edgeSize} min="2" max="48" on:input={() => persist()} type="number" /><em>px</em></div></label><label><span>轮询间隔</span><div><input bind:value={settings.pollIntervalMs} min="10" max="250" on:input={() => persist()} type="number" /><em>ms</em></div></label></div>

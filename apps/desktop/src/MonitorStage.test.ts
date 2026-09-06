@@ -33,6 +33,7 @@ function renderEdgeStage(
       edgeHideEnabled,
       hotzones: [],
       edgeHideEdges: edges,
+      displayReady: true,
       onSelectDisplay: () => undefined,
       onSelectZone: () => undefined,
       onToggleEdge: () => undefined
@@ -54,6 +55,7 @@ function renderStage(
       hotzonesEnabled,
       hotzones: [zone],
       edgeHideEdges: [],
+      displayReady: true,
       onSelectDisplay: () => undefined,
       onSelectZone: () => undefined,
       onToggleEdge: () => undefined
@@ -177,5 +179,27 @@ describe("MonitorStage hotzone highlight", () => {
 
     expect(html).toContain("Primary");
     expect(html).not.toContain("主显示器");
+  });
+
+  it("marks the fallback monitor as a preview until helper data arrives", () => {
+    const html = render(MonitorStage, {
+      props: {
+        displays: [display],
+        selectedDisplayId: display.id,
+        mode: "hotzones",
+        selectedZone: "top-left",
+        hotzonesEnabled: true,
+        hotzones: [],
+        edgeHideEdges: [],
+        displayReady: false,
+        onSelectDisplay: () => undefined,
+        onSelectZone: () => undefined,
+        onToggleEdge: () => undefined
+      }
+    }).body;
+
+    expect(html).toContain("预览");
+    expect(html).not.toContain("主显示器");
+    expect(html).toContain("等待后台助手提供显示器信息");
   });
 });

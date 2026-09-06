@@ -173,8 +173,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .scene-tools p { margin: 0; }
 .display-picker { flex: none; border: 0; background: transparent; color: var(--muted); padding: 6px 0; display: flex; align-items: center; gap: 7px; font-size: 12px; border-radius: var(--radius-sm); white-space: nowrap; }
 .display-picker:hover { color: var(--ink); }
-.display-picker i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
-.display-picker span { margin-left: 4px; color: var(--accent-soft); border-bottom: 1px dashed rgba(123, 163, 255, .5); }
+.display-picker i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); transition: background .18s, box-shadow .18s; }
+.display-picker i.ready { background: var(--green); box-shadow: 0 0 0 3px rgba(62, 207, 142, .12); }
+.display-picker i.pending { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-bg); }
+.display-picker .display-status { color: var(--muted); }
+.display-picker .display-action { margin-left: 4px; color: var(--accent-soft); border-bottom: 1px dashed rgba(123, 163, 255, .5); }
 
 .mode-nav {
   align-self: end;
@@ -219,7 +222,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .mode-nav b { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .nav-icon { width: 18px; height: 18px; }
   .scene-tools p { display: none; }
-  .display-picker span { display: none; }
+  .display-picker .display-action { display: none; }
 }
 .nav-icon { position: relative; display: block; width: 16px; height: 16px; color: currentColor; }
 .power-icon { border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; }
@@ -273,11 +276,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .feature-settings-head span { color: var(--ink); font-size: 12.5px; font-weight: 600; }
 .feature-settings-head strong { color: var(--faint); font-size: 10.5px; font-weight: 400; text-align: right; }
 .feature-settings-body { margin-left: 2px; padding-left: 14px; border-left: 2px solid var(--line-strong); transition: opacity .18s, border-color .18s; }
-.feature-settings-body.off { cursor: not-allowed; opacity: .48; border-left-color: var(--line); }
+.feature-settings-body.off { cursor: not-allowed; opacity: 1; border-left-color: var(--line); }
 .feature-settings-body.off .mini-switch input:checked + span { border-color: var(--line-strong); background: var(--line-strong); }
 .app-disabled .feature-master-toggle, .app-disabled .gesture-intro > .mini-switch { filter: grayscale(.45); opacity: .58; }
 .app-disabled .feature-settings-body, .app-disabled .gesture-intro, .app-disabled .gesture-workbench, .app-disabled .gesture-global-settings, .app-disabled .gesture-paused-apps, .app-disabled .mode-nav { filter: grayscale(.35); }
-.app-disabled .feature-settings-body, .app-disabled .gesture-workbench, .app-disabled .gesture-global-settings, .app-disabled .gesture-paused-apps { opacity: .55; }
+.app-disabled .feature-settings-body { opacity: 1; filter: grayscale(.2); }
+.app-disabled .gesture-workbench, .app-disabled .gesture-global-settings, .app-disabled .gesture-paused-apps { opacity: .7; }
 .app-disabled .feature-settings-body .mini-switch, .app-disabled .gesture-workbench button, .app-disabled .gesture-global-settings input, .app-disabled .gesture-global-settings select, .app-disabled .gesture-paused-apps button { color: var(--faint); }
 .app-disabled .feature-settings-body .mini-switch > span, .app-disabled .gesture-global-settings input[type="range"]::-webkit-slider-thumb { filter: saturate(.35); }
 .edge-trigger-method h3 { margin: 0; color: var(--ink); font-size: 12.5px; font-weight: 600; }
@@ -412,6 +416,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .status-rail div { padding: 11px 2px; border-bottom: 1px solid var(--line); }
 .status-rail span { display: block; color: var(--faint); font-size: 10.5px; }
 .status-rail strong { display: block; margin-top: 4px; color: var(--ink); font-size: 11.5px; font-weight: 500; overflow-wrap: anywhere; }
+.status-rail.error { border-top-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.status-rail.error div:last-child strong { color: var(--danger); }
 .platform-capabilities { display: block; margin-top: 5px; color: var(--faint); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
 
 .gesture-open { --drawer-width: min(660px, 72vw); }

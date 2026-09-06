@@ -11,6 +11,7 @@
   export let edgeHideEnabled = false;
   export let hotzones: HotzoneSetting[];
   export let edgeHideEdges: Edge[];
+  export let displayReady = true;
   export let onSelectDisplay: (id: string) => void;
   export let onSelectZone: (id: HotzoneId) => void;
   export let onToggleEdge: (edge: Edge) => void;
@@ -54,6 +55,7 @@
   }
 
   function displayLabel(display: DisplayInfo): string {
+    if (!displayReady) return english ? "Preview" : "预览";
     return display.primary ? (english ? "Primary" : "主显示器") : `${display.bounds.right - display.bounds.left} × ${display.bounds.bottom - display.bounds.top}`;
   }
 
@@ -85,6 +87,7 @@
   {#each displays as display, index (display.id)}
     <article
       class:active-monitor={display.id === selectedDisplayId}
+      class:preview-monitor={!displayReady}
       class:companion-monitor={display.id !== selectedDisplayId}
       class="physical-monitor"
       class:hotzone-layer={display.id === selectedDisplayId && mode === "hotzones"}
@@ -97,7 +100,7 @@
         type="button"
       >
         <span class="screen-index">S{index + 1}</span>
-        <strong>{display.id === selectedDisplayId ? `S${index + 1} · ${english ? "Current" : "当前"}` : `S${index + 1}`}</strong>
+        <strong>{display.id === selectedDisplayId ? `S${index + 1} · ${displayReady ? (english ? "Current" : "当前") : (english ? "Preview" : "预览")}` : `S${index + 1}`}</strong>
         <small>{displayLabel(display)}</small>
       </button>
 
@@ -141,7 +144,7 @@
   {/each}
 
   <p class="stage-caption">
-    {mode === "hotzones" ? (english ? "Choose a corner" : "点击边角定义动作") : mode === "edge-hide" ? (english ? "Outer edges work; seams do not" : "外轮廓可用，拼接缝已禁用") : displays.length > 1 ? (english ? "Choose one display" : "一次只专注设置一块屏幕") : (english ? "Choose a feature" : "选择下方功能开始设置")}
+    {!displayReady ? (english ? "Waiting for helper display data" : "等待后台助手提供显示器信息") : mode === "hotzones" ? (english ? "Choose a corner" : "点击角定义动作") : mode === "edge-hide" ? (english ? "Outer edges work; seams do not" : "外侧边缘可用，拼接缝会被忽略") : displays.length > 1 ? (english ? "Choose one display" : "一次只聚焦一个显示器") : (english ? "Choose a feature" : "选择下方功能开始设置")}
   </p>
 </div>
 
@@ -154,6 +157,8 @@
   .screen{position:absolute;inset:0 0 17%;border:1px solid var(--line-strong);border-radius:10px;background:linear-gradient(160deg,var(--screen-a),var(--screen-b));color:var(--ink);padding:18px;text-align:left;box-shadow:0 16px 36px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.06);transition:border-color .18s,box-shadow .18s,background .32s}
   .screen:hover{border-color:var(--faint);background:linear-gradient(160deg,var(--screen-hover-a),var(--screen-hover-b))}
   .active-monitor .screen{border-color:var(--accent);box-shadow:0 16px 36px rgba(0,0,0,.18),0 0 0 3px var(--accent-bg),inset 0 1px 0 rgba(255,255,255,.06)}
+  .preview-monitor .screen{border-color:var(--line-strong);box-shadow:0 16px 36px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.06)}
+  .preview-monitor .screen-index,.preview-monitor .screen strong{color:var(--muted)}
   .screen-index{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);font-family:"Cascadia Mono",monospace;font-size:26px;color:var(--accent-soft);border:1.5px solid currentColor;border-radius:50%;width:52px;height:52px;display:grid;place-items:center}
   .screen strong{position:absolute;left:50%;top:63%;transform:translateX(-50%);color:var(--accent-soft);font:600 13px/1.2 "Segoe UI Variable","Microsoft YaHei",sans-serif;white-space:nowrap}
   .screen small{position:absolute;left:16px;bottom:14px;color:var(--faint);font:11px/1.2 "Cascadia Mono","Microsoft YaHei",sans-serif}
@@ -185,12 +190,10 @@
   .window-demo{position:absolute;inset:20% 15% 31%;z-index:5;border:1px solid var(--line-strong);border-radius:8px;background:linear-gradient(160deg,var(--window-a),var(--window-b));display:grid;place-items:center;box-shadow:0 10px 24px rgba(0,0,0,.14);pointer-events:auto}
   .window-demo>span{font:12px "Segoe UI Variable","Microsoft YaHei",sans-serif;color:var(--muted)}
   .window-demo button{position:absolute;border:1px solid var(--line-strong);border-radius:5px;background:var(--raised);color:var(--muted);pointer-events:auto;font-size:10.5px;padding:0;box-shadow:0 2px 8px rgba(0,0,0,.12);transition:transform .15s cubic-bezier(.2,.9,.3,1.25),background-color .15s,color .15s,border-color .15s,box-shadow .18s,opacity .18s}
-  .window-demo button::before{content:"";position:absolute;inset:-5px;border:1px dashed transparent;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .18s,border-color .18s}
-  .window-demo button.configured:not(.active)::before{opacity:1;border-width:1.5px;border-color:var(--zone-configured)}
-  .window-demo button:hover:not(:disabled){border-color:var(--accent);background:var(--accent);color:#fff;box-shadow:0 0 0 3px var(--accent-bg),0 6px 14px rgba(35,84,190,.22);transform:scale(1.08)}
-  .window-demo button.active{border-color:var(--accent);background:var(--accent);color:#fff;box-shadow:0 0 0 3px var(--accent-bg),0 6px 14px rgba(35,84,190,.24);animation:edge-select-fill .28s cubic-bezier(.2,.9,.3,1.25)}
+  .window-demo button.configured:not(.active){outline:1.5px dashed var(--zone-configured);outline-offset:5px}
+  .window-demo button:hover:not(:disabled){border-color:var(--accent);background:var(--accent);color:#fff;outline-color:transparent;box-shadow:0 0 0 3px var(--accent-bg),0 6px 14px rgba(35,84,190,.22);transform:scale(1.08)}
+  .window-demo button.active{border-color:var(--accent);background:var(--accent);color:#fff;outline-color:transparent;box-shadow:0 0 0 3px var(--accent-bg),0 6px 14px rgba(35,84,190,.24);animation:edge-select-fill .28s cubic-bezier(.2,.9,.3,1.25)}
   .window-demo button:active:not(:disabled){transform:scale(.92)}
-  .window-demo button.active::before,.window-demo button:hover::before{opacity:0}
   .window-demo button.unavailable{border-color:var(--line);background:var(--unavailable-bg);color:var(--unavailable-ink);cursor:not-allowed;opacity:.6;box-shadow:none}
   @keyframes edge-select-fill{0%{background:var(--raised);transform:scale(.92)}65%{background:var(--accent);transform:scale(1.1)}100%{background:var(--accent);transform:scale(1)}}
   .window-demo .edge-left,.window-demo .edge-right{top:27%;bottom:27%;width:20px}.window-demo .edge-left{left:-10px}.window-demo .edge-right{right:-10px}.window-demo .edge-top,.window-demo .edge-bottom{left:31%;right:31%;height:20px}.window-demo .edge-top{top:-10px}.window-demo .edge-bottom{bottom:-10px}
