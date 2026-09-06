@@ -59,7 +59,7 @@ describe("window enhancement UI wiring", () => {
     expect(styles).toContain(".app-disabled .feature-settings-body { opacity: 1;");
     expect(source).toContain("class:error={Boolean(helperError)}");
     expect(source).toContain('if (status === "connected") lastMessage =');
-    expect(source).toContain("function markHelperReady(): void {\n    helperError = \"\"");
+    expect(source).toMatch(/function markHelperReady\(\): void \{\r?\n    helperError = ""/);
     expect(source).toContain('aria-live="polite"');
     expect(styles).toContain(".status-rail.error");
   });
