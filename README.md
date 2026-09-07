@@ -8,6 +8,10 @@ Convenient Window is a desktop utility for hot zones, window control, global mou
 
 Settings are saved and applied as they change. The standalone app runs from the system tray and packages its native Rust helper with the desktop application.
 
+<p align="center">
+  <img src="docs/images/running-center.png" alt="Convenient Window running center with two detected displays" width="920" />
+</p>
+
 
 ## Download
 

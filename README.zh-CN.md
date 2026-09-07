@@ -8,6 +8,10 @@
 
 设置会在修改时自动保存并应用。独立桌面版常驻系统托盘，原生 Rust helper 会随桌面应用一同打包。
 
+<p align="center">
+  <img src="docs/images/running-center.png" alt="便捷窗口运行中心，已识别两台显示器" width="920" />
+</p>
+
 
 ## 下载
 
