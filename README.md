@@ -4,11 +4,10 @@
 
 Convenient Window is a desktop utility for hot zones, window control, global mouse gestures, screenshots, and topmost-window control. Version 0.5.8 keeps the complete Windows implementation and adds native platform boundaries for macOS and Linux X11.
 
+**Turn screen edges and mouse gestures into faster window controls.**
+
 Settings are saved and applied as they change. The standalone app runs from the system tray and packages its native Rust helper with the desktop application.
 
-<p align="center">
-  <img src="docs/images/running-center.png" alt="Convenient Window running center with two detected displays" width="920" />
-</p>
 
 ## Download
 
@@ -52,13 +51,11 @@ Release assets are currently unsigned. Windows may show an unknown-publisher or 
   </tr>
 </table>
 
-### Edge-Hide Tutorial
+### How edge hiding works
 
-The in-app tutorial demonstrates the full cycle: drag a window to the screen edge, move the pointer away to hide it, then return to the visible strip to restore it.
-
-<p align="center">
-  <img src="docs/media/edge-hide-tutorial.gif" alt="Animated edge-hide tutorial" width="508" />
-</p>
+1. Drag a window toward a screen edge.
+2. Release it to tuck the window away.
+3. Move the pointer back to the visible edge strip to restore it.
 
 ## Quick Start
 
