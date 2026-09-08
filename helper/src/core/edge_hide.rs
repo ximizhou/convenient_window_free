@@ -875,10 +875,7 @@ impl EdgeHideController {
                 let work_area =
                     exposed_monitor_for_restore(*restore_rect, *edge, monitors)?.work_area;
                 let visible = strip_rect(*hidden_rect, work_area);
-                if visible
-                    .inflate(config.trigger_distance.max(1))
-                    .contains(cursor)
-                {
+                if visible.contains(cursor) {
                     return Some((
                         *handle,
                         *edge,
@@ -3811,6 +3808,7 @@ mod tests {
     fn foreground_activation_restores_and_only_rearms_after_focus_is_lost() {
         let mut config = EdgeHideConfig::default();
         config.enabled = true;
+        config.keep_expanded_when_foreground = true;
         config.edges = vec![Edge::Right];
         config.collapse_delay_ms = 0;
         config.restore_delay_ms = 50;
@@ -4661,6 +4659,7 @@ mod tests {
     fn foreground_expanded_window_does_not_recollapse_while_in_use() {
         let config = EdgeHideConfig {
             enabled: true,
+            keep_expanded_when_foreground: true,
             collapse_delay_ms: 0,
             restore_delay_ms: 10,
             ..EdgeHideConfig::default()

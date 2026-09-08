@@ -87,8 +87,10 @@ impl AppConfig {
         self.mouse_gestures.sensitivity = self.mouse_gestures.sensitivity.clamp(35, 95);
         self.mouse_gestures.paused_apps = normalized_string_list(self.mouse_gestures.paused_apps);
         self.mouse_gestures.gestures = normalize_gestures(self.mouse_gestures.gestures);
-        self.window_drag.move_modifiers = normalized_modifiers(self.window_drag.move_modifiers);
-        self.window_drag.resize_modifiers = normalized_modifiers(self.window_drag.resize_modifiers);
+        self.window_drag.move_modifiers =
+            normalized_drag_modifiers(self.window_drag.move_modifiers);
+        self.window_drag.resize_modifiers =
+            normalized_drag_modifiers(self.window_drag.resize_modifiers);
         if source_schema_version < 5 {
             migrate_circle_topmost_action(&mut self.mouse_gestures.gestures);
         }
@@ -565,7 +567,7 @@ pub struct EdgeHideConfig {
     pub show_preview: bool,
     #[serde(default = "default_true")]
     pub show_restore_hint: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub keep_expanded_when_foreground: bool,
     #[serde(default = "default_edges")]
     pub edges: Vec<Edge>,
@@ -595,7 +597,7 @@ impl Default for EdgeHideConfig {
             enabled: false,
             show_preview: true,
             show_restore_hint: true,
-            keep_expanded_when_foreground: true,
+            keep_expanded_when_foreground: false,
             edges: default_edges(),
             monitor_profiles: Vec::new(),
             strip_size: default_strip_size(),
@@ -916,6 +918,14 @@ fn normalize_modifier_actions(values: Vec<ModifierAction>) -> Vec<ModifierAction
     output
 }
 
+fn normalized_drag_modifiers(values: Vec<ModifierKey>) -> Vec<ModifierKey> {
+    let normalized = normalized_modifiers(values);
+    if normalized.is_empty() {
+        default_drag_modifiers()
+    } else {
+        normalized
+    }
+}
 fn normalized_modifiers(values: Vec<ModifierKey>) -> Vec<ModifierKey> {
     ModifierKey::all()
         .into_iter()
@@ -986,6 +996,18 @@ mod tests {
     }
 
     #[test]
+    fn empty_drag_modifiers_fall_back_to_alt() {
+        let config: AppConfig = serde_json::from_str::<AppConfig>(
+            r#"{
+            "windowDrag": { "moveModifiers": [], "resizeModifiers": [] }
+        }"#,
+        )
+        .unwrap()
+        .normalized();
+        assert_eq!(config.window_drag.move_modifiers, vec![ModifierKey::Alt]);
+        assert_eq!(config.window_drag.resize_modifiers, vec![ModifierKey::Alt]);
+    }
+    #[test]
     fn config_deserializes_with_defaults() {
         let config: AppConfig = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
 
@@ -996,7 +1018,7 @@ mod tests {
         assert_eq!(config.edge_hide.strip_size, 16);
         assert!(config.edge_hide.show_preview);
         assert!(config.edge_hide.show_restore_hint);
-        assert!(config.edge_hide.keep_expanded_when_foreground);
+        assert!(!config.edge_hide.keep_expanded_when_foreground);
         assert!(config.edge_hide.distance_trigger_enabled);
         assert!(config.edge_hide.ratio_trigger_enabled);
         assert_eq!(config.edge_hide.trigger_ratio, 33);
@@ -1005,13 +1027,13 @@ mod tests {
     }
 
     #[test]
-    fn edge_hide_foreground_hold_defaults_on_and_preserves_an_explicit_off() {
+    fn edge_hide_foreground_hold_defaults_off_and_preserves_an_explicit_on() {
         let defaulted: AppConfig = serde_json::from_str(r#"{"edgeHide":{}}"#).unwrap();
         let disabled: AppConfig =
-            serde_json::from_str(r#"{"edgeHide":{"keepExpandedWhenForeground":false}}"#).unwrap();
+            serde_json::from_str(r#"{"edgeHide":{"keepExpandedWhenForeground":true}}"#).unwrap();
 
-        assert!(defaulted.edge_hide.keep_expanded_when_foreground);
-        assert!(!disabled.edge_hide.keep_expanded_when_foreground);
+        assert!(!defaulted.edge_hide.keep_expanded_when_foreground);
+        assert!(disabled.edge_hide.keep_expanded_when_foreground);
     }
 
     #[test]

@@ -31,7 +31,7 @@
     "stripSize": 64,
     "edgeHidePreviewEnabled": true,
     "showRestoreHint": true,
-    "keepExpandedWhenForeground": true,
+    "keepExpandedWhenForeground": false,
     "triggerDistance": 4,
     "triggerRatio": 100,
     "collapseDelayMs": 5000,

@@ -262,6 +262,13 @@ impl OcrToastManager {
         {
             left = owner_rect.right - WIDTH - 16;
             top = owner_rect.top + 52;
+        } else if owner.0.is_null() {
+            let virtual_left = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+            let virtual_top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+            let virtual_width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
+            let virtual_height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
+            left = virtual_left + (virtual_width - WIDTH) / 2;
+            top = virtual_top + virtual_height - HEIGHT - 48;
         } else {
             let mut cursor = POINT::default();
             let _ = unsafe { GetCursorPos(&mut cursor) };
@@ -289,7 +296,6 @@ impl OcrToastManager {
             .show_toast(rect, &display, success);
         self.hide_at = Some(Instant::now() + Duration::from_millis(2200));
     }
-
     fn tick(&mut self) {
         if self
             .hide_at
@@ -716,7 +722,6 @@ impl HintWindow {
             let _ = ShowWindow(hwnd, SW_SHOWNA);
         }
     }
-
     fn hide(&self) {
         debug_assert_eq!(self.owner_thread_id, unsafe { GetCurrentThreadId() });
         unsafe {
