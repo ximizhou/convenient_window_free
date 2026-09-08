@@ -72,7 +72,7 @@ describe("normalizeSettings", () => {
     expect(settings.edgeHide.stripSize).toBe(defaultSettings.edgeHide.stripSize);
     expect(settings.edgeHide.showPreview).toBe(true);
     expect(settings.edgeHide.showRestoreHint).toBe(true);
-    expect(settings.edgeHide.keepExpandedWhenForeground).toBe(true);
+    expect(settings.edgeHide.keepExpandedWhenForeground).toBe(false);
     expect(settings.edgeHide.distanceTriggerEnabled).toBe(true);
     expect(settings.edgeHide.ratioTriggerEnabled).toBe(true);
     expect(settings.edgeHide.triggerRatio).toBe(33);
@@ -421,3 +421,4 @@ describe("saveSettings", () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 });
+
