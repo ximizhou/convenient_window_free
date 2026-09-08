@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "convenient-window"
-version = "0.1.7"
+version = "0.5.9"
 dependencies = [
  "serde",
  "serde_json",

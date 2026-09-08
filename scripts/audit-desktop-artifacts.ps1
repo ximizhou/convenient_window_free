@@ -94,7 +94,7 @@ function Assert-HelperPayload {
   $payloadManifestPath = Join-Path $HelperDir "payload-manifest.json"
   if (-not (Test-Path $payloadManifestPath)) { throw "Sidecar payload manifest is missing" }
   $payloadManifest = [System.IO.File]::ReadAllText($payloadManifestPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
-  if ($payloadManifest.helperVersion -ne "0.5.7" -or $payloadManifest.target -ne "x86_64-pc-windows-gnullvm") {
+  if ($payloadManifest.helperVersion -ne "0.5.9" -or $payloadManifest.target -ne "x86_64-pc-windows-gnullvm") {
     throw "Sidecar payload manifest declares an unexpected helper"
   }
   $expected = @("payload-manifest.json") + @($ExtraFiles) + @($payloadManifest.files | ForEach-Object { $_.name })
@@ -162,7 +162,6 @@ try {
     '$PLUGINSDIR/StartMenu.dll',
     '$PLUGINSDIR/NSISdl.dll',
     "convenient-window.exe",
-    "uninstall.exe",
     "LICENSE",
     "THIRD-PARTY-NOTICES.txt",
     "helper/.gitkeep",

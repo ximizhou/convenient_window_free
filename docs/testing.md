@@ -7,7 +7,7 @@ Migration work must preserve at least:
 - 71 frontend tests in the host integration.
 - 129 passing default Rust tests and 2 explicitly ignored Windows OCR tests in the shared helper.
 
-The current verified Windows baseline is 98 frontend tests in the host integration and 162 passing Rust tests with 2 OCR tests ignored. The 0.5.8 working tree currently reports 101 host tests, 76 standalone frontend tests, 164 helper tests, and 13 Tauri host tests; native runner counts are recorded separately and must not reduce this Windows baseline.
+The current verified Windows baseline is 98 frontend tests in the host integration and 162 passing Rust tests with 2 OCR tests ignored. The 0.5.9 release candidate currently reports 107 host tests, 79 standalone frontend tests, 165 helper tests, and 13 Tauri host tests; native runner counts are recorded separately and must not reduce this Windows baseline.
 
 The standalone desktop baseline is 75 frontend tests across 13 files, zero Svelte check errors or warnings, and 13 Tauri host tests. The 0.5.8 working tree currently reports 101 uTools tests, 76 standalone frontend tests, 164 Windows helper tests with 2 OCR tests ignored, and 13 Tauri host tests.
 
