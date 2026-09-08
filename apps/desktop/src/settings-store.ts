@@ -62,7 +62,7 @@ export const defaultSettings: AppSettings = {
     enabled: false,
     showPreview: true,
     showRestoreHint: true,
-    keepExpandedWhenForeground: true,
+    keepExpandedWhenForeground: false,
     edges: ["left", "top", "right", "bottom"],
     monitorProfiles: [],
     stripSize: 16,
@@ -588,3 +588,4 @@ function cloneModifierAction(item: ModifierAction): ModifierAction {
     action: { ...item.action }
   };
 }
+
