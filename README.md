@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Convenient Window is a desktop utility for hot zones, window control, global mouse gestures, screenshots, and topmost-window control. Version 0.5.9 keeps the complete Windows implementation and adds native platform boundaries for macOS and Linux X11.
+Convenient Window is a desktop utility for hot zones, window control, global mouse gestures, screenshots, and topmost-window control. Version 0.5.9 is the current Windows x64 release baseline; macOS and Linux X11 platform boundaries remain in the codebase but are not release-verified.
 
 **Turn screen edges and mouse gestures into faster window controls.**
 
@@ -190,3 +190,5 @@ This project is source-available under the [PolyForm Noncommercial License 1.0.0
 You may view, study, modify, and use the software for personal and other noncommercial purposes under the license terms. Commercial use requires a separate written license from the copyright holder.
 
 This license applies to the repository from the commit that introduced it onward. Earlier versions already published under the MIT License remain available under the license granted with those versions.
+
+
