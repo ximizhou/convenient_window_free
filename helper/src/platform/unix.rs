@@ -17,7 +17,11 @@ pub use input::{
     configure_window_drag_capture, input_state, install_mouse_hook, mouse_hook_is_healthy,
     send_trigger_click, stop_mouse_hook, take_gesture_capture, take_window_drag_capture,
 };
-// Unix listeners observe the original release without swallowing it.
+// Unix 输入层只观察事件、不吞掉原始抬起，因此"放弃一次尚未接管的拖拽"（discard）
+// 与"中止一次已经接管的拖拽"（cancel）在这里是同一件事：都只是清空待取的采集。
+// Windows 侧刻意把两者分开——那里的 cancel 会额外置 suppress 位以吞掉抬起，
+// 而在目标软件里留下一次多余点击正是 discard 必须避免的后果；若将来 Unix 输入层
+// 也获得事件吞噬能力，必须参照 Windows 拆成两个独立实现，不能继续复用这个别名。
 pub use input::cancel_window_drag_capture as discard_window_drag_capture;
 
 #[cfg(target_os = "linux")]
@@ -67,7 +71,17 @@ pub fn draggable_window_at(
     )
 }
 
+/// 与 `core::engine` 的应用名单语义保持一致：按进程名、窗口标题或窗口类名做小写包含匹配，
+/// 命中任一项即视为该窗口属于名单内的应用。行为与 Windows 侧的同名函数对称。
+///
+/// 注意各平台填入 `WindowInfo` 的程序标识并不统一：Windows 的 `process_name` 取自
+/// `QueryFullProcessImageNameW`，形如 `photoshop.exe`；Linux 读取 `/proc/<pid>/comm`，
+/// 是不带扩展名的 `photoshop`（且受 15 字符上限截断）；macOS 使用应用名。因此按进程名
+/// 配置名单时应写明稳定且尽量完整的标识，避免跨平台或跨版本失效。
 pub fn is_paused_window(paused_apps: &[String], window: &super::WindowInfo) -> bool {
+    if paused_apps.is_empty() {
+        return false;
+    }
     let process = window.process_name.to_lowercase();
     let title = window.title.to_lowercase();
     let class_name = window.class_name.to_lowercase();
@@ -192,5 +206,90 @@ mod tests {
         )
         .expect_err("Unix OCR must be explicitly unsupported");
         assert!(error.to_string().starts_with("unsupported: ocr on "));
+    }
+
+    fn named_window(process: &str, title: &str, class_name: &str) -> super::super::WindowInfo {
+        super::super::WindowInfo {
+            handle: WindowHandle(1),
+            rect: Rect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+            title: title.to_string(),
+            class_name: class_name.to_string(),
+            process_name: process.to_string(),
+            maximized: false,
+            transient: false,
+            arranged: false,
+            topmost: false,
+        }
+    }
+
+    /// 空名单必须完全不命中，保证默认路径零影响。
+    #[test]
+    fn empty_paused_list_never_matches() {
+        assert!(!is_paused_window(
+            &[],
+            &named_window("photoshop", "未命名-1", "Photoshop")
+        ));
+    }
+
+    /// 与 Windows 侧对称：按进程名、标题、类名分别命中，且忽略大小写与前后空白。
+    #[test]
+    fn paused_list_matches_process_title_and_class() {
+        let by_process = vec!["photoshop".to_string()];
+        assert!(is_paused_window(
+            &by_process,
+            &named_window("photoshop", "未命名-1", "Photoshop")
+        ));
+        assert!(!is_paused_window(
+            &by_process,
+            &named_window("gedit", "无标题", "gedit")
+        ));
+
+        let by_title = vec!["illustrator".to_string()];
+        assert!(is_paused_window(
+            &by_title,
+            &named_window("wine", "Adobe Illustrator 2024", "SomeClass")
+        ));
+
+        let by_class = vec!["blender".to_string()];
+        assert!(is_paused_window(
+            &by_class,
+            &named_window("wine", "无标题", "BlenderWindow")
+        ));
+
+        let padded = vec!["  sketchup  ".to_string()];
+        assert!(is_paused_window(
+            &padded,
+            &named_window("SketchUp", "模型", "SketchUp")
+        ));
+    }
+
+    /// 空项与纯空白项不得命中任何窗口。
+    #[test]
+    fn blank_paused_entries_never_match() {
+        let blank = vec!["   ".to_string(), String::new()];
+        assert!(!is_paused_window(
+            &blank,
+            &named_window("SketchUp", "模型", "SketchUp")
+        ));
+    }
+
+    /// 名单项走的是子串包含匹配：短项会连带命中名字里包含它的其他程序。
+    /// 这里把上游既有的宽松语义固定下来，同时提醒按进程名配置时应给完整标识。
+    #[test]
+    fn paused_matching_is_substring_and_may_overmatch() {
+        let configured = vec!["code".to_string()];
+        assert!(is_paused_window(
+            &configured,
+            &named_window("code", "项目", "Code")
+        ));
+        assert!(is_paused_window(
+            &configured,
+            &named_window("codeblocks", "无标题", "codeblocks")
+        ));
     }
 }
