@@ -589,8 +589,8 @@ mod tests {
             .change_property8(
                 PropMode::REPLACE,
                 window,
-                AtomEnum::WM_NAME,
-                AtomEnum::STRING,
+                atom(&connection, "_NET_WM_NAME").unwrap(),
+                atom(&connection, "UTF8_STRING").unwrap(),
                 b"Convenient Window X11 smoke",
             )
             .unwrap();
@@ -637,6 +637,30 @@ mod tests {
                 .unwrap()
                 .handle,
             handle
+        );
+
+        let point = Point { x: 80, y: 90 };
+        assert_eq!(
+            window_info_for_handle(handle).unwrap().unwrap().title,
+            "Convenient Window X11 smoke"
+        );
+        for paused_apps in [vec![], vec!["unrelated-app".to_string()]] {
+            assert_eq!(
+                crate::platform::draggable_window_at(point, &paused_apps)
+                    .unwrap()
+                    .unwrap()
+                    .handle,
+                handle
+            );
+        }
+        assert!(
+            crate::platform::draggable_window_at(point, &[" X11 SMOKE ".to_string()])
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            window_info_for_handle(handle).unwrap().unwrap().rect,
+            target
         );
 
         let capture = capture_and_save(target, None, &OcrConfig::default()).unwrap();

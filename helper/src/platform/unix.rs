@@ -17,6 +17,8 @@ pub use input::{
     configure_window_drag_capture, input_state, install_mouse_hook, mouse_hook_is_healthy,
     send_trigger_click, stop_mouse_hook, take_gesture_capture, take_window_drag_capture,
 };
+// Unix listeners observe the original release without swallowing it.
+pub use input::cancel_window_drag_capture as discard_window_drag_capture;
 
 #[cfg(target_os = "linux")]
 use linux as backend;
@@ -55,8 +57,25 @@ pub fn window_info_for_handle(handle: WindowHandle) -> Result<Option<super::Wind
     backend::window_info_for_handle(handle)
 }
 
-pub fn draggable_window_at(point: Point) -> Result<Option<super::WindowInfo>> {
-    backend::draggable_window_at(point)
+pub fn draggable_window_at(
+    point: Point,
+    paused_apps: &[String],
+) -> Result<Option<super::WindowInfo>> {
+    Ok(
+        backend::draggable_window_at(point)?
+            .filter(|window| !is_paused_window(paused_apps, window)),
+    )
+}
+
+pub fn is_paused_window(paused_apps: &[String], window: &super::WindowInfo) -> bool {
+    let process = window.process_name.to_lowercase();
+    let title = window.title.to_lowercase();
+    let class_name = window.class_name.to_lowercase();
+    paused_apps.iter().any(|item| {
+        let item = item.trim().to_lowercase();
+        !item.is_empty()
+            && (process.contains(&item) || title.contains(&item) || class_name.contains(&item))
+    })
 }
 
 pub fn set_window_rect(handle: WindowHandle, rect: Rect) -> Result<()> {
