@@ -63,6 +63,8 @@
     { label: "下一个标签页", group: "切换与导航", kind: "shortcut", value: "Ctrl+Tab" },
     { label: "上一个虚拟桌面", group: "切换与导航", kind: "shortcut", value: "Win+Ctrl+Left" },
     { label: "下一个虚拟桌面", group: "切换与导航", kind: "shortcut", value: "Win+Ctrl+Right" },
+    { label: "亮度增大", group: "屏幕", kind: "brightness-adjust", value: "0.05" },
+    { label: "亮度减小", group: "屏幕", kind: "brightness-adjust", value: "-0.05" },
     { label: "音量增大", group: "声音与媒体", kind: "volume-adjust", value: "0.02" },
     { label: "音量减小", group: "声音与媒体", kind: "volume-adjust", value: "-0.02" },
     { label: "静音", group: "声音与媒体", kind: "shortcut", value: "VolumeMute" },
@@ -521,7 +523,9 @@
     const { slot, action } = ensureHotzoneActionTarget();
     action.kind = preset.kind;
     action.value = preset.value;
-    if (preset.kind === "volume-adjust") slot.cooldownMs = Math.min(slot.cooldownMs ?? settings.actionCooldownMs, 32);
+    if (preset.kind === "volume-adjust" || preset.kind === "brightness-adjust") {
+      slot.cooldownMs = Math.min(slot.cooldownMs ?? settings.actionCooldownMs, 32);
+    }
     shortcutDraft = preset.kind === "shortcut" ? (preset.value ?? "") : "";
     actionEditorOverrideKey = `${selectedDisplayId}:${selectedZone}:${activeTrigger}:${modifierId(selectedHotzoneModifiers)}`;
     actionEditorOverride = action;

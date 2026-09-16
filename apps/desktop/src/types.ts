@@ -24,6 +24,7 @@ export type KnownActionKind =
   | "toggle-window-topmost"
   | "lock-screen"
   | "volume-adjust"
+  | "brightness-adjust"
   | "open-command";
 
 export type ActionKind = KnownActionKind | (string & {});

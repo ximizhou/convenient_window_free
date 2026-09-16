@@ -213,7 +213,11 @@ impl HotzoneSetting {
 
     fn apply_continuous_action_defaults(&mut self, fallback_cooldown_ms: u64) {
         for item in &mut self.actions {
-            if item.action.kind == ActionKind::VolumeAdjust && item.cooldown_ms.is_none() {
+            if matches!(
+                item.action.kind,
+                ActionKind::VolumeAdjust | ActionKind::BrightnessAdjust
+            ) && item.cooldown_ms.is_none()
+            {
                 item.cooldown_ms = Some(fallback_cooldown_ms.min(32));
             }
         }
@@ -341,6 +345,7 @@ pub enum ActionKind {
     ToggleWindowTopmost,
     LockScreen,
     VolumeAdjust,
+    BrightnessAdjust,
     OpenCommand,
     #[serde(rename = "host-action", alias = "utools-redirect")]
     HostAction,
@@ -1217,6 +1222,32 @@ mod tests {
             config.edge_hide.monitor_profiles[1].edges,
             vec![Edge::Right, Edge::Bottom]
         );
+    }
+
+    #[test]
+    fn brightness_actions_keep_their_values_and_timing_after_roundtrip() {
+        let config: AppConfig = serde_json::from_value(serde_json::json!({
+            "hotzones": [{
+                "id": "right", "enabled": true,
+                "actions": [
+                    { "trigger": "wheel-up", "action": { "kind": "brightness-adjust", "value": "0.05" } },
+                    { "trigger": "wheel-down", "action": { "kind": "brightness-adjust", "value": "-0.05" }, "cooldownMs": 80 }
+                ]
+            }]
+        })).unwrap();
+        let config = config.normalized();
+        let roundtrip: AppConfig =
+            serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+        let zone = roundtrip
+            .hotzones
+            .iter()
+            .find(|zone| zone.id == HotzoneId::Right)
+            .unwrap();
+        assert_eq!(zone.actions[0].action.kind, ActionKind::BrightnessAdjust);
+        assert_eq!(zone.actions[0].action.value.as_deref(), Some("0.05"));
+        assert_eq!(zone.actions[0].cooldown_ms, Some(32));
+        assert_eq!(zone.actions[1].action.value.as_deref(), Some("-0.05"));
+        assert_eq!(zone.actions[1].cooldown_ms, Some(80));
     }
 
     #[test]

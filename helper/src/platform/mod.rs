@@ -1,3 +1,16 @@
+mod brightness;
+#[cfg(any(
+    target_os = "linux",
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(unix, test)
+))]
+mod brightness_command;
+#[cfg(any(all(target_os = "macos", target_arch = "x86_64"), test))]
+mod ddc;
+#[cfg(any(target_os = "macos", test))]
+mod macos_brightness;
+pub use brightness::{adjust_brightness_at, take_brightness_error};
+
 #[cfg(target_os = "windows")]
 pub mod windows;
 

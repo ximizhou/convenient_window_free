@@ -51,7 +51,7 @@ unsafe extern "system" fn enum_monitor(
     true.into()
 }
 
-fn monitor_device_id(device_name: &[u16; 32]) -> [u16; 128] {
+pub(super) fn monitor_device_id(device_name: &[u16; 32]) -> [u16; 128] {
     let mut display = DISPLAY_DEVICEW {
         cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
         ..Default::default()

@@ -7,6 +7,7 @@ const helperActionKinds = new Set([
   "toggle-window-topmost",
   "lock-screen",
   "volume-adjust",
+  "brightness-adjust",
   "open-command"
 ]);
 

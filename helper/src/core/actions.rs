@@ -16,15 +16,6 @@ impl ActionDispatcher {
         Self { event_tx }
     }
 
-    pub fn dispatch_with_modifiers(
-        &self,
-        action: &HotzoneAction,
-        source: &str,
-        routing_modifiers: u8,
-    ) -> Result<()> {
-        self.dispatch_scaled_at(action, source, 1.0, None, routing_modifiers)
-    }
-
     pub fn dispatch_at_with_modifiers(
         &self,
         action: &HotzoneAction,
@@ -32,20 +23,10 @@ impl ActionDispatcher {
         target_point: Option<Point>,
         routing_modifiers: u8,
     ) -> Result<()> {
-        self.dispatch_scaled_at(action, source, 1.0, target_point, routing_modifiers)
+        self.dispatch_scaled_at_with_modifiers(action, source, 1.0, target_point, routing_modifiers)
     }
 
-    pub fn dispatch_scaled_with_modifiers(
-        &self,
-        action: &HotzoneAction,
-        source: &str,
-        scale: f32,
-        routing_modifiers: u8,
-    ) -> Result<()> {
-        self.dispatch_scaled_at(action, source, scale, None, routing_modifiers)
-    }
-
-    fn dispatch_scaled_at(
+    pub fn dispatch_scaled_at_with_modifiers(
         &self,
         action: &HotzoneAction,
         source: &str,
@@ -86,10 +67,14 @@ impl ActionDispatcher {
                 Ok(())
             }
             ActionKind::LockScreen => platform::lock_screen(),
-            ActionKind::VolumeAdjust => platform::adjust_volume(scaled_volume_delta(
+            ActionKind::VolumeAdjust => platform::adjust_volume(scaled_adjustment_delta(
                 required_value(action, "volume adjustment")?,
                 scale,
             )?),
+            ActionKind::BrightnessAdjust => platform::adjust_brightness_at(
+                scaled_adjustment_delta(required_value(action, "brightness adjustment")?, scale)?,
+                target_point,
+            ),
             ActionKind::OpenCommand => {
                 open_command(required_value(action, "command")?)?;
                 Ok(())
@@ -129,10 +114,10 @@ fn open_command(command: &str) -> Result<()> {
     Ok(())
 }
 
-fn scaled_volume_delta(value: &str, scale: f32) -> Result<f32> {
+fn scaled_adjustment_delta(value: &str, scale: f32) -> Result<f32> {
     let base = value.trim().parse::<f32>()?;
     if !base.is_finite() || base == 0.0 || !scale.is_finite() || scale <= 0.0 {
-        bail!("volume adjustment requires finite non-zero delta and positive scale");
+        bail!("adjustment requires finite non-zero delta and positive scale");
     }
     Ok((base * scale).clamp(-0.12, 0.12))
 }
@@ -161,12 +146,13 @@ mod tests {
         for kind in [
             ActionKind::Shortcut,
             ActionKind::VolumeAdjust,
+            ActionKind::BrightnessAdjust,
             ActionKind::OpenCommand,
             ActionKind::HostAction,
         ] {
             let action = HotzoneAction { kind, value: None };
             assert!(dispatcher
-                .dispatch_with_modifiers(&action, "test", 0)
+                .dispatch_at_with_modifiers(&action, "test", None, 0)
                 .is_err());
 
             let action = HotzoneAction {
@@ -174,7 +160,7 @@ mod tests {
                 value: Some("   ".to_string()),
             };
             assert!(dispatcher
-                .dispatch_with_modifiers(&action, "test", 0)
+                .dispatch_at_with_modifiers(&action, "test", None, 0)
                 .is_err());
         }
     }
@@ -195,7 +181,7 @@ mod tests {
         let (event_tx, mut event_rx) = broadcast::channel(4);
         let dispatcher = ActionDispatcher::new(event_tx);
         dispatcher
-            .dispatch_with_modifiers(&action, "gesture:test", 0)
+            .dispatch_at_with_modifiers(&action, "gesture:test", None, 0)
             .unwrap();
 
         let event = event_rx.try_recv().unwrap();
@@ -216,18 +202,21 @@ mod tests {
         let dispatcher = ActionDispatcher::new(event_tx);
 
         dispatcher
-            .dispatch_with_modifiers(&HotzoneAction::default(), "test", 0)
+            .dispatch_at_with_modifiers(&HotzoneAction::default(), "test", None, 0)
             .unwrap();
 
         assert!(event_rx.try_recv().is_err());
     }
 
     #[test]
-    fn volume_delta_scales_smoothly_and_stays_bounded() {
-        assert_eq!(scaled_volume_delta("0.02", 2.0).unwrap(), 0.04);
-        assert_eq!(scaled_volume_delta("-0.02", 0.5).unwrap(), -0.01);
-        assert_eq!(scaled_volume_delta("0.02", 100.0).unwrap(), 0.12);
-        assert!(scaled_volume_delta("nope", 1.0).is_err());
-        assert!(scaled_volume_delta("0", 1.0).is_err());
+    fn adjustment_delta_scales_smoothly_and_stays_bounded() {
+        assert_eq!(scaled_adjustment_delta("0.02", 2.0).unwrap(), 0.04);
+        assert_eq!(scaled_adjustment_delta("-0.02", 0.5).unwrap(), -0.01);
+        assert_eq!(scaled_adjustment_delta("0.05", 1.0).unwrap(), 0.05);
+        assert_eq!(scaled_adjustment_delta("-0.05", 2.0).unwrap(), -0.1);
+        assert_eq!(scaled_adjustment_delta("0.02", 100.0).unwrap(), 0.12);
+        for value in ["nope", "0", "NaN", "inf"] {
+            assert!(scaled_adjustment_delta(value, 1.0).is_err());
+        }
     }
 }

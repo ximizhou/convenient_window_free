@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod brightness;
 pub mod hints;
 pub mod input;
 pub mod keyboard;
@@ -10,6 +11,7 @@ pub mod topmost_pin;
 pub mod window;
 
 pub use audio::*;
+pub(crate) use brightness::adjust_monitor_brightness;
 pub use hints::*;
 pub use input::*;
 pub use keyboard::*;

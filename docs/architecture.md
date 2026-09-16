@@ -48,6 +48,25 @@ Automated runtime tests may set the absolute `CONVENIENT_WINDOW_DATA_DIR` overri
 
 Edge-hide state keeps the target edge and restore geometry across monitor changes. The helper enables a restore strip and its pointer hotzone only when the restore rectangle still intersects the current monitor topology, its edge remains exposed on the virtual desktop, and a visible live window still matches the hidden rectangle. Empty or changed monitor snapshots, failed platform queries, externally moved, hidden, or minimized windows, and removed displays therefore cannot leave either a stale pale outline or an invisible hotzone. Initial and repeated collapse commands remain unconfirmed until that live-geometry check succeeds; an expand command likewise remains unconfirmed until the live window reaches its restore rectangle. A mismatch enters a hint-free cleanup state, and cleanup or batch-restore failures back off and retry instead of losing the original topmost state. After a topology change, the helper relocates a window that remains at its old collapsed geometry, including when an added display turns the old outer edge into a seam, or adopts the expected new geometry when Windows already moved it. A relocation is committed only after the same check; failures back off without blocking other windows. Disabling or stopping the engine reclamps restore geometry, makes up to three immediate recovery attempts, and explicitly clears the final rendered hint frame.
 
+## Brightness Controls
+
+The `brightness-adjust` action uses presets of `0.05` and `-0.05`, measured against the device's reported brightness range with a minimum step of one hardware unit. Hot zones select the display containing the trigger point; gestures preserve their target point. Wheel and slide triggers use the existing continuous-action scaling.
+
+One background worker merges pending deltas per display, including cancellation of opposite deltas. Hardware access stays outside the input loop, and failures return through the helper runtime-error channel. External commands use argument arrays, bounded output, a five-second timeout, and a process group that is cleaned up on completion or timeout.
+
+| Platform | Internal or system-controlled display | Other external displays |
+| --- | --- | --- |
+| Windows | WMI matched to the monitor instance | Windows monitor APIs; enable DDC/CI in the monitor menu |
+| Linux X11 | sysfs backlight reads and logind `SetBrightness`; requires `busctl`, systemd-logind, and an authorized local session | `ddcutil`, VCP `0x10`; install with `sudo apt install ddcutil` on Debian/Ubuntu, enable DDC/CI, and configure [I²C permissions](https://www.ddcutil.com/i2c_permissions/) |
+| macOS Intel | DisplayServices loaded at runtime | Native IOKit I²C/DDC |
+| macOS Apple Silicon | DisplayServices loaded at runtime | [m1ddc](https://github.com/waydabber/m1ddc) 1.2.0 or newer; install with `brew install m1ddc` |
+
+Linux matches the selected RandR output's EDID to exactly one connected DRM connector and uses that connector's DDC bus. Internal backlights must belong to the connector or its GPU, with exactly one backlight and one connected internal panel on that GPU. Ambiguous matches, missing EDIDs, virtual outputs, and cloned outputs produce errors. Backlight access follows the [kernel ABI](https://www.kernel.org/doc/Documentation/ABI/stable/sysfs-class-backlight) and [logind interface](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html).
+
+macOS addresses the selected `CGDisplayID` and rejects mirrored displays. DisplayServices is a private interface requiring regression checks after OS updates. Intel DDC validates replies and requires a unique responding I²C bus on the display's framebuffer. Apple Silicon searches `/opt/homebrew/bin/m1ddc`, `/usr/local/bin/m1ddc`, then `PATH`, and passes `display id=<CGDisplayID>` on every read/write.
+
+Brightness test coverage and hardware acceptance requirements are in [Testing](testing.md#brightness-controls).
+
 ## Platform and Release Boundary
 
 | Host | Runtime boundary | Acceptance status | Explicitly unavailable |

@@ -3,6 +3,9 @@ mod input;
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod linux;
+#[cfg(target_os = "linux")]
+#[path = "linux_brightness.rs"]
+mod linux_brightness;
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod macos;
@@ -100,6 +103,16 @@ pub fn lock_screen() -> Result<()> {
 
 pub fn adjust_volume(_delta: f32) -> Result<()> {
     bail!(unsupported_message("audio"))
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn adjust_monitor_brightness(monitor: &super::Monitor, delta: f32) -> Result<()> {
+    linux_brightness::adjust(monitor, delta)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn adjust_monitor_brightness(monitor: &super::Monitor, delta: f32) -> Result<()> {
+    super::macos_brightness::adjust(monitor, delta)
 }
 
 pub fn send_shortcut_with_modifiers(shortcut: &str, routing_modifiers: u8) -> Result<()> {

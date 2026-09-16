@@ -33,6 +33,7 @@ Release assets are currently unsigned. Windows may show an unknown-publisher or 
 - **Screenshots and pinned images**: capture an area, keep the image above other windows, move or resize it, adjust opacity, copy it, or save it as PNG.
 - **Local OCR**: recognize text with Windows 11 language capabilities and copy the result without uploading the screenshot.
 - **Per-monitor configuration**: preserve independent profiles across supported display layouts and signed virtual-desktop coordinates.
+- **Brightness controls**: adjust the triggering display through hot zones and gestures; see [platform requirements](docs/architecture.md#brightness-controls).
 - **Live settings**: most changes are persisted and applied immediately, without a separate save step.
 - **Light and dark themes**: follow the system appearance by default or remember a manual selection.
 
@@ -190,5 +191,3 @@ This project is source-available under the [PolyForm Noncommercial License 1.0.0
 You may view, study, modify, and use the software for personal and other noncommercial purposes under the license terms. Commercial use requires a separate written license from the copyright holder.
 
 This license applies to the repository from the commit that introduced it onward. Earlier versions already published under the MIT License remain available under the license granted with those versions.
-
-

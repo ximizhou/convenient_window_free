@@ -313,6 +313,9 @@ impl Engine {
                 }
             }
             self.handle_ocr_completions();
+            if let Some(message) = platform::take_brightness_error() {
+                self.report_runtime_error(anyhow::anyhow!(message));
+            }
             previous_input = input;
             let interval = engine_poll_interval(config.poll_interval_ms, window_drag.is_active());
 
@@ -558,7 +561,7 @@ impl Engine {
                     .unwrap_or(config.action_cooldown_ms)
                     .clamp(10, 5000),
             );
-            if is_continuous_volume_trigger(action, trigger_action.trigger) {
+            if is_continuous_adjustment_trigger(action, trigger_action.trigger) {
                 let input_scale = continuous_action_scale(
                     action,
                     trigger_action.trigger,
@@ -582,10 +585,11 @@ impl Engine {
                 ) {
                     hotzone_triggers.clear_slide_motion();
                 }
-                if let Err(error) = dispatcher.dispatch_scaled_with_modifiers(
+                if let Err(error) = dispatcher.dispatch_scaled_at_with_modifiers(
                     action,
                     &format!("{:?}/{:?}", hotzone_id, trigger_action.trigger),
                     scale,
+                    Some(cursor),
                     modifiers,
                 ) {
                     self.report_runtime_error(error);
@@ -609,9 +613,10 @@ impl Engine {
             ) {
                 continue;
             }
-            if let Err(error) = dispatcher.dispatch_with_modifiers(
+            if let Err(error) = dispatcher.dispatch_at_with_modifiers(
                 action,
                 &format!("{:?}/{:?}", hotzone_id, trigger_action.trigger),
+                Some(cursor),
                 modifiers,
             ) {
                 self.report_runtime_error(error);
@@ -1011,7 +1016,10 @@ fn continuous_action_scale(
     previous_input: InputState,
     slide_motion: i32,
 ) -> Option<f32> {
-    if action.kind != ActionKind::VolumeAdjust {
+    if !matches!(
+        action.kind,
+        ActionKind::VolumeAdjust | ActionKind::BrightnessAdjust
+    ) {
         return None;
     }
 
@@ -1033,18 +1041,20 @@ fn continuous_action_scale(
     }
 }
 
-fn is_continuous_volume_trigger(
+fn is_continuous_adjustment_trigger(
     action: &crate::config::HotzoneAction,
     trigger: TriggerKind,
 ) -> bool {
-    action.kind == ActionKind::VolumeAdjust
-        && matches!(
-            trigger,
-            TriggerKind::WheelUp
-                | TriggerKind::WheelDown
-                | TriggerKind::SlideForward
-                | TriggerKind::SlideBackward
-        )
+    matches!(
+        action.kind,
+        ActionKind::VolumeAdjust | ActionKind::BrightnessAdjust
+    ) && matches!(
+        trigger,
+        TriggerKind::WheelUp
+            | TriggerKind::WheelDown
+            | TriggerKind::SlideForward
+            | TriggerKind::SlideBackward
+    )
 }
 
 #[cfg(test)]
@@ -1363,16 +1373,69 @@ mod tests {
             value: Some("0.02".to_string()),
         };
 
-        assert!(is_continuous_volume_trigger(&volume, TriggerKind::WheelUp));
-        assert!(is_continuous_volume_trigger(
+        assert!(is_continuous_adjustment_trigger(
+            &volume,
+            TriggerKind::WheelUp
+        ));
+        assert!(is_continuous_adjustment_trigger(
             &volume,
             TriggerKind::SlideBackward
         ));
-        assert!(!is_continuous_volume_trigger(&volume, TriggerKind::Hover));
-        assert!(!is_continuous_volume_trigger(
+        assert!(!is_continuous_adjustment_trigger(
+            &volume,
+            TriggerKind::Hover
+        ));
+        assert!(!is_continuous_adjustment_trigger(
             &volume,
             TriggerKind::LeftClick
         ));
+    }
+
+    #[test]
+    fn brightness_uses_continuous_wheel_and_slide_motion() {
+        let action = HotzoneAction {
+            kind: ActionKind::BrightnessAdjust,
+            value: Some("0.05".into()),
+        };
+        for trigger in [
+            TriggerKind::WheelUp,
+            TriggerKind::WheelDown,
+            TriggerKind::SlideForward,
+            TriggerKind::SlideBackward,
+        ] {
+            assert!(is_continuous_adjustment_trigger(&action, trigger));
+        }
+        assert!(!is_continuous_adjustment_trigger(
+            &action,
+            TriggerKind::Hover
+        ));
+        assert!(!is_continuous_adjustment_trigger(
+            &action,
+            TriggerKind::LeftClick
+        ));
+        assert_eq!(
+            continuous_action_scale(
+                &action,
+                TriggerKind::WheelDown,
+                InputState {
+                    wheel_delta: -240,
+                    ..Default::default()
+                },
+                InputState::default(),
+                0,
+            ),
+            Some(2.0)
+        );
+        assert_eq!(
+            continuous_action_scale(
+                &action,
+                TriggerKind::SlideForward,
+                InputState::default(),
+                InputState::default(),
+                8,
+            ),
+            Some(0.5)
+        );
     }
 
     #[test]

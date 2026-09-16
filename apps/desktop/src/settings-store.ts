@@ -245,7 +245,8 @@ function normalizeHotzones(
           modifierActions: normalizeModifierActions(raw?.modifierActions),
           cooldownMs: integerInRange(
             raw?.cooldownMs,
-            action.kind === "volume-adjust" ? Math.min(actionCooldownMs, 32) : actionCooldownMs,
+            action.kind === "volume-adjust" || action.kind === "brightness-adjust"
+              ? Math.min(actionCooldownMs, 32) : actionCooldownMs,
             10,
             5000
           ),
