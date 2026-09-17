@@ -132,7 +132,12 @@ fn adjust_internal(device_id: &[u16], delta: f32) -> Result<bool> {
     let Some(target) = device_instance(device_id) else {
         return Ok(false);
     };
-    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
+    // 不能把初始化失败吞成"没有内置屏"：降级到 DDC/CI 后用户只会看到显示器不支持亮度，
+    // 真实原因（WMI 通道没起来）就丢了。保留 HRESULT，由调用方附到最终报错上。
+    let apartment = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+    if apartment.is_err() {
+        return Err(anyhow::anyhow!("Windows COM 初始化失败：{apartment:?}"));
+    }
     let _apartment = ComApartment;
     let security = unsafe {
         CoInitializeSecurity(
