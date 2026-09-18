@@ -220,7 +220,7 @@ fn key_is_down(key: VIRTUAL_KEY) -> bool {
     unsafe { (GetAsyncKeyState(key.0 as i32) & 0x8000u16 as i16) != 0 }
 }
 
-fn key_input(key: VIRTUAL_KEY, key_up: bool) -> INPUT {
+pub(super) fn key_input(key: VIRTUAL_KEY, key_up: bool) -> INPUT {
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
