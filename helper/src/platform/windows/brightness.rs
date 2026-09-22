@@ -1,4 +1,5 @@
 use super::monitor::monitor_device_id;
+use crate::platform::adjustment::Level;
 use crate::platform::brightness::adjusted_brightness;
 use crate::platform::Monitor;
 use anyhow::{ensure, Context, Result};
@@ -23,7 +24,7 @@ use windows::Win32::System::Wmi::{
     WBEM_FLAG_FORWARD_ONLY, WBEM_FLAG_RETURN_IMMEDIATELY, WBEM_FLAG_RETURN_WBEM_COMPLETE,
 };
 
-pub(crate) fn adjust_monitor_brightness(target: &Monitor, delta: f32) -> Result<()> {
+pub(crate) fn adjust_monitor_brightness(target: &Monitor, delta: f32) -> Result<Level> {
     let monitor = super::monitors()?
         .into_iter()
         .find(|monitor| monitor.id() == target.id())
@@ -45,12 +46,9 @@ pub(crate) fn adjust_monitor_brightness(target: &Monitor, delta: f32) -> Result<
         "目标显示器已变更"
     );
 
-    match adjust_internal(&monitor.device_id, delta) {
-        Ok(true) => Ok(()),
-        internal => adjust_external(handle, delta).map_err(|error| match internal {
-            Err(internal_error) => error.context(format!("Windows 亮度接口：{internal_error:#}")),
-            _ => error,
-        }),
+    match adjust_internal(&monitor.device_id, delta)? {
+        Some(level) => Ok(level),
+        None => adjust_external(handle, delta),
     }
 }
 
@@ -62,14 +60,15 @@ impl Drop for PhysicalMonitors {
     }
 }
 
-fn adjust_external(monitor: HMONITOR, delta: f32) -> Result<()> {
+fn adjust_external(monitor: HMONITOR, delta: f32) -> Result<Level> {
     let mut count = 0;
     unsafe { GetNumberOfPhysicalMonitorsFromHMONITOR(monitor, &mut count)? };
-    ensure!(count > 0, "显示器未提供亮度控制");
+    ensure!(count == 1, "无法唯一确定物理显示器的亮度控制");
     let mut physical = vec![PHYSICAL_MONITOR::default(); count as usize];
     unsafe { GetPhysicalMonitorsFromHMONITOR(monitor, &mut physical)? };
     let physical = PhysicalMonitors(physical);
-    for monitor in &physical.0 {
+    let monitor = &physical.0[0];
+    {
         let (mut min, mut current, mut max) = (0, 0, 0);
         ensure!(
             unsafe {
@@ -84,8 +83,21 @@ fn adjust_external(monitor: HMONITOR, delta: f32) -> Result<()> {
                 "显示器拒绝调整亮度"
             );
         }
+        ensure!(
+            unsafe {
+                GetMonitorBrightness(monitor.hPhysicalMonitor, &mut min, &mut current, &mut max)
+            } != 0,
+            "亮度写入后读取失败"
+        );
+        let description = monitor.szPhysicalMonitorDescription;
+        let end = description.iter().position(|c| *c == 0).unwrap_or(128);
+        Level::brightness(
+            min,
+            current,
+            max,
+            String::from_utf16_lossy(&description[..end]),
+        )
     }
-    Ok(())
 }
 
 struct ComApartment;
@@ -128,12 +140,11 @@ fn property(object: &IWbemClassObject, name: PCWSTR) -> Result<VARIANT> {
     Ok(value)
 }
 
-fn adjust_internal(device_id: &[u16], delta: f32) -> Result<bool> {
+fn adjust_internal(device_id: &[u16], delta: f32) -> Result<Option<Level>> {
     let Some(target) = device_instance(device_id) else {
-        return Ok(false);
+        return Ok(None);
     };
-    // 不能把初始化失败吞成"没有内置屏"：降级到 DDC/CI 后用户只会看到显示器不支持亮度，
-    // 真实原因（WMI 通道没起来）就丢了。保留 HRESULT，由调用方附到最终报错上。
+    // Propagate WMI initialization failures before selecting a brightness backend.
     let apartment = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
     if apartment.is_err() {
         return Err(anyhow::anyhow!("Windows COM 初始化失败：{apartment:?}"));
@@ -195,7 +206,7 @@ fn adjust_internal(device_id: &[u16], delta: f32) -> Result<bool> {
         let mut count = 0;
         unsafe { records.Next(2000, &mut objects, &mut count).ok()? };
         let Some(object) = objects[0].take() else {
-            return Ok(false);
+            return Ok(None);
         };
         let instance = BSTR::try_from(&property(&object, w!("InstanceName"))?)?.to_string();
         if !matches_instance(&target, &instance) {
@@ -204,7 +215,7 @@ fn adjust_internal(device_id: &[u16], delta: f32) -> Result<bool> {
         let current = u32::try_from(&property(&object, w!("CurrentBrightness"))?)?;
         let next = adjusted_brightness(0, current, 100, delta)?;
         if next == current {
-            return Ok(true);
+            return Ok(Some(Level::brightness(0, current, 100, "内置显示器")?));
         }
 
         let mut class = None;
@@ -251,7 +262,22 @@ fn adjust_internal(device_id: &[u16], delta: f32) -> Result<bool> {
                 None,
             )?
         };
-        return Ok(true);
+        let object_path = BSTR::try_from(&property(&object, w!("__PATH"))?)?;
+        let mut updated = None;
+        unsafe {
+            services.GetObject(
+                &object_path,
+                WBEM_FLAG_RETURN_WBEM_COMPLETE,
+                None,
+                Some(&mut updated),
+                None,
+            )?;
+        }
+        let current = u32::try_from(&property(
+            &updated.context("亮度写入后读取失败")?,
+            w!("CurrentBrightness"),
+        )?)?;
+        return Ok(Some(Level::brightness(0, current, 100, "内置显示器")?));
     }
 }
 

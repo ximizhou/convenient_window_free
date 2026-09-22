@@ -83,8 +83,9 @@
 ## 平台支持与限制
 
 - Windows 11 x64：完整能力，当前发布和回归平台。
-- macOS x64/arm64：支持全局输入、辅助功能窗口控制、显示器和截图；需要辅助功能与屏幕录制权限。OCR、音频、贴边隐藏和任意窗口置顶暂不支持，真实权限与窗口验收待 native runner/机器证据。
-- Linux x64 X11：支持全局输入、窗口控制、显示器、截图和 EWMH 置顶；OCR、音频和贴边隐藏暂不支持，真实窗口验收待 native runner/机器证据。
+- macOS x64/arm64：支持全局输入、辅助功能窗口控制、显示器和截图；需要辅助功能与屏幕录制权限。OCR、贴边隐藏和任意窗口置顶暂不支持，真实权限与窗口验收待 native runner/机器证据。
+- Linux x64 X11：支持全局输入、窗口控制、显示器、截图和 EWMH 置顶；OCR 和贴边隐藏暂不支持，真实窗口验收待 native runner/机器证据。
+- 音量使用 Windows/macOS Core Audio，Linux 使用 `pactl`，支持 PulseAudio 和提供 PulseAudio 服务的 PipeWire。音量、亮度共用桌面提示条，显示设备读回值、静音状态和错误，见[实现说明](docs/architecture.md#adjustment-feedback)。
 - Linux Wayland：只报告能力并明确降级，不承诺全局输入或任意窗口控制。
 - macOS/Linux 发布资产在 native 验收前保持未验证，不会进入下载清单。
 - 当前安装包和可执行文件尚未进行代码签名。

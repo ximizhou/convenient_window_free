@@ -30,7 +30,7 @@ pub fn capabilities() -> super::super::PlatformCapabilities {
         window_topmost: false,
         screen_capture: ScreenCaptureAccess::default().preflight(),
         ocr: false,
-        audio: false,
+        audio: true,
         system_actions: false,
         edge_hide: false,
     }

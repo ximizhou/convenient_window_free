@@ -1,15 +1,20 @@
+pub mod adjustment;
 mod brightness;
 #[cfg(any(
     target_os = "linux",
     all(target_os = "macos", target_arch = "aarch64"),
     all(unix, test)
 ))]
-mod brightness_command;
+mod command;
 #[cfg(any(all(target_os = "macos", target_arch = "x86_64"), test))]
 mod ddc;
+#[cfg(target_os = "linux")]
+mod linux_audio;
+#[cfg(target_os = "macos")]
+mod macos_audio;
 #[cfg(any(target_os = "macos", test))]
 mod macos_brightness;
-pub use brightness::{adjust_brightness_at, take_brightness_error};
+pub use adjustment::{adjust_at, take_adjustment_feedback};
 
 #[cfg(target_os = "windows")]
 pub mod windows;
@@ -137,7 +142,7 @@ pub struct Point {
     pub y: i32,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct Rect {
     pub left: i32,
     pub top: i32,

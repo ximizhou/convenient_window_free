@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+use crate::platform::adjustment::Level;
 use crate::platform::Monitor;
 use anyhow::{ensure, Context, Result};
 
@@ -60,7 +62,7 @@ mod native {
         Ok(())
     }
 
-    fn apple_brightness(id: u32, delta: f32) -> Result<()> {
+    fn apple_brightness(id: u32, delta: f32) -> Result<Option<Level>> {
         let library = Library::open(
             c"/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices",
         )?;
@@ -73,30 +75,43 @@ mod native {
             unsafe { std::mem::transmute(library.symbol(c"DisplayServicesSetBrightness")?) };
         let mut current = 0.0;
         let status = unsafe { get(id, &mut current) };
-        ensure!(status == 0, "系统亮度读取失败 ({status})");
+        if status != 0 {
+            return Ok(None);
+        }
         let next = adjusted_native(current, delta)?;
         if next != current {
             verify_display(id)?;
             let status = unsafe { set(id, next) };
             ensure!(status == 0, "系统亮度写入失败 ({status})");
         }
-        Ok(())
+        let status = unsafe { get(id, &mut current) };
+        ensure!(
+            status == 0 && current.is_finite() && (0.0..=1.0).contains(&current),
+            "亮度写入后读取失败 ({status})"
+        );
+        Ok(Some(Level {
+            value: current,
+            muted: false,
+            device_name: format!("显示器 {id}"),
+        }))
     }
 
-    pub(crate) fn adjust(monitor: &Monitor, delta: f32) -> Result<()> {
+    pub(crate) fn adjust(monitor: &Monitor, delta: f32) -> Result<Level> {
         let id = display_id(monitor)?;
         verify_display(id)?;
-        match apple_brightness(id, delta) {
-            Ok(()) => Ok(()),
-            Err(error) if unsafe { CGDisplayIsBuiltin(id) } != 0 => Err(error),
-            Err(error) => external(id, delta).with_context(|| format!("系统亮度接口：{error:#}")),
+        match apple_brightness(id, delta)? {
+            Some(level) => Ok(level),
+            None => {
+                ensure!(unsafe { CGDisplayIsBuiltin(id) } == 0, "系统亮度接口不可用");
+                external(id, delta)
+            }
         }
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn external(id: u32, delta: f32) -> Result<()> {
+    fn external(id: u32, delta: f32) -> Result<Level> {
         use crate::platform::brightness::adjusted_brightness;
-        use crate::platform::brightness_command::run;
+        use crate::platform::command::run;
         use std::path::Path;
         use std::process::Command;
         use std::time::Duration;
@@ -133,11 +148,15 @@ mod native {
                 timeout,
             )?;
         }
-        Ok(())
+        let current = parse_m1ddc_value(&run(
+            Command::new(program).args(["display", &target, "get", "luminance"]),
+            timeout,
+        )?)?;
+        Level::brightness(0, current, max, format!("显示器 {id}"))
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn external(id: u32, delta: f32) -> Result<()> {
+    fn external(id: u32, delta: f32) -> Result<Level> {
         super::intel::adjust(id, delta)
     }
 }

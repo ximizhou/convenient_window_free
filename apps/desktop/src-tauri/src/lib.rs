@@ -1,3 +1,4 @@
+mod adjustment_hud;
 mod storage;
 mod supervisor;
 #[cfg(windows)]
@@ -384,6 +385,7 @@ pub fn run() {
                 settings_write_lock: Mutex::new(()),
                 shutdown_started: AtomicBool::new(false),
             });
+            adjustment_hud::start(app.handle())?;
             create_tray(app.handle())?;
             #[cfg(windows)]
             windows_lifecycle::listen_for_uninstall(app.handle().clone())
@@ -402,6 +404,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            adjustment_hud::adjustment_hud_ready,
+            adjustment_hud::adjustment_hud_present,
             desktop_status,
             start_helper,
             stop_helper,

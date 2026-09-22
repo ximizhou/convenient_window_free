@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "adjustment-hud",
+  "description": "Receive adjustment results in the passive feedback window.",
+  "windows": ["adjustment-hud"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

@@ -4,6 +4,8 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+
 // Drain both pipes while waiting, so a verbose child cannot block the worker.
 pub(super) fn run(command: &mut Command, timeout: Duration) -> Result<String> {
     command
@@ -32,7 +34,7 @@ pub(super) fn run(command: &mut Command, timeout: Duration) -> Result<String> {
                 let _ = child.wait();
                 break match result {
                     Err(error) => Err(anyhow::Error::from(error)),
-                    _ => Err(anyhow::anyhow!("亮度控制命令超时")),
+                    _ => Err(anyhow::anyhow!("设备控制命令超时")),
                 };
             }
         }
@@ -50,7 +52,7 @@ pub(super) fn run(command: &mut Command, timeout: Duration) -> Result<String> {
     let status = status?;
     if !status.success() {
         bail!(
-            "亮度控制命令失败 ({status})：{} {}",
+            "设备控制命令失败 ({status})：{} {}",
             stderr.trim(),
             stdout.trim()
         );
@@ -70,7 +72,7 @@ fn read_output(mut pipe: impl Read) -> std::io::Result<String> {
         if length == 0 {
             break;
         }
-        let keep = length.min(16384usize.saturating_sub(output.len()));
+        let keep = length.min(MAX_OUTPUT_BYTES.saturating_sub(output.len()));
         output.extend_from_slice(&buffer[..keep]);
     }
     Ok(String::from_utf8_lossy(&output).into_owned())
@@ -85,12 +87,12 @@ mod tests {
         let output = run(
             Command::new("sh").args([
                 "-c",
-                "head -c 100000 /dev/zero; head -c 100000 /dev/zero >&2",
+                "head -c 1200000 /dev/zero; head -c 1200000 /dev/zero >&2",
             ]),
             Duration::from_secs(3),
         )
         .unwrap();
-        assert_eq!(output.len(), 16384);
+        assert_eq!(output.len(), MAX_OUTPUT_BYTES);
     }
 
     #[test]

@@ -83,8 +83,9 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 ## Current Limitations
 
 - Windows 11 x64 is the release-accepted platform and retains the complete feature set.
-- macOS (x64 and arm64) has a native helper boundary for global input, accessibility window control, monitor discovery, and screen capture. Accessibility and Screen Recording permissions are required. OCR, audio actions, edge hiding, and arbitrary-window topmost are explicitly unavailable.
-- Linux x64 under X11 has native helper support for global input, window control, monitor discovery, screen capture, and EWMH topmost. OCR, audio actions, and edge hiding are explicitly unavailable.
+- macOS (x64 and arm64) has a native helper boundary for global input, accessibility window control, monitor discovery, and screen capture. Accessibility and Screen Recording permissions are required. OCR, edge hiding, and arbitrary-window topmost are explicitly unavailable.
+- Linux x64 under X11 has native helper support for global input, window control, monitor discovery, screen capture, and EWMH topmost. OCR and edge hiding are explicitly unavailable.
+- Volume uses Windows/macOS Core Audio and `pactl` on Linux, including PipeWire with its PulseAudio service. Volume and brightness share a passive desktop indicator with device readback, mute state, and errors. See [adjustment feedback](docs/architecture.md#adjustment-feedback).
 - Linux Wayland is detected and reports unavailable capabilities; the helper does not pretend to provide global input or arbitrary-window control there.
 - macOS and Linux release assets remain unverified until native runner and real-machine smoke evidence is recorded.
 - The installer and executable are not currently code-signed.

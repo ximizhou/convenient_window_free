@@ -25,7 +25,7 @@ fn capabilities_for_x11(x11: bool) -> super::super::PlatformCapabilities {
         window_topmost: x11,
         screen_capture: x11,
         ocr: false,
-        audio: false,
+        audio: true,
         system_actions: false,
         edge_hide: false,
     }
@@ -541,7 +541,7 @@ mod tests {
         assert!(capabilities.window_topmost);
         assert!(capabilities.screen_capture);
         assert!(!capabilities.ocr);
-        assert!(!capabilities.audio);
+        assert!(capabilities.audio);
         assert!(!capabilities.system_actions);
         assert!(!capabilities.edge_hide);
     }

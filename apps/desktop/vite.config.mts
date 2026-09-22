@@ -5,6 +5,7 @@ export default defineConfig({
   base: "./",
   plugins: [svelte()],
   build: {
+    rollupOptions: { input: { main: "index.html", hud: "hud.html" } },
     outDir: "dist",
     emptyOutDir: true
   }

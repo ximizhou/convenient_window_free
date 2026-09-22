@@ -313,8 +313,11 @@ impl Engine {
                 }
             }
             self.handle_ocr_completions();
-            if let Some(message) = platform::take_brightness_error() {
-                self.report_runtime_error(anyhow::anyhow!(message));
+            if let Some(feedback) = platform::take_adjustment_feedback() {
+                let _ = self.event_tx.send(HelperMessage::new(
+                    "adjustment.updated",
+                    serde_json::to_value(feedback)?,
+                ));
             }
             previous_input = input;
             let interval = engine_poll_interval(config.poll_interval_ms, window_drag.is_active());

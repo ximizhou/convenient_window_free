@@ -67,11 +67,13 @@ impl ActionDispatcher {
                 Ok(())
             }
             ActionKind::LockScreen => platform::lock_screen(),
-            ActionKind::VolumeAdjust => platform::adjust_volume(scaled_adjustment_delta(
-                required_value(action, "volume adjustment")?,
-                scale,
-            )?),
-            ActionKind::BrightnessAdjust => platform::adjust_brightness_at(
+            ActionKind::VolumeAdjust => platform::adjust_at(
+                platform::adjustment::Kind::Volume,
+                scaled_adjustment_delta(required_value(action, "volume adjustment")?, scale)?,
+                target_point,
+            ),
+            ActionKind::BrightnessAdjust => platform::adjust_at(
+                platform::adjustment::Kind::Brightness,
                 scaled_adjustment_delta(required_value(action, "brightness adjustment")?, scale)?,
                 target_point,
             ),

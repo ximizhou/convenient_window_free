@@ -52,7 +52,7 @@ Edge-hide state keeps the target edge and restore geometry across monitor change
 
 The `brightness-adjust` action uses presets of `0.05` and `-0.05`, measured against the device's reported brightness range with a minimum step of one hardware unit. Hot zones select the display containing the trigger point; gestures preserve their target point. Wheel and slide triggers use the existing continuous-action scaling.
 
-One background worker merges pending deltas per display, including cancellation of opposite deltas. Hardware access stays outside the input loop, and failures return through the helper runtime-error channel. External commands use argument arrays, bounded output, a five-second timeout, and a process group that is cleaned up on completion or timeout.
+A background worker merges consecutive deltas for the same display and direction. Reversals retain their order so movement away from a hardware limit remains effective. Hardware access stays outside the input loop; pending state, successful readback, and failures return through `adjustment.updated`. External commands use argument arrays, bounded output, a five-second timeout, and a process group that is cleaned up on completion or timeout.
 
 | Platform | Internal or system-controlled display | Other external displays |
 | --- | --- | --- |
@@ -67,13 +67,27 @@ macOS addresses the selected `CGDisplayID` and rejects mirrored displays. Displa
 
 Brightness test coverage and hardware acceptance requirements are in [Testing](testing.md#brightness-controls).
 
+## Adjustment feedback
+
+Volume and brightness share the helper's `platform::adjustment` queue and result contract. They have separate workers so display-driver latency cannot block audio. Brightness retains the selected monitor identity; audio uses the default output and binds read, write, and readback to that same device. Consecutive inputs merge only when their display and direction match. Each queue is bounded to 32 entries, and requests waiting longer than one second expire before touching a device.
+
+Windows reuses a worker-local `IAudioEndpointVolume` and COM apartment. Device notifications invalidate the cached output on default-device, connection, state, or name changes; failures discard the session so the next input reconnects without replaying a possibly completed write. macOS uses Core Audio HAL master volume or the device's writable channel volumes. Linux requires `pactl` with JSON output and a PulseAudio-compatible server, including PipeWire's Pulse service. Linux/macOS channel updates preserve the existing balance. All backends clamp application volume changes to 0–100%; increasing volume clears mute, while decreasing it preserves mute. Device lookup and write errors propagate to the indicator.
+
+`adjustment.updated` carries `interaction`, `sequence`, `kind` (`volume` or `brightness`), the trigger screen's `screen` bounds, `pending`, an optional `level` (`value`, `muted`, `deviceName`), and an optional `error`. `value` is the device readback normalized to its range. Each completed readback in the active interaction updates the indicator even while newer input is queued. Pending events retain that readback, including when input arrives before the engine polls the result. Switching control or monitor, or resuming after 1.2 seconds without input, starts a new interaction that rejects earlier results. `sequence` orders feedback events within the helper process. Other hosts can render this event independently.
+
+The Tauri Rust host maintains its own authenticated subscription while its managed helper runs. A dedicated Svelte entry point (`hud.html`) renders one hidden, non-focusable, click-through window. The settings WebView does not route these events. Host revisions order live events, initial snapshots, expiry, and helper reconnects; the frontend acknowledges rendering before the host shows the window. First-use pending feedback stays hidden for 250 milliseconds; readbacks and failures appear as soon as rendered. Repeated input in the same interaction does not restart this delay. The indicator appears near the bottom of the trigger display, remains for 1.2 seconds after success or 3 seconds after failure, and updates in place. Pending feedback expires after 15 seconds. The indicator responds only to this application's actions.
+
+Repeated feedback with unchanged visible content extends the deadline without another WebView update. Monitor placement is resolved for a new interaction, screen, or scale factor; native size, position, and visibility calls run only when those values change. Idle timer checks stay off the main thread. The progress bar uses a transform transition so intermediate animation frames do not change layout.
+
+The current Linux input and monitor backend requires X11. Wayland support needs its own input and overlay integration. macOS window positioning and fullscreen behavior still require native machine verification.
+
 ## Platform and Release Boundary
 
 | Host | Runtime boundary | Acceptance status | Explicitly unavailable |
 | --- | --- | --- | --- |
-| Windows 11 x64 | Complete helper and desktop behavior, including OCR, audio, edge hiding, and topmost controls | Release-accepted | None in the current P0 scope |
-| macOS x64/arm64 | Accessibility-gated global input/window control; Core Graphics monitor and screen capture | Cross-compile check; native permission and window smoke pending | OCR, audio, edge hiding, arbitrary-window topmost |
-| Linux x64 X11 | X11 global input/window control, RandR monitors, EWMH topmost, X11 capture | Cross-compile check; native X11 runner smoke pending | OCR, audio, edge hiding |
+| Windows 11 x64 | Complete helper and desktop behavior, including OCR, edge hiding, and topmost controls | Release-accepted | None in the current P0 scope |
+| macOS x64/arm64 | Accessibility-gated global input/window control; Core Graphics monitor and screen capture | Cross-compile check; native permission and window smoke pending | OCR, edge hiding, arbitrary-window topmost |
+| Linux x64 X11 | X11 global input/window control, RandR monitors, EWMH topmost, X11 capture | Cross-compile check; native X11 runner smoke pending | OCR, edge hiding |
 | Linux Wayland | Session detection and capability reporting only | Degradation behavior tested; no false-ready support claim | Global input and arbitrary-window control unless a future portal path is proven |
 
 The package produces a per-user NSIS installer and a portable archive for the currently accepted Windows target. macOS/Linux assets stay out of release manifests until native runner and real-machine acceptance records their exact binary, size, and SHA-256. Public GitHub Releases use immutable final-version assets: a clean `main` build is published as a Pre-release for online acceptance, then promoted in place. Automatic updates and trusted commercial code signing are not implemented.

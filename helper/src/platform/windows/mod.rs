@@ -10,7 +10,7 @@ pub mod screenshot;
 pub mod topmost_pin;
 pub mod window;
 
-pub use audio::*;
+pub(crate) use audio::adjust_system_volume;
 pub(crate) use brightness::adjust_monitor_brightness;
 pub use hints::*;
 pub use input::*;

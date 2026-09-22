@@ -1,4 +1,5 @@
 use super::native::{verify_display, Library};
+use crate::platform::adjustment::Level;
 use crate::platform::brightness::adjusted_brightness;
 use crate::platform::ddc::{brightness_query, brightness_reply, brightness_write};
 use anyhow::{ensure, Context, Result};
@@ -161,7 +162,7 @@ impl Bus {
     }
 }
 
-pub(super) fn adjust(id: u32, delta: f32) -> Result<()> {
+pub(super) fn adjust(id: u32, delta: f32) -> Result<Level> {
     let library = Library::open(c"/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")?;
     type Framebuffer = unsafe extern "C" fn(u32) -> u32;
     let framebuffer_for: Framebuffer =
@@ -195,7 +196,8 @@ pub(super) fn adjust(id: u32, delta: f32) -> Result<()> {
         bus.exchange(&brightness_write(next as u16), &mut [])?;
         std::thread::sleep(Duration::from_millis(50));
     }
-    Ok(())
+    let (current, max) = bus.read()?;
+    Level::brightness(0, current, max, format!("显示器 {id}"))
 }
 
 #[repr(C)]

@@ -115,17 +115,24 @@ pub fn lock_screen() -> Result<()> {
     backend::lock_screen()
 }
 
-pub fn adjust_volume(_delta: f32) -> Result<()> {
-    bail!(unsupported_message("audio"))
-}
+#[cfg(target_os = "linux")]
+pub(crate) use super::linux_audio::adjust_system_volume;
+#[cfg(target_os = "macos")]
+pub(crate) use super::macos_audio::adjust_system_volume;
 
 #[cfg(target_os = "linux")]
-pub(crate) fn adjust_monitor_brightness(monitor: &super::Monitor, delta: f32) -> Result<()> {
+pub(crate) fn adjust_monitor_brightness(
+    monitor: &super::Monitor,
+    delta: f32,
+) -> Result<super::adjustment::Level> {
     linux_brightness::adjust(monitor, delta)
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn adjust_monitor_brightness(monitor: &super::Monitor, delta: f32) -> Result<()> {
+pub(crate) fn adjust_monitor_brightness(
+    monitor: &super::Monitor,
+    delta: f32,
+) -> Result<super::adjustment::Level> {
     super::macos_brightness::adjust(monitor, delta)
 }
 

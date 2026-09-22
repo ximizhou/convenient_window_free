@@ -1,5 +1,6 @@
+use crate::platform::adjustment::Level;
 use crate::platform::brightness::adjusted_brightness;
-use crate::platform::brightness_command::run;
+use crate::platform::command::run;
 use crate::platform::Monitor;
 use anyhow::{bail, ensure, Context, Result};
 use std::fs;
@@ -12,7 +13,7 @@ use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub(super) fn adjust(monitor: &Monitor, delta: f32) -> Result<()> {
+pub(super) fn adjust(monitor: &Monitor, delta: f32) -> Result<Level> {
     let (name, edid) = output_identity(monitor)?;
     let connector = find_connector(Path::new("/sys/class/drm"), &edid)?;
     let internal = is_internal(&name);
@@ -45,6 +46,7 @@ pub(super) fn adjust(monitor: &Monitor, delta: f32) -> Result<()> {
             )
             .context("无法设置内屏背光，请检查 logind 会话与设备权限")?;
         }
+        Level::brightness(0, read_number(&device.join("brightness"))?, max, name)
     } else {
         let bus = i2c_bus(&connector)?;
         let output = run(
@@ -62,8 +64,12 @@ pub(super) fn adjust(monitor: &Monitor, delta: f32) -> Result<()> {
                 COMMAND_TIMEOUT,
             )?;
         }
+        let (current, max) = parse_vcp(&run(
+            Command::new("ddcutil").args(["--bus", &bus, "--terse", "getvcp", "10"]),
+            COMMAND_TIMEOUT,
+        )?)?;
+        Level::brightness(0, current, max, name)
     }
-    Ok(())
 }
 
 fn output_identity(monitor: &Monitor) -> Result<(String, Vec<u8>)> {

@@ -354,7 +354,9 @@ fn request_helper_stop(token: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn connect_authenticated(token: &str) -> Result<tungstenite::WebSocket<TcpStream>, String> {
+pub(crate) fn connect_authenticated(
+    token: &str,
+) -> Result<tungstenite::WebSocket<TcpStream>, String> {
     let address: SocketAddr = HELPER_ADDRESS
         .parse()
         .map_err(|error| format!("helper 地址无效：{error}"))?;

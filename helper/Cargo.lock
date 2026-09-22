@@ -576,6 +576,7 @@ dependencies = [
  "tokio-tungstenite",
  "uuid",
  "windows",
+ "windows-core",
  "x11rb",
 ]
 
