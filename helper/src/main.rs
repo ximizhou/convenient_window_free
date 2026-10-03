@@ -16,7 +16,7 @@ use config::AppConfig;
 use core::engine::Engine;
 use ipc::messages::HelperMessage;
 use ipc::websocket::WebSocketServer;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
@@ -151,11 +151,7 @@ async fn main() -> Result<()> {
         let shutdown_rx = shutdown_tx.subscribe();
         tokio::spawn(async move { usage.run(event_rx, shutdown_rx).await })
     };
-    let engine = Arc::new(Engine::new(
-        config_rx,
-        event_tx.clone(),
-        shutdown_tx.subscribe(),
-    ));
+    let mut engine = Engine::new(config_rx, event_tx.clone(), shutdown_tx.subscribe());
     let server = WebSocketServer::new(
         "127.0.0.1:56873",
         auth_token,
@@ -166,10 +162,7 @@ async fn main() -> Result<()> {
     );
 
     let server_task = tokio::spawn(async move { server.run().await });
-    let engine_task = {
-        let engine = Arc::clone(&engine);
-        tokio::spawn(async move { engine.run().await })
-    };
+    let engine_task = tokio::spawn(async move { engine.run().await });
 
     logging::write_line("main: supervising websocket server and engine");
     let runtime_result = supervise_runtime(server_task, engine_task, shutdown_tx.clone()).await;
@@ -192,6 +185,7 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod runtime_tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn future_schema_is_rejected_before_deserializing_new_fields() {

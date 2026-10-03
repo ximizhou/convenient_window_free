@@ -12,6 +12,7 @@ const smokeRoot = resolve(process.env.MAGIC_CORNERS_SMOKE_ROOT ?? tempParent, `c
 const firstDataDir = resolve(smokeRoot, "utools-data");
 const secondDataDir = resolve(smokeRoot, "desktop-data");
 const children = new Map();
+const diagnostics = [];
 
 if (!isAbsolute(executable) || !existsSync(executable)) {
   throw new Error(`helper executable does not exist: ${executable}`);
@@ -45,6 +46,14 @@ try {
   if (recoveredExit !== 0) throw new Error(`recovered helper did not stop cleanly: exit ${recoveredExit}`);
   console.log(`recovery start: exit=${recoveredExit}, dataDir=${secondDataDir}`);
   console.log("helper instance smoke: passed");
+} catch (error) {
+  for (const record of diagnostics) {
+    console.error(`helper diagnostics: pid=${record.child.pid}, exit=${record.child.exitCode}, signal=${record.child.signalCode}`);
+    if (record.output) console.error(record.output);
+    const logPath = resolve(record.dataDir, "magic-corners-helper.log");
+    if (existsSync(logPath)) console.error(readFileSync(logPath, "utf8"));
+  }
+  throw error;
 } finally {
   for (const [child, dataDir] of children) {
     if (child.exitCode !== null) continue;
@@ -65,8 +74,14 @@ function startHelper(dataDir) {
   const child = spawn(executable, ["--data-dir", dataDir], {
     cwd: dirname(executable),
     windowsHide: true,
-    stdio: "ignore"
+    stdio: ["ignore", "pipe", "pipe"]
   });
+  const record = { child, dataDir, output: "" };
+  diagnostics.push(record);
+  for (const stream of [child.stdout, child.stderr]) {
+    stream.setEncoding("utf8");
+    stream.on("data", chunk => { record.output = (record.output + chunk).slice(-32768); });
+  }
   children.set(child, dataDir);
   child.once("exit", () => children.delete(child));
   return child;

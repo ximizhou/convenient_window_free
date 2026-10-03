@@ -63,7 +63,8 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/tmp/convenient-window-xvfb.log 2>&1 &
+          # Keep X11 alive between short-lived preflight and listener connections.
+          Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -noreset >/tmp/convenient-window-xvfb.log 2>&1 &
           echo $! >/tmp/convenient-window-xvfb.pid
           for attempt in {1..30}; do
             if DISPLAY=:99 xdpyinfo >/dev/null 2>&1; then break; fi
