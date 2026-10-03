@@ -154,6 +154,9 @@ async fn handle_connection(
                 "helper.ready",
                 serde_json::json!({
                     "version": env!("CARGO_PKG_VERSION"),
+                    "processId": std::process::id(),
+                    "elevated": crate::desktop_owner::elevated(),
+                    "desktopManaged": crate::desktop_owner::managed(),
                     "protocolVersion": PROTOCOL_VERSION,
                     "schemaVersion": SCHEMA_VERSION,
                     "platform": crate::platform::platform_info(),

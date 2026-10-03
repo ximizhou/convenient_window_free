@@ -5,7 +5,7 @@ mod imp {
     use super::Result;
     use windows::core::{w, PCWSTR};
     use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
-    use windows::Win32::System::Threading::CreateMutexW;
+    use windows::Win32::System::Threading::CreateMutexExW;
 
     pub struct SingleInstance {
         handle: HANDLE,
@@ -15,7 +15,8 @@ mod imp {
 
     impl SingleInstance {
         pub fn acquire() -> Result<Option<Self>> {
-            let handle = unsafe { CreateMutexW(None, false, INSTANCE_MUTEX_NAME)? };
+            // Query-only access also detects an instance at a higher integrity level.
+            let handle = unsafe { CreateMutexExW(None, INSTANCE_MUTEX_NAME, 0, 0x00100000)? };
             if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
                 let _ = unsafe { CloseHandle(handle) };
                 return Ok(None);

@@ -67,7 +67,13 @@ impl ActionDispatcher {
                 target_point,
             ),
             ActionKind::OpenCommand => {
-                open_command(required_value(action, "command")?)?;
+                let command = required_value(action, "command")?;
+                dispatch_command(
+                    command,
+                    &self.event_tx,
+                    crate::desktop_owner::managed(),
+                    crate::desktop_owner::elevated(),
+                )?;
                 Ok(())
             }
             ActionKind::HostAction => {
@@ -97,7 +103,22 @@ impl ActionDispatcher {
     }
 }
 
-fn open_command(command: &str) -> Result<()> {
+fn dispatch_command(
+    command: &str,
+    events: &broadcast::Sender<HelperMessage>,
+    managed: bool,
+    elevated: bool,
+) -> Result<()> {
+    if managed {
+        events.send(HelperMessage::new(
+            "desktop.command",
+            json!({ "command": command }),
+        ))?;
+        return Ok(());
+    }
+    if elevated {
+        bail!("Run commands through the ordinary-permission desktop host");
+    }
     #[cfg(target_os = "windows")]
     Command::new("cmd").args(["/C", command]).spawn()?;
     #[cfg(not(target_os = "windows"))]
@@ -128,6 +149,20 @@ fn required_value<'a>(action: &'a HotzoneAction, label: &str) -> Result<&'a str>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_commands_are_delegated_once_at_either_permission_level() {
+        let (sender, mut receiver) = broadcast::channel(4);
+        for elevated in [false, true] {
+            dispatch_command("exit 99", &sender, true, elevated).unwrap();
+            let event = receiver.try_recv().unwrap();
+            assert_eq!(event.kind, "desktop.command");
+            assert_eq!(event.data["command"], "exit 99");
+            assert!(receiver.try_recv().is_err());
+        }
+        assert!(dispatch_command("exit 99", &sender, false, true).is_err());
+        assert!(receiver.try_recv().is_err());
+    }
 
     #[test]
     fn parameterized_actions_reject_blank_values() {

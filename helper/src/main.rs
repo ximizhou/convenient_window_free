@@ -3,6 +3,7 @@
 mod auth;
 mod config;
 mod core;
+mod desktop_owner;
 mod ipc;
 mod logging;
 mod paths;
@@ -10,6 +11,10 @@ mod platform;
 mod single_instance;
 mod storage;
 mod usage;
+#[cfg(target_os = "windows")]
+#[allow(dead_code)] // The desktop also uses this module's launch/termination helpers.
+#[path = "../../shared/windows_process.rs"]
+mod windows_process;
 
 use anyhow::{Context, Result};
 use config::AppConfig;
@@ -144,6 +149,7 @@ async fn main() -> Result<()> {
     let (config_tx, config_rx) = watch::channel(initial_config);
     let (event_tx, _) = broadcast::channel::<HelperMessage>(128);
     let (shutdown_tx, _) = broadcast::channel::<()>(4);
+    desktop_owner::initialize(shutdown_tx.clone())?;
     let usage = usage::UsageTracker::load(event_tx.clone())?;
     let mut usage_task = {
         let usage = usage.clone();

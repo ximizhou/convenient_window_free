@@ -38,6 +38,10 @@ export function format(template: string, values: Record<string, string | number>
 }
 
 export const zh = {
+  adminMode: "管理员权限", adminSwitching: "切换中…",
+  adminModeDetail: "用于操作管理员窗口，仅本次运行有效。",
+  adminCancelled: "已取消授权", adminFallback: "提权失败，已恢复普通权限",
+  adminSwitchFailed: "权限切换失败，请重新启动功能", adminDesktopElevated: "请以普通权限启动桌面程序，再启用管理员 helper",
   gestureNotRecognized: "手势未识别，已取消",
   gestureUp: "向上 · 复制",
   gestureDown: "向下 · 粘贴",
@@ -116,6 +120,10 @@ export const zh = {
 } as const;
 
 export const en: Record<keyof typeof zh, string> = {
+  adminMode: "Administrator access", adminSwitching: "Switching…",
+  adminModeDetail: "Control elevated windows for this session.",
+  adminCancelled: "Authorization cancelled", adminFallback: "Elevation failed; standard permissions restored",
+  adminSwitchFailed: "Permission switch failed; restart the features", adminDesktopElevated: "Start the desktop app with standard permissions before elevating the helper",
   gestureNotRecognized: "Gesture not recognized; cancelled.",
   gestureUp: "Up · Copy",
   gestureDown: "Down · Paste",

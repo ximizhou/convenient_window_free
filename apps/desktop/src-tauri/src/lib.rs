@@ -1,10 +1,17 @@
 mod adjustment_hud;
+mod command_broker;
 mod storage;
 mod supervisor;
 #[cfg(windows)]
 mod windows_autostart;
 #[cfg(windows)]
+mod windows_elevation;
+#[cfg(windows)]
 mod windows_lifecycle;
+#[cfg(windows)]
+#[allow(dead_code)] // Shared with the helper's owner monitor.
+#[path = "../../../../shared/windows_process.rs"]
+mod windows_process;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -77,6 +84,8 @@ struct DesktopStatus {
     helper_error: Option<String>,
     repository: &'static str,
     token: Option<String>,
+    helper_elevated: bool,
+    administrator_mode_supported: bool,
 }
 
 #[derive(Serialize)]
@@ -104,11 +113,12 @@ fn desktop_status(state: State<'_, DesktopState>) -> Result<DesktopStatus, Strin
     });
     let helper_error = payload.err();
     let token = supervisor::read_valid_token(&state.paths.helper_data_dir.join("auth-token")).ok();
-    let helper_running = state
+    let mut helper = state
         .helper
         .lock()
-        .map_err(|_| "helper 进程状态锁已损坏".to_string())?
-        .running();
+        .map_err(|_| "helper 进程状态锁已损坏".to_string())?;
+    let helper_running = helper.running();
+    let helper_elevated = helper.elevated();
     Ok(DesktopStatus {
         data_dir: path_string(&state.paths.app_data_dir),
         helper_path: path_string(&helper_path),
@@ -119,6 +129,8 @@ fn desktop_status(state: State<'_, DesktopState>) -> Result<DesktopStatus, Strin
         helper_error,
         repository: REPOSITORY_URL,
         token,
+        helper_elevated,
+        administrator_mode_supported: cfg!(windows),
     })
 }
 
@@ -135,6 +147,24 @@ async fn start_helper(state: State<'_, DesktopState>) -> Result<StartResult, Str
     })
     .await
     .map_err(|error| format!("helper 启动任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn set_helper_elevation(
+    elevated: bool,
+    state: State<'_, DesktopState>,
+) -> Result<StartResult, String> {
+    let helper = Arc::clone(&state.helper);
+    let payload_dir = state.paths.helper_payload_dir.clone();
+    let data_dir = state.paths.helper_data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        helper
+            .lock()
+            .map_err(|_| "Helper state lock is poisoned".to_string())?
+            .switch_mode(&payload_dir, &data_dir, elevated)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -403,16 +433,18 @@ fn path_string(path: &Path) -> String {
 pub fn run() {
     let explicit_data_dir = explicit_data_dir().expect("invalid desktop data directory override");
     let mut context = tauri::generate_context!();
-    let isolated_window = explicit_data_dir.as_ref().and_then(|data_dir| {
-        let position = context
-            .config()
-            .app
-            .windows
-            .iter()
-            .position(|window| window.label == "main")?;
-        let config = context.config_mut().app.windows.remove(position);
-        Some((config, data_dir.join("webview-data")))
-    });
+    let main_window_position = context
+        .config()
+        .app
+        .windows
+        .iter()
+        .position(|window| window.label == "main")
+        .expect("main window configuration is missing");
+    let main_window_config = context
+        .config_mut()
+        .app
+        .windows
+        .remove(main_window_position);
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -423,12 +455,6 @@ pub fn run() {
                 .build(),
         )
         .setup(move |app| {
-            if let Some((config, webview_data_dir)) = &isolated_window {
-                std::fs::create_dir_all(webview_data_dir)?;
-                tauri::WebviewWindowBuilder::from_config(app, config)?
-                    .data_directory(webview_data_dir.clone())
-                    .build()?;
-            }
             let paths = DesktopPaths::resolve(app.handle())
                 .map_err(|error| std::io::Error::other(error))?;
             app.manage(DesktopState {
@@ -448,6 +474,16 @@ pub fn run() {
             #[cfg(windows)]
             windows_lifecycle::listen_for_uninstall(app.handle().clone())
                 .map_err(std::io::Error::other)?;
+            // The frontend can invoke commands as soon as the WebView starts.
+            // Register desktop and menu state before creating the main window.
+            let mut main_window =
+                tauri::WebviewWindowBuilder::from_config(app, &main_window_config)?;
+            if let Some(data_dir) = &explicit_data_dir {
+                let webview_data_dir = data_dir.join("webview-data");
+                std::fs::create_dir_all(&webview_data_dir)?;
+                main_window = main_window.data_directory(webview_data_dir);
+            }
+            main_window.build()?;
             let autostart = std::env::args().any(|argument| argument == "--autostart");
             if !autostart {
                 show_main_window(app.handle());
@@ -467,6 +503,7 @@ pub fn run() {
             set_native_labels,
             desktop_status,
             start_helper,
+            set_helper_elevation,
             stop_helper,
             load_config,
             save_config,

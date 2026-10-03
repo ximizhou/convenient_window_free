@@ -36,6 +36,10 @@ jobs:
         shell: pwsh
         run: node scripts/helper-instance-smoke.mjs apps/desktop/src-tauri/resources/helper/magic-corners-helper.exe
 
+      - name: Verify helper owner monitoring and stop notification
+        shell: pwsh
+        run: ./scripts/helper-owner-smoke.ps1 -HelperPath apps/desktop/src-tauri/resources/helper/magic-corners-helper.exe
+
       - name: Verify isolated portable runtime
         shell: pwsh
         run: |

@@ -805,3 +805,11 @@ body, .topbar, .drawer, .drawer-head, .mode-nav, .power-facts, .power-orb,
   transition: background-color .32s ease, border-color .32s ease, color .32s ease;
 }
 .screen { transition: background-color .32s ease, border-color .32s ease, box-shadow .32s ease; }
+.permission-settings { padding: 14px 0; }
+.permission-toggle { display: flex; align-items: center; gap: 10px; min-height: 24px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.permission-toggle > span:first-child { flex: 1; }
+.permission-toggle small, .permission-settings > p { color: var(--faint); font-size: 11px; }
+.permission-toggle .mini-switch { position: relative; flex: none; }
+.permission-toggle input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 3px; }
+.permission-toggle input:disabled + span { opacity: .45; cursor: default; }
+.permission-settings > p { margin: 6px 0 0; }

@@ -25,6 +25,51 @@ pub struct StartResult {
     pub data_dir: String,
     pub helper_path: String,
     pub token: String,
+    pub elevated: bool,
+    pub warning: Option<String>,
+}
+
+enum ManagedChild {
+    Ordinary(Child),
+    #[cfg(windows)]
+    Elevated(crate::windows_elevation::ElevatedProcess),
+}
+
+impl ManagedChild {
+    fn id(&self) -> u32 {
+        match self {
+            Self::Ordinary(child) => child.id(),
+            #[cfg(windows)]
+            Self::Elevated(child) => child.id(),
+        }
+    }
+    fn try_wait(&mut self) -> Result<Option<i32>, String> {
+        match self {
+            Self::Ordinary(child) => child
+                .try_wait()
+                .map(|status| status.map(|status| status.code().unwrap_or(-1)))
+                .map_err(|error| error.to_string()),
+            #[cfg(windows)]
+            Self::Elevated(child) => child.try_wait(),
+        }
+    }
+    fn kill(&mut self) -> Result<(), String> {
+        match self {
+            Self::Ordinary(child) => {
+                if child
+                    .try_wait()
+                    .map_err(|error| error.to_string())?
+                    .is_none()
+                {
+                    child.kill().map_err(|error| error.to_string())?;
+                }
+                child.wait().map_err(|error| error.to_string())?;
+                Ok(())
+            }
+            #[cfg(windows)]
+            Self::Elevated(child) => child.kill(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -35,7 +80,9 @@ pub struct StopResult {
 }
 
 pub struct HelperProcess {
-    child: Option<Child>,
+    child: Option<ManagedChild>,
+    broker: Option<crate::command_broker::CommandBroker>,
+    elevated: bool,
     #[cfg(windows)]
     child_job: Option<ChildJob>,
     last_exit_code: Option<i32>,
@@ -54,6 +101,8 @@ impl Default for HelperProcess {
     fn default() -> Self {
         Self {
             child: None,
+            broker: None,
+            elevated: false,
             #[cfg(windows)]
             child_job: None,
             last_exit_code: None,
@@ -64,15 +113,60 @@ impl Default for HelperProcess {
 
 impl HelperProcess {
     pub fn start(&mut self, payload_dir: &Path, data_dir: &Path) -> Result<StartResult, String> {
+        // Automatic recovery always starts without a UAC prompt.
+        self.start_mode(payload_dir, data_dir, false)
+    }
+
+    pub fn elevated(&mut self) -> bool {
+        self.refresh();
+        self.child.is_some() && self.elevated
+    }
+
+    pub fn switch_mode(
+        &mut self,
+        payload_dir: &Path,
+        data_dir: &Path,
+        elevated: bool,
+    ) -> Result<StartResult, String> {
+        #[cfg(windows)]
+        if crate::windows_process::current_elevated()? {
+            return Err("adminDesktopElevated".into());
+        }
+        self.stop(data_dir)?;
+        let (mut result, warning) = start_with_fallback(elevated, |mode| {
+            // Never start a replacement while a failed attempt is still alive.
+            self.stop(data_dir)?;
+            self.start_mode(payload_dir, data_dir, mode)
+        })?;
+        result.warning = warning;
+        Ok(result)
+    }
+
+    fn start_mode(
+        &mut self,
+        payload_dir: &Path,
+        data_dir: &Path,
+        elevated: bool,
+    ) -> Result<StartResult, String> {
         self.refresh();
         let helper_path = validate_payload(payload_dir)?;
         if self.child.is_some() {
             let token = read_valid_token(&data_dir.join(TOKEN_FILE))?;
+            if self.broker.is_none() {
+                let pid = self.child.as_ref().unwrap().id();
+                self.broker = Some(crate::command_broker::CommandBroker::start(
+                    ready_socket(&token, pid)?,
+                    token.clone(),
+                    pid,
+                )?);
+            }
             return Ok(StartResult {
                 already_running: true,
                 data_dir: path_string(data_dir),
                 helper_path: path_string(&helper_path),
                 token,
+                elevated: self.elevated,
+                warning: None,
             });
         }
 
@@ -80,38 +174,67 @@ impl HelperProcess {
             .map_err(|error| format!("无法创建 helper 数据目录：{error}"))?;
         let log_path = data_dir.join(HELPER_LOG);
         let log_offset = fs::metadata(&log_path).map(|meta| meta.len()).unwrap_or(0);
-        let mut command = Command::new(&helper_path);
-        command
-            .arg("--data-dir")
-            .arg(data_dir)
-            .current_dir(payload_dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
         #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x0800_0000);
+        let owner_elevated = crate::windows_process::current_elevated()?;
+        #[cfg(windows)]
+        let owner_birth = crate::windows_process::current_birth()?;
+        #[cfg(not(windows))]
+        if elevated {
+            return Err("Administrator mode is only available on Windows".into());
         }
-        let mut child = command.spawn().map_err(|error| {
-            let message = format!("无法启动后台助手 {}：{error}", helper_path.display());
-            self.last_error = Some(message.clone());
-            message
-        })?;
         #[cfg(windows)]
-        let child_job = match ChildJob::assign(&child) {
-            Ok(job) => job,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                self.last_error = Some(error.clone());
-                return Err(error);
+        if elevated {
+            let process = crate::windows_elevation::launch(&helper_path, data_dir, owner_birth)?;
+            // Keep ownership even when a subsequent token query fails.
+            self.child = Some(ManagedChild::Elevated(process));
+            self.elevated = true;
+            let Some(ManagedChild::Elevated(process)) = &self.child else {
+                unreachable!()
+            };
+            if !process.elevated()? {
+                return Err("Helper elevation was not granted".into());
             }
-        };
-        self.child = Some(child);
-        #[cfg(windows)]
-        {
-            self.child_job = Some(child_job);
+        }
+        if !elevated {
+            let mut command = Command::new(&helper_path);
+            command
+                .arg("--data-dir")
+                .arg(data_dir)
+                .current_dir(payload_dir)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                command.creation_flags(0x0800_0000);
+                command
+                    .arg("--desktop-owner")
+                    .arg(std::process::id().to_string())
+                    .arg(owner_birth.to_string());
+            }
+            let mut child = command.spawn().map_err(|error| {
+                let message = format!("无法启动后台助手 {}：{error}", helper_path.display());
+                self.last_error = Some(message.clone());
+                message
+            })?;
+            #[cfg(windows)]
+            let child_job = match ChildJob::assign(&child) {
+                Ok(job) => job,
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    self.last_error = Some(error.clone());
+                    return Err(error);
+                }
+            };
+            self.child = Some(ManagedChild::Ordinary(child));
+            self.elevated = false;
+            #[cfg(windows)]
+            {
+                self.elevated = owner_elevated;
+                self.child_job = Some(child_job);
+            }
         }
         self.last_error = None;
         self.last_exit_code = None;
@@ -137,17 +260,25 @@ impl HelperProcess {
             }
 
             if let Ok(token) = read_valid_token(&data_dir.join(TOKEN_FILE)) {
-                if helper_is_ready(&token).is_ok() {
+                let pid = self.child.as_ref().ok_or("Helper exited")?.id();
+                if let Ok(socket) = ready_socket(&token, pid) {
+                    self.broker = Some(crate::command_broker::CommandBroker::start(
+                        socket,
+                        token.clone(),
+                        pid,
+                    )?);
                     return Ok(StartResult {
                         already_running: false,
                         data_dir: path_string(data_dir),
                         helper_path: path_string(&helper_path),
                         token,
+                        elevated: self.elevated,
+                        warning: None,
                     });
                 }
             }
             if Instant::now() >= deadline {
-                let _ = self.force_kill();
+                self.force_kill()?;
                 let detail = last_nonempty_line(&read_log_since(&log_path, log_offset))
                     .unwrap_or("helper 未在超时前开放本地 IPC")
                     .to_string();
@@ -161,6 +292,7 @@ impl HelperProcess {
 
     pub fn stop(&mut self, data_dir: &Path) -> Result<StopResult, String> {
         self.refresh();
+        self.broker = None;
         if self.child.is_none() {
             return Ok(StopResult {
                 was_running: false,
@@ -169,7 +301,7 @@ impl HelperProcess {
         }
 
         let graceful_request = read_valid_token(&data_dir.join(TOKEN_FILE))
-            .and_then(|token| request_helper_stop(&token))
+            .and_then(|token| request_helper_stop(&token, self.child.as_ref().unwrap().id()))
             .is_ok();
         let deadline = Instant::now() + STOP_TIMEOUT;
         while Instant::now() < deadline {
@@ -215,8 +347,10 @@ impl HelperProcess {
             None => None,
         };
         if let Some(status) = exit_status {
-            self.last_exit_code = status.code();
+            self.last_exit_code = Some(status);
             self.child = None;
+            self.broker = None;
+            self.elevated = false;
             #[cfg(windows)]
             {
                 self.child_job = None;
@@ -225,23 +359,42 @@ impl HelperProcess {
     }
 
     fn force_kill(&mut self) -> Result<(), String> {
-        let Some(mut child) = self.child.take() else {
+        self.broker = None;
+        let Some(child) = self.child.as_mut() else {
             return Ok(());
         };
-        let kill_result = child
+        child
             .kill()
-            .map_err(|error| format!("无法终止 helper：{error}"));
-        let wait_result = child
-            .wait()
-            .map_err(|error| format!("无法等待 helper 退出：{error}"));
+            .map_err(|error| format!("无法终止 helper：{error}"))?;
+        self.last_exit_code = child.try_wait()?;
+        self.child = None;
+        self.elevated = false;
         #[cfg(windows)]
         {
             self.child_job = None;
         }
-        kill_result?;
-        let status = wait_result?;
-        self.last_exit_code = status.code();
         Ok(())
+    }
+}
+
+fn start_with_fallback<T>(
+    elevated: bool,
+    mut start: impl FnMut(bool) -> Result<T, String>,
+) -> Result<(T, Option<String>), String> {
+    match start(elevated) {
+        Ok(result) => Ok((result, None)),
+        Err(error) if elevated => {
+            let result = start(false).map_err(|fallback| {
+                format!("{error}; ordinary helper recovery failed: {fallback}")
+            })?;
+            let warning = if error == "adminCancelled" {
+                error
+            } else {
+                "adminFallback".into()
+            };
+            Ok((result, Some(warning)))
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -318,7 +471,10 @@ pub fn log_tail(path: &Path, max_lines: usize) -> Vec<String> {
         .collect()
 }
 
-fn helper_is_ready(token: &str) -> Result<(), String> {
+pub(crate) fn ready_socket(
+    token: &str,
+    pid: u32,
+) -> Result<tungstenite::WebSocket<TcpStream>, String> {
     let mut socket = connect_authenticated(token)?;
     let message = socket
         .read()
@@ -332,15 +488,14 @@ fn helper_is_ready(token: &str) -> Result<(), String> {
     if value.get("type").and_then(Value::as_str) != Some("helper.ready") {
         return Err("helper 未返回就绪消息".to_string());
     }
-    let _ = socket.close(None);
-    Ok(())
+    if value.pointer("/data/processId").and_then(Value::as_u64) != Some(u64::from(pid)) {
+        return Err("Helper IPC belongs to a different process".into());
+    }
+    Ok(socket)
 }
 
-fn request_helper_stop(token: &str) -> Result<(), String> {
-    let mut socket = connect_authenticated(token)?;
-    let _ = socket
-        .read()
-        .map_err(|error| format!("helper 就绪消息读取失败：{error}"))?;
+fn request_helper_stop(token: &str, pid: u32) -> Result<(), String> {
+    let mut socket = ready_socket(token, pid)?;
     let message = serde_json::json!({
         "id": uuid::Uuid::new_v4().to_string(),
         "type": "helper.stop",
@@ -410,6 +565,63 @@ fn timestamp_ms() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelled_and_failed_elevation_restart_once_without_elevation() {
+        for error in [
+            "adminCancelled",
+            "access denied",
+            "helper failed to become ready",
+        ] {
+            let mut modes = Vec::new();
+            let (result, warning) = start_with_fallback(true, |elevated| {
+                modes.push(elevated);
+                if elevated {
+                    Err(error.to_string())
+                } else {
+                    Ok("ordinary")
+                }
+            })
+            .unwrap();
+            assert_eq!(modes, vec![true, false]);
+            assert_eq!(result, "ordinary");
+            assert_eq!(
+                warning.as_deref(),
+                Some(if error == "adminCancelled" {
+                    "adminCancelled"
+                } else {
+                    "adminFallback"
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_start_never_attempts_elevation_and_recovery_errors_are_preserved() {
+        let mut modes = Vec::new();
+        let error = start_with_fallback::<()>(false, |mode| {
+            modes.push(mode);
+            Err("occupied".into())
+        })
+        .unwrap_err();
+        assert_eq!(modes, vec![false]);
+        assert_eq!(error, "occupied");
+        let error = start_with_fallback::<()>(true, |mode| {
+            Err(if mode { "denied" } else { "occupied" }.into())
+        })
+        .unwrap_err();
+        assert!(error.contains("denied") && error.contains("occupied"));
+        let mut modes = Vec::new();
+        assert_eq!(
+            start_with_fallback(true, |mode| {
+                modes.push(mode);
+                Ok(())
+            })
+            .unwrap(),
+            ((), None)
+        );
+        assert_eq!(modes, vec![true]);
+    }
 
     fn test_dir() -> PathBuf {
         let directory = std::env::temp_dir().join(format!(

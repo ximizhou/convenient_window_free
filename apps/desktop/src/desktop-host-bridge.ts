@@ -14,6 +14,8 @@ interface DesktopStatus {
   helperError: string | null;
   repository: string;
   token: string | null;
+  helperElevated: boolean;
+  administratorModeSupported: boolean;
 }
 
 interface StartHelperResult {
@@ -21,6 +23,8 @@ interface StartHelperResult {
   dataDir: string;
   helperPath: string;
   token: string;
+  elevated: boolean;
+  warning: string | null;
 }
 
 const PUBLIC_REPOSITORY = "https://github.com/ximizhou/convenient_window_free";
@@ -34,6 +38,7 @@ export async function createDesktopHostBridge(): Promise<HostBridge> {
   try { storedLanguage = localStorage.getItem(LANGUAGE_KEY); } catch { /* Storage may be unavailable. */ }
   let language: Language = resolveInitialLanguage(storedLanguage, navigator.language);
   let token = status.token;
+  let elevated = status.helperElevated;
   let saveQueue: Promise<void> = Promise.resolve();
   let helperState: HelperInstallState = {
     installed: status.helperExists,
@@ -57,6 +62,7 @@ export async function createDesktopHostBridge(): Promise<HostBridge> {
       try {
         const result = await invoke<StartHelperResult>("start_helper");
         token = result.token;
+        elevated = result.elevated;
         helperState = { ...helperState, installDir: result.helperPath };
         return {
           ok: true,
@@ -71,9 +77,21 @@ export async function createDesktopHostBridge(): Promise<HostBridge> {
     async stopHelper() {
       try {
         await invoke("stop_helper");
+        elevated = false;
         return { ok: true };
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
+      }
+    },
+    getPrivilegeState: () => ({ supported: status.administratorModeSupported, elevated }),
+    async setHelperElevation(desired) {
+      try {
+        const result = await invoke<StartHelperResult>("set_helper_elevation", { elevated: desired });
+        token = result.token;
+        elevated = result.elevated;
+        return { ok: true, elevated, warning: result.warning ?? undefined };
+      } catch (error) {
+        return { ok: false, elevated, error: errorMessage(error) };
       }
     },
     getHelperToken: () => token,
