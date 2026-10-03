@@ -327,6 +327,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .timing label div, .form-grid label div { position: relative; }
 .timing em, .form-grid em { position: absolute; right: 10px; top: 11px; color: var(--faint); font-style: normal; font-size: 11px; }
 .timing input, .form-grid input { padding-right: 38px; }
+input[type="number"][aria-invalid="true"] { border-color: var(--danger, #d64c4c); }
 .apply {
   min-height: 40px;
   margin-top: 16px;

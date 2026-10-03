@@ -15,6 +15,7 @@
   import { migrateMonitorProfileIds } from "./monitor-profile-migration";
   import { addModifierVariant, MAX_MODIFIER_VARIANTS } from "./modifier-variants";
   import { prepareSettingsUpdate } from "./settings-sync";
+  import { numberSetting } from "./number-setting";
   import { SettingsApplyController } from "./settings-persistence";
   import { getHostBridge } from "./host-bridge";
   import { defaultSettings, loadSettings, MAX_GESTURE_TEMPLATES, normalizeSettings, saveSettings } from "./settings-store";
@@ -635,13 +636,10 @@
     persist();
   }
 
-  function setTriggerTiming(field: "cooldownMs" | "hoverDelayMs", event: Event): void {
-    const value = Number((event.currentTarget as HTMLInputElement).value);
-    if (!Number.isFinite(value)) return;
+  function setTriggerTiming(field: "cooldownMs" | "hoverDelayMs", value: number): void {
+    if (!displayReady) return;
     const slot = ensureProfile().find((zone) => zone.id === selectedZone)!.actions.find((item) => item.trigger === activeTrigger)!;
-    slot[field] = field === "cooldownMs"
-      ? Math.min(5000, Math.max(10, Math.trunc(value)))
-      : Math.min(3000, Math.max(0, Math.trunc(value)));
+    slot[field] = value;
     persist();
   }
 
@@ -1178,6 +1176,8 @@
               </div>
               <div class="feature-settings-head"><span>{ui("hotzoneSettings")}</span><strong>{settings.hotzonesEnabled ? ui("unifiedOn") : ui("keepConfig")}</strong></div>
               <div class="feature-settings-body" class:off={!settings.hotzonesEnabled} inert={!settings.hotzonesEnabled}>
+                {#if !displayReady}<p class="empty" role="status">{ui("waitingForDisplays")}</p>{/if}
+                <div class="monitor-hotzone-settings" inert={!displayReady}>
                 <div class="trigger-tabs">
                   {#each triggerGroups as group}
                     <button class:active={group.items.includes(activeTrigger)} disabled={group.items.includes("slide-forward") && !["top", "right", "bottom", "left"].includes(selectedZone)} on:click={() => { activeTrigger = group.items[0]; selectedHotzoneModifiers = []; cancelHotzoneVariant(); }} type="button">{triggerGroupLabel(group)}</button>
@@ -1216,9 +1216,10 @@
                 </div>
                 {/key}
                 {/if}
-                <div class:single={activeTrigger !== "hover"} class="timing">{#if activeTrigger === "hover"}<label><span>{ui("hoverDelay")}</span><div><input value={currentTriggerSlot().hoverDelayMs ?? settings.hoverDelayMs} min="0" max="3000" on:input={(event) => setTriggerTiming("hoverDelayMs", event)} type="number" /><em>ms</em></div></label>{/if}<label><span>{ui("cooldown")}</span><div><input value={currentTriggerSlot().cooldownMs ?? settings.actionCooldownMs} min="10" max="5000" on:input={(event) => setTriggerTiming("cooldownMs", event)} type="number" /><em>ms</em></div></label></div>
+                <div class:single={activeTrigger !== "hover"} class="timing">{#if activeTrigger === "hover"}<label><span>{ui("hoverDelay")}</span><div><input use:numberSetting={{ key: `${selectedDisplayId}:${selectedZone}:${activeTrigger}`, value: currentTriggerSlot().hoverDelayMs ?? settings.hoverDelayMs, onChange: (value) => setTriggerTiming("hoverDelayMs", value) }} min="0" max="3000" type="number" /><em>ms</em></div></label>{/if}<label><span>{ui("cooldown")}</span><div><input use:numberSetting={{ key: `${selectedDisplayId}:${selectedZone}:${activeTrigger}`, value: currentTriggerSlot().cooldownMs ?? settings.actionCooldownMs, onChange: (value) => setTriggerTiming("cooldownMs", value) }} min="10" max="5000" type="number" /><em>ms</em></div></label></div>
+                </div>
                 <div class="subhead" style="margin-top:18px"><div><h2>{ui("hotzoneParameters")}</h2><p>{ui("hotzoneParametersDescription")}</p></div></div>
-                <div class="form-grid"><label><span>{ui("edgeSize")}</span><div><input bind:value={settings.edgeSize} min="2" max="48" on:input={() => persist()} type="number" /><em>px</em></div></label></div>
+                <div class="form-grid"><label><span>{ui("edgeSize")}</span><div><input use:numberSetting={{ value: settings.edgeSize, onChange: (value) => { settings.edgeSize = value; persist(); } }} min="2" max="48" type="number" /><em>px</em></div></label></div>
                 <div class="list-section"><div class="subhead"><div><h2>{ui("pausedApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("hotzones")} type="button">+ {ui("addApp")}</button></div><div class="app-list">{#each settings.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("hotzones", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noPausedApps")}</p>{/each}</div></div>
               </div>
             {:else if mode === "edge-hide"}
@@ -1237,14 +1238,14 @@
                 <div class="edge-trigger-methods">
                   <section class:off={!settings.edgeHide.distanceTriggerEnabled} class="edge-trigger-method">
                     <div class="setting-title"><div><h3>{ui("nearEdge")}</h3><p>{ui("nearEdgeDescription")}</p></div><label class="mini-switch"><input aria-label={ui("enableNearEdge")} bind:checked={settings.edgeHide.distanceTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
-                    <label class="trigger-value"><span>{ui("edgeDistance")}</span><div><input bind:value={settings.edgeHide.triggerDistance} disabled={!settings.edgeHide.distanceTriggerEnabled} min="4" max="96" on:input={() => persist()} type="number" /><em>px</em></div></label>
+                    <label class="trigger-value"><span>{ui("edgeDistance")}</span><div><input use:numberSetting={{ value: settings.edgeHide.triggerDistance, onChange: (value) => { settings.edgeHide.triggerDistance = value; persist(); } }} disabled={!settings.edgeHide.distanceTriggerEnabled} min="4" max="96" type="number" /><em>px</em></div></label>
                   </section>
                   <section class:off={!settings.edgeHide.ratioTriggerEnabled} class="edge-trigger-method">
                     <div class="setting-title"><div><h3>{ui("moveOutRatio")}</h3><p>{ui("moveOutRatioDescription")}</p></div><label class="mini-switch"><input aria-label={ui("enableMoveOutRatio")} bind:checked={settings.edgeHide.ratioTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
-                    <label class="trigger-value"><span>{ui("windowRatio")}</span><div><input bind:value={settings.edgeHide.triggerRatio} disabled={!settings.edgeHide.ratioTriggerEnabled} min="1" max="100" on:input={() => persist()} type="number" /><em>%</em></div></label>
+                    <label class="trigger-value"><span>{ui("windowRatio")}</span><div><input use:numberSetting={{ value: settings.edgeHide.triggerRatio, onChange: (value) => { settings.edgeHide.triggerRatio = value; persist(); } }} disabled={!settings.edgeHide.ratioTriggerEnabled} min="1" max="100" type="number" /><em>%</em></div></label>
                   </section>
                 </div>
-                <div class="form-grid"><label><span>{ui("stripSize")}</span><div><input bind:value={settings.edgeHide.stripSize} min="4" max="64" on:input={() => persist()} type="number" /><em>px</em></div></label><label><span>{ui("collapseDelay")}</span><div><input bind:value={settings.edgeHide.collapseDelayMs} min="0" max="5000" on:input={() => persist()} type="number" /><em>ms</em></div></label><label><span>{ui("restoreDelay")}</span><div><input bind:value={settings.edgeHide.restoreDelayMs} min="0" max="5000" on:input={() => persist()} type="number" /><em>ms</em></div></label></div>
+                <div class="form-grid"><label><span>{ui("stripSize")}</span><div><input use:numberSetting={{ value: settings.edgeHide.stripSize, onChange: (value) => { settings.edgeHide.stripSize = value; persist(); } }} min="4" max="64" type="number" /><em>px</em></div></label><label><span>{ui("collapseDelay")}</span><div><input use:numberSetting={{ value: settings.edgeHide.collapseDelayMs, onChange: (value) => { settings.edgeHide.collapseDelayMs = value; persist(); } }} min="0" max="5000" type="number" /><em>ms</em></div></label><label><span>{ui("restoreDelay")}</span><div><input use:numberSetting={{ value: settings.edgeHide.restoreDelayMs, onChange: (value) => { settings.edgeHide.restoreDelayMs = value; persist(); } }} min="0" max="5000" type="number" /><em>ms</em></div></label></div>
                 <div class="list-section"><div class="subhead"><div><h2>{ui("excludedApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("edge")} type="button">+ {ui("addApp")}</button></div><div class="app-list">{#each settings.edgeHide.excludedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("edge", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noExcludedApps")}</p>{/each}</div></div>
                 </div>
               {:else}
@@ -1369,7 +1370,7 @@
             {:else}
               <div class="setting-title"><div><h2>{ui("moreGlobal")}</h2><p>{ui("moreDescription")}</p></div></div>
               <div class="language-setting"><div><h2>{ui("language")}</h2><p>{ui("languageDescription")}</p></div><select aria-label={ui("language")} bind:value={language} on:change={setLanguage}><option value="zh-CN">{ui("chinese")}</option><option value="en-US">{ui("english")}</option></select></div>
-              <div class="timing single"><label><span>{ui("pollInterval")}</span><div><input value={settings.pollIntervalMs} min="10" max="250" on:input={(event) => { settings.pollIntervalMs = Number((event.currentTarget as HTMLInputElement).value); persist(); }} type="number" /><em>ms</em></div></label></div>
+              <div class="timing single"><label><span>{ui("pollInterval")}</span><div><input use:numberSetting={{ value: settings.pollIntervalMs, onChange: (value) => { settings.pollIntervalMs = value; persist(); } }} min="10" max="250" type="number" /><em>ms</em></div></label></div>
               <div class="config-section"><h2>{ui("config")}</h2><div class="config-actions"><button class="quiet" on:click={exportSettings} type="button">{ui("export")}</button><button class="quiet" on:click={importSettings} type="button">{ui("import")}</button><button class="danger" on:click={resetSettings} type="button">{ui("reset")}</button></div></div>
             {/if}
           </div>
