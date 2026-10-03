@@ -26,17 +26,15 @@ use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetClientRect, GetCursorPos, GetMessageW, GetSystemMetrics,
-    GetWindowLongPtrW, GetWindowRect, LoadCursorW, MessageBoxW, PostQuitMessage, RegisterClassW,
-    SendMessageW, SetCursor, SetForegroundWindow, SetLayeredWindowAttributes, SetWindowLongPtrW,
-    SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage, CREATESTRUCTW, CS_HREDRAW,
-    CS_VREDRAW, GWLP_USERDATA, HTCAPTION, IDC_ARROW, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
-    IDC_SIZEWE, LWA_ALPHA, MB_ICONERROR, MB_OK, MF_SEPARATOR, MF_STRING, MSG, SM_CXVIRTUALSCREEN,
-    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOZORDER,
-    SW_SHOW, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_STYLE, WM_CAPTURECHANGED, WM_CONTEXTMENU,
-    WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE,
-    WM_NCLBUTTONDOWN, WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
+    DispatchMessageW, GetClientRect, GetCursorPos, GetMessageW, GetWindowLongPtrW, GetWindowRect,
+    LoadCursorW, MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetCursor,
+    SetForegroundWindow, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    TrackPopupMenu, TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA,
+    HTCAPTION, IDC_ARROW, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, LWA_ALPHA,
+    MB_ICONERROR, MB_OK, MF_SEPARATOR, MF_STRING, MSG, SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOW,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_STYLE, WM_CAPTURECHANGED, WM_CONTEXTMENU, WM_DESTROY,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCLBUTTONDOWN,
+    WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 const CLASS_NAME: windows::core::PCWSTR = w!("ConvenientWindowPinnedImage");
@@ -57,29 +55,7 @@ struct PinState {
 }
 
 fn pin_window_style() -> WINDOW_STYLE {
-    WS_VISIBLE | WS_POPUP
-}
-
-fn initial_pin_size(width: i32, height: i32) -> (i32, i32) {
-    const MIN_WIDTH: f64 = 180.0;
-    const MIN_HEIGHT: f64 = 120.0;
-    const MAX_WIDTH: f64 = 1200.0;
-    const MAX_HEIGHT: f64 = 900.0;
-
-    let width = width.max(1) as f64;
-    let height = height.max(1) as f64;
-    let grow_scale = 1.0_f64.max(MIN_WIDTH / width).max(MIN_HEIGHT / height);
-    let shrink_scale = 1.0_f64.min(MAX_WIDTH / width).min(MAX_HEIGHT / height);
-    let scale = if grow_scale > 1.0 {
-        grow_scale.min((MAX_WIDTH / width).min(MAX_HEIGHT / height))
-    } else {
-        shrink_scale
-    };
-
-    (
-        (width * scale).round().max(1.0) as i32,
-        (height * scale).round().max(1.0) as i32,
-    )
+    WS_POPUP
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -149,54 +125,6 @@ fn resize_grab_margin(hwnd: HWND) -> i32 {
     ((10 * dpi + 95) / 96).clamp(10, 30) as i32
 }
 
-const PIN_OVERLAP_OFFSET: i32 = 16;
-
-fn rects_overlap(left: i32, top: i32, width: i32, height: i32, capture: Rect) -> bool {
-    let right = left.saturating_add(width);
-    let bottom = top.saturating_add(height);
-    left < capture.right && right > capture.left && top < capture.bottom && bottom > capture.top
-}
-
-fn pin_position(
-    capture: Rect,
-    end_point: Option<Point>,
-    width: i32,
-    height: i32,
-    virtual_desktop: Rect,
-) -> (i32, i32) {
-    let point = end_point.unwrap_or(Point {
-        x: capture.left,
-        y: capture.top,
-    });
-    let mut left = point.x;
-    let mut top = point.y;
-    if rects_overlap(left, top, width, height, capture) {
-        left = left.saturating_add(PIN_OVERLAP_OFFSET);
-        top = top.saturating_add(PIN_OVERLAP_OFFSET);
-    }
-    let max_left = virtual_desktop.right.saturating_sub(width);
-    let max_top = virtual_desktop.bottom.saturating_sub(height);
-    (
-        left.clamp(virtual_desktop.left, max_left.max(virtual_desktop.left)),
-        top.clamp(virtual_desktop.top, max_top.max(virtual_desktop.top)),
-    )
-}
-
-fn virtual_desktop_rect() -> Rect {
-    unsafe {
-        let left = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let top = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
-        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
-        Rect {
-            left,
-            top,
-            right: left.saturating_add(width),
-            bottom: top.saturating_add(height),
-        }
-    }
-}
-
 unsafe fn set_resize_cursor(edges: ResizeEdges) -> bool {
     let Some(kind) = resize_cursor_kind(edges) else {
         return false;
@@ -233,7 +161,7 @@ fn resized_window_rect(session: ResizeSession, cursor: POINT) -> RECT {
     rect
 }
 
-pub fn capture_and_pin(rect: Rect, end_point: Option<Point>, ocr: &OcrConfig) -> Result<()> {
+pub fn capture_and_pin(rect: Rect, _end_point: Option<Point>, ocr: &OcrConfig) -> Result<()> {
     let width = rect.width();
     let height = rect.height();
     if width < 2 || height < 2 || width > 16_384 || height > 16_384 {
@@ -316,7 +244,6 @@ pub fn capture_and_pin(rect: Rect, end_point: Option<Point>, ocr: &OcrConfig) ->
                     pixels,
                     language,
                     rect,
-                    end_point,
                 )
             })?;
     } else {
@@ -367,8 +294,30 @@ fn run_pin_window(
     pixels: Arc<Vec<u8>>,
     ocr_language: OcrLanguage,
     capture: Rect,
-    end_point: Option<Point>,
 ) {
+    unsafe {
+        let Some(hwnd) = create_pin_window(bitmap, width, height, pixels, ocr_language, capture)
+        else {
+            return;
+        };
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = UpdateWindow(hwnd);
+        let mut message = MSG::default();
+        while GetMessageW(&mut message, HWND::default(), 0, 0).as_bool() {
+            let _ = TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+}
+
+fn create_pin_window(
+    bitmap: HBITMAP,
+    width: i32,
+    height: i32,
+    pixels: Arc<Vec<u8>>,
+    ocr_language: OcrLanguage,
+    capture: Rect,
+) -> Option<HWND> {
     unsafe {
         let class = WNDCLASSW {
             style: CS_HREDRAW | CS_VREDRAW,
@@ -388,23 +337,17 @@ fn run_pin_window(
             resize: None,
         });
         let state_ptr = Box::into_raw(state);
-        let (window_width, window_height) = initial_pin_size(width, height);
-        let (window_left, window_top) = pin_position(
-            capture,
-            end_point,
-            window_width,
-            window_height,
-            virtual_desktop_rect(),
-        );
+        // Capture and popup coordinates are physical pixels under per-monitor DPI awareness.
+        // The borderless client area covers the capture without an offset or initial scaling.
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
             CLASS_NAME,
             w!("便捷窗口 · 悬浮贴图（右键复制、保存或关闭）"),
             pin_window_style(),
-            window_left,
-            window_top,
-            window_width,
-            window_height,
+            capture.left,
+            capture.top,
+            width,
+            height,
             HWND::default(),
             None,
             None,
@@ -413,16 +356,10 @@ fn run_pin_window(
         let Ok(hwnd) = hwnd else {
             drop(Box::from_raw(state_ptr));
             let _ = DeleteObject(bitmap);
-            return;
+            return None;
         };
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
-        let _ = ShowWindow(hwnd, SW_SHOW);
-        let _ = UpdateWindow(hwnd);
-        let mut message = MSG::default();
-        while GetMessageW(&mut message, HWND::default(), 0, 0).as_bool() {
-            let _ = TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
+        Some(hwnd)
     }
 }
 
@@ -798,95 +735,157 @@ mod tests {
         assert_eq!(style & WS_THICKFRAME, WINDOW_STYLE(0));
     }
 
-    #[test]
-    fn small_pinned_image_keeps_its_capture_aspect_ratio() {
-        assert_eq!(initial_pin_size(80, 40), (240, 120));
-        assert_eq!(initial_pin_size(40, 80), (180, 360));
+    fn assert_native_pin_covers_capture(capture: Rect) {
+        use windows::Win32::Graphics::Gdi::ClientToScreen;
+        use windows::Win32::UI::HiDpi::{
+            SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT,
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{
+            PeekMessageW, PM_REMOVE, SW_SHOWNOACTIVATE, WM_QUIT,
+        };
+
+        struct TestWindow {
+            hwnd: HWND,
+            previous_dpi: DPI_AWARENESS_CONTEXT,
+        }
+        impl Drop for TestWindow {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = DestroyWindow(self.hwnd);
+                    let _ = PeekMessageW(
+                        &mut MSG::default(),
+                        HWND::default(),
+                        WM_QUIT,
+                        WM_QUIT,
+                        PM_REMOVE,
+                    );
+                    SetThreadDpiAwarenessContext(self.previous_dpi);
+                }
+            }
+        }
+
+        unsafe {
+            let previous_dpi =
+                SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+            assert!(!previous_dpi.0.is_null());
+            let mut test_window = TestWindow {
+                hwnd: HWND::default(),
+                previous_dpi,
+            };
+            let screen = GetDC(HWND::default());
+            let bitmap = CreateCompatibleBitmap(screen, capture.width(), capture.height());
+            ReleaseDC(HWND::default(), screen);
+            assert!(!bitmap.is_invalid());
+            let hwnd = create_pin_window(
+                bitmap,
+                capture.width(),
+                capture.height(),
+                Arc::new(vec![0; (capture.width() * capture.height() * 4) as usize]),
+                OcrConfig::default().language,
+                capture,
+            )
+            .expect("create a real pinned image window");
+            test_window.hwnd = hwnd;
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            let mut window = RECT::default();
+            let mut client = RECT::default();
+            let mut origin = POINT::default();
+            GetWindowRect(hwnd, &mut window).unwrap();
+            GetClientRect(hwnd, &mut client).unwrap();
+            assert!(ClientToScreen(hwnd, &mut origin).as_bool());
+            assert_eq!(
+                window,
+                RECT {
+                    left: capture.left,
+                    top: capture.top,
+                    right: capture.right,
+                    bottom: capture.bottom,
+                }
+            );
+            assert_eq!(
+                origin,
+                POINT {
+                    x: capture.left,
+                    y: capture.top
+                }
+            );
+            assert_eq!(
+                (client.right, client.bottom),
+                (capture.width(), capture.height())
+            );
+        }
     }
 
     #[test]
-    fn large_pinned_image_is_scaled_down_without_distortion() {
-        assert_eq!(initial_pin_size(2000, 1000), (1200, 600));
-    }
-
-    #[test]
-    fn pin_starts_at_the_gesture_endpoint_when_not_overlapping() {
-        let capture = Rect {
+    fn small_landscape_pin_covers_original_pixels_without_enlargement() {
+        assert_native_pin_covers_capture(Rect {
             left: 100,
             top: 100,
-            right: 140,
+            right: 180,
             bottom: 140,
-        };
-        let desktop = Rect {
-            left: 0,
-            top: 0,
-            right: 1000,
-            bottom: 800,
-        };
-        assert_eq!(
-            pin_position(capture, Some(Point { x: 500, y: 300 }), 180, 120, desktop),
-            (500, 300)
-        );
+        });
     }
 
     #[test]
-    fn pin_moves_down_and_right_only_when_it_overlaps_capture() {
-        let capture = Rect {
+    fn small_portrait_pin_covers_original_pixels_without_enlargement() {
+        assert_native_pin_covers_capture(Rect {
+            left: 200,
+            top: 100,
+            right: 240,
+            bottom: 180,
+        });
+    }
+
+    #[test]
+    fn large_pin_covers_original_pixels_without_shrinking() {
+        assert_native_pin_covers_capture(Rect {
+            left: 20,
+            top: 30,
+            right: 2020,
+            bottom: 1030,
+        });
+    }
+
+    #[test]
+    fn pin_covers_capture_without_overlap_offset() {
+        assert_native_pin_covers_capture(Rect {
             left: 100,
             top: 100,
             right: 300,
             bottom: 220,
-        };
-        let desktop = Rect {
-            left: 0,
-            top: 0,
-            right: 1000,
-            bottom: 800,
-        };
-        assert_eq!(
-            pin_position(capture, Some(Point { x: 120, y: 120 }), 180, 120, desktop),
-            (136, 136)
-        );
+        });
     }
 
     #[test]
-    fn pin_position_supports_negative_virtual_desktop_coordinates() {
-        let capture = Rect {
+    fn pin_preserves_negative_capture_coordinates() {
+        assert_native_pin_covers_capture(Rect {
             left: -700,
-            top: 100,
-            right: -500,
-            bottom: 220,
-        };
-        let desktop = Rect {
-            left: -1920,
             top: -200,
-            right: 1920,
-            bottom: 1080,
-        };
-        assert_eq!(
-            pin_position(capture, Some(Point { x: -900, y: 300 }), 180, 120, desktop),
-            (-900, 300)
-        );
+            right: -500,
+            bottom: -80,
+        });
     }
 
     #[test]
-    fn pin_position_clamps_to_virtual_desktop_after_overlap_offset() {
-        let capture = Rect {
-            left: 900,
-            top: 700,
-            right: 1000,
-            bottom: 800,
+    fn pin_preserves_capture_at_desktop_edge() {
+        use windows::Win32::UI::HiDpi::{
+            SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
         };
-        let desktop = Rect {
-            left: 0,
-            top: 0,
-            right: 1000,
-            bottom: 800,
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+        let (right, bottom) = unsafe {
+            let previous_dpi =
+                SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+            let size = (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+            SetThreadDpiAwarenessContext(previous_dpi);
+            size
         };
-        assert_eq!(
-            pin_position(capture, Some(Point { x: 900, y: 700 }), 180, 120, desktop),
-            (820, 680)
-        );
+        assert_native_pin_covers_capture(Rect {
+            left: right - 40,
+            top: bottom - 30,
+            right,
+            bottom,
+        });
     }
 
     #[test]
