@@ -15,15 +15,15 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetCapture, ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos, GetWindow,
     GetWindowLongPtrW, GetWindowRect, IsIconic, IsWindow, IsWindowVisible, LoadCursorW,
     PeekMessageW, RegisterClassW, SetCursor, SetLayeredWindowAttributes, SetWindowDisplayAffinity,
     SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, CREATESTRUCTW, CS_HREDRAW,
-    CS_VREDRAW, GWLP_USERDATA, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, IDC_HAND, LWA_ALPHA,
-    LWA_COLORKEY, MSG, PM_REMOVE, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SW_HIDE, SW_SHOWNA,
-    WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_NCCREATE, WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TOPMOST as TOPMOST_STYLE, WS_POPUP,
+    CS_VREDRAW, GWLP_USERDATA, GWL_EXSTYLE, GW_HWNDPREV, HWND_NOTOPMOST, HWND_TOPMOST, IDC_HAND,
+    LWA_ALPHA, LWA_COLORKEY, MSG, PM_REMOVE, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SW_HIDE, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WM_DESTROY, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TOPMOST as TOPMOST_STYLE, WS_POPUP,
 };
 
 const CLASS_NAME: windows::core::PCWSTR = w!("ConvenientWindowTopmostPin");
@@ -206,27 +206,30 @@ fn refresh_pins(pins: &mut HashMap<WindowHandle, ManagedPin>) {
         }
         let dpi = unsafe { GetDpiForWindow(target_hwnd) }.max(96);
         let pin = pin_rect(rect, dpi);
-        if pin_state.rect != Some(pin) {
+        // Activation can raise a stationary target above its independent pin window.
+        // Keep the pin directly above its target, below windows that cover the target.
+        let insert_after = unsafe { GetWindow(target_hwnd, GW_HWNDPREV) }.unwrap_or(HWND_TOPMOST);
+        let z_order_changed = insert_after != marker_hwnd;
+        if pin_state.rect != Some(pin) || z_order_changed || !pin_state.shown {
+            let mut flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW;
+            if !z_order_changed {
+                flags |= SWP_NOZORDER;
+            }
             let moved = unsafe {
                 SetWindowPos(
                     marker_hwnd,
-                    HWND_TOPMOST,
+                    insert_after,
                     pin.left,
                     pin.top,
                     pin.right - pin.left,
                     pin.bottom - pin.top,
-                    SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+                    flags,
                 )
             };
             if moved.is_err() {
                 continue;
             }
             pin_state.rect = Some(pin);
-        }
-        if !pin_state.shown {
-            unsafe {
-                let _ = ShowWindow(marker_hwnd, SW_SHOWNA);
-            }
             pin_state.shown = true;
         }
     }
@@ -428,12 +431,146 @@ mod tests {
     use std::sync::Mutex;
     use windows::core::PCWSTR;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, FindWindowW, GetWindowDisplayAffinity, GetWindowLongPtrW, SendMessageW,
-        SetWindowPos, GWL_EXSTYLE, SWP_NOACTIVATE, WM_SETCURSOR, WS_EX_TOPMOST, WS_POPUP,
-        WS_VISIBLE,
+        CreateWindowExW, FindWindowW, GetWindow, GetWindowDisplayAffinity, GetWindowLongPtrW,
+        SendMessageW, SetWindowPos, GWL_EXSTYLE, GW_HWNDPREV, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOSIZE, WM_SETCURSOR, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
     };
 
     static PIN_WINDOW_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct TestWindow(HWND);
+
+    impl Drop for TestWindow {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = DestroyWindow(self.0);
+            }
+        }
+    }
+
+    fn test_topmost_window() -> TestWindow {
+        TestWindow(unsafe {
+            CreateWindowExW(
+                WS_EX_TOPMOST | WS_EX_NOACTIVATE,
+                w!("STATIC"),
+                None,
+                WS_POPUP | WS_VISIBLE,
+                300,
+                240,
+                420,
+                260,
+                HWND::default(),
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        })
+    }
+
+    fn window_is_above(upper: HWND, lower: HWND) -> bool {
+        let mut current = lower;
+        while let Ok(previous) = unsafe { GetWindow(current, GW_HWNDPREV) } {
+            if previous == upper {
+                return true;
+            }
+            current = previous;
+        }
+        false
+    }
+
+    #[test]
+    fn stationary_pins_follow_their_targets_z_order() {
+        let _guard = PIN_WINDOW_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let first = test_topmost_window();
+        let second = test_topmost_window();
+        let first_handle = WindowHandle(first.0 .0 as isize);
+        let second_handle = WindowHandle(second.0 .0 as isize);
+        let first_marker = TestWindow(HWND(create_pin_window(first_handle) as *mut c_void));
+        let second_marker = TestWindow(HWND(create_pin_window(second_handle) as *mut c_void));
+        let mut pins = HashMap::from([
+            (first_handle, ManagedPin::new(first_marker.0 .0 as isize)),
+            (second_handle, ManagedPin::new(second_marker.0 .0 as isize)),
+        ]);
+        refresh_pins(&mut pins);
+        assert_eq!(
+            unsafe { GetWindow(first.0, GW_HWNDPREV).unwrap() },
+            first_marker.0
+        );
+        assert_eq!(
+            unsafe { GetWindow(second.0, GW_HWNDPREV).unwrap() },
+            second_marker.0
+        );
+        let initial_rects = (pins[&first_handle].rect, pins[&second_handle].rect);
+        for (target, marker, covered_marker) in [
+            (first.0, first_marker.0, second_marker.0),
+            (second.0, second_marker.0, first_marker.0),
+            (first.0, first_marker.0, second_marker.0),
+        ] {
+            unsafe {
+                SetWindowPos(
+                    target,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                )
+                .unwrap();
+            }
+            refresh_pins(&mut pins);
+            assert_eq!(
+                unsafe { GetWindow(target, GW_HWNDPREV).unwrap() },
+                marker,
+                "a stationary target must not cover its own pin"
+            );
+            assert_eq!(
+                (pins[&first_handle].rect, pins[&second_handle].rect),
+                initial_rects
+            );
+            assert_eq!(
+                unsafe { GetWindow(first.0, GW_HWNDPREV).unwrap() },
+                first_marker.0
+            );
+            assert_eq!(
+                unsafe { GetWindow(second.0, GW_HWNDPREV).unwrap() },
+                second_marker.0,
+                "a covered target must keep its pin below the covering target"
+            );
+            assert!(
+                window_is_above(target, covered_marker),
+                "refreshing pins must preserve the targets' relative z-order"
+            );
+        }
+        unsafe {
+            let _ = ShowWindow(first.0, SW_HIDE);
+        }
+        refresh_pins(&mut pins);
+        assert!(!pins[&first_handle].shown);
+        assert!(!unsafe { IsWindowVisible(first_marker.0).as_bool() });
+        unsafe {
+            SetWindowPos(
+                first.0,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            )
+            .unwrap();
+        }
+        refresh_pins(&mut pins);
+        assert!(pins[&first_handle].shown);
+        assert!(unsafe { IsWindowVisible(first_marker.0).as_bool() });
+        assert_eq!(
+            unsafe { GetWindow(first.0, GW_HWNDPREV).unwrap() },
+            first_marker.0
+        );
+    }
 
     #[test]
     fn pin_refreshes_at_interactive_cadence_only_while_visible() {
