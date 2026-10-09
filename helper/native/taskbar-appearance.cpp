@@ -66,6 +66,7 @@ std::wstring MapName(DWORD pid) { return L"Local\\ConvenientWindow.Taskbar.v2." 
 struct Owner {
     Handle mapping, process;
     Wire* wire{};
+    DWORD explorerPid{};
     ~Owner(){if(wire) UnmapViewOfFile(wire);}
 };
 std::mutex gOwnerLock;
@@ -382,7 +383,10 @@ extern "C" __declspec(dllexport) DWORD __cdecl CWTaskbarWireVersion() noexcept {
 
 HRESULT AttachOwner(DWORD pid,HWND taskbar) noexcept {
     try {
+        DWORD taskbarPid{};
+        if(!taskbar || !GetWindowThreadProcessId(taskbar,&taskbarPid) || taskbarPid!=GetCurrentProcessId()) return E_INVALIDARG;
         auto owner=std::make_shared<Owner>();
+        owner->explorerPid=taskbarPid;
         owner->mapping.value=OpenFileMappingW(FILE_MAP_ALL_ACCESS,FALSE,MapName(pid).c_str());
         if(owner->mapping.value) owner->wire=static_cast<Wire*>(MapViewOfFile(owner->mapping.value,FILE_MAP_ALL_ACCESS,0,0,sizeof(Wire)));
         if(!owner->wire || owner->wire->magic!=kMagic || owner->wire->owner!=pid) return E_INVALIDARG;
@@ -412,6 +416,45 @@ HRESULT AttachOwner(DWORD pid,HWND taskbar) noexcept {
 }
 extern "C" __declspec(dllexport) HRESULT __cdecl CWTaskbarAttachOwner(DWORD pid,HWND taskbar) noexcept {return AttachOwner(pid,taskbar);}
 
+bool IsClassicTaskbarWindow(HWND hwnd) {
+    wchar_t name[64]{};GetClassNameW(hwnd,name,static_cast<int>(std::size(name)));
+    return !wcscmp(name,L"Shell_TrayWnd") || !wcscmp(name,L"Shell_SecondaryTrayWnd");
+}
+bool IsClassicDirtyMessage(UINT message) {
+    return message==WM_DWMCOMPOSITIONCHANGED || message==WM_SETTINGCHANGE || message==WM_THEMECHANGED
+        || message==WM_DISPLAYCHANGE || message==WM_DPICHANGED;
+}
+struct ResidentModuleSearch { DWORD pid; HMODULE module{}; };
+BOOL CALLBACK FindResidentModule(HWND hwnd,LPARAM parameter) {
+    auto search=reinterpret_cast<ResidentModuleSearch*>(parameter);
+    DWORD pid{};if(!GetWindowThreadProcessId(hwnd,&pid) || pid!=search->pid) return TRUE;
+    wchar_t name[64]{};GetClassNameW(hwnd,name,static_cast<int>(std::size(name)));
+    if(wcscmp(name,L"Shell_TrayWnd") && wcscmp(name,L"Shell_SecondaryTrayWnd")) return TRUE;
+    const auto marker=GetPropW(hwnd,L"ConvenientWindow.Taskbar.Module.v1");
+    if(marker) {search->module=reinterpret_cast<HMODULE>(marker);return FALSE;}
+    return TRUE;
+}
+HMODULE ResidentModuleForTaskbar(HWND hwnd) {
+    DWORD pid{};
+    if(!hwnd || !GetWindowThreadProcessId(hwnd,&pid) || pid!=GetCurrentProcessId() || !IsClassicTaskbarWindow(hwnd)) return nullptr;
+    if(const auto marker=GetPropW(hwnd,L"ConvenientWindow.Taskbar.Module.v1")) return reinterpret_cast<HMODULE>(marker);
+    ResidentModuleSearch search{pid};EnumWindows(FindResidentModule,reinterpret_cast<LPARAM>(&search));return search.module;
+}
+void NotifyClassicChangeToResident(UINT message,HWND hwnd) {
+    const auto resident=ResidentModuleForTaskbar(hwnd);
+    if(!resident || resident==gModule) {MarkClassicChange(message,hwnd);return;}
+    HMODULE verified{};
+    const bool residentLoaded=GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,reinterpret_cast<LPCWSTR>(resident),&verified) && verified==resident;
+    struct ModuleGuard {HMODULE module;~ModuleGuard(){if(module) FreeLibrary(module);}} residentReference{verified};
+    using Version=DWORD(__cdecl*)();
+    using Mark=void(__cdecl*)(UINT,HWND);
+    const auto version=residentLoaded?reinterpret_cast<Version>(GetProcAddress(resident,"CWTaskbarWireVersion")):nullptr;
+    const auto mark=residentLoaded && version && version()==2?reinterpret_cast<Mark>(GetProcAddress(resident,"CWTaskbarMarkClassicDirty")):nullptr;
+    if(TaskbarModulePolicy::ShouldForwardClassicDirty(resident,gModule,residentLoaded,mark!=nullptr)) mark(message,hwnd);
+    else if(!residentLoaded) MarkClassicChange(message,hwnd);
+    // A loaded legacy resident without the new export intentionally receives no
+    // local dirty bit; its old hook remains the only safe owner of its state.
+}
 bool IsLegacyV2Module(HMODULE module) {
     std::wstring path(32768,L'\0');
     const auto length=GetModuleFileNameW(module,path.data(),static_cast<DWORD>(path.size()));
@@ -430,7 +473,7 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK TaskbarHook(int code,WPARAM wp
     if(code>=0) {
         if(!gAttachMessage) gAttachMessage=RegisterWindowMessageW(L"ConvenientWindow.Taskbar.Attach.v2");
         auto message=reinterpret_cast<CWPSTRUCT*>(lparam);
-        if(message) MarkClassicChange(message->message,message->hwnd);
+        if(message && IsClassicDirtyMessage(message->message)) NotifyClassicChangeToResident(message->message,message->hwnd);
         if(message && message->message==gAttachMessage) {
             try {
                 const auto pid=static_cast<DWORD>(message->wParam);
@@ -516,9 +559,17 @@ ULONGLONG gClassicTopologyCheck{};
 std::atomic_bool gClassicDirty{true};
 std::atomic_bool gClassicChanging{false};
 
+#if defined(CW_TASKBAR_NATIVE_TEST)
+// Only the isolated regression executable defines this seam; it never calls WCA.
+ClassicSetAttribute gClassicTestSetAttribute{};
+#endif
 ClassicSetAttribute ClassicSetWca() {
+#if defined(CW_TASKBAR_NATIVE_TEST)
+    return gClassicTestSetAttribute;
+#else
     static const auto function=reinterpret_cast<ClassicSetAttribute>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"SetWindowCompositionAttribute"));
     return function;
+#endif
 }
 bool IsExplorerTaskbar(HWND hwnd) {
     DWORD pid{};
@@ -534,18 +585,20 @@ HRESULT ClassicErrorHresult() {
     const auto error=GetLastError();
     return HRESULT_FROM_WIN32(error ? error : ERROR_GEN_FAILURE);
 }
-bool LiveClassicEntry(const ClassicTaskbarEntry& entry) {
+bool LiveClassicEntry(const ClassicTaskbarEntry& entry,DWORD residentPid) {
     DWORD pid{};wchar_t name[64]{};
     GetClassNameW(entry.hwnd,name,static_cast<int>(std::size(name)));
-    return IsWindow(entry.hwnd) && GetWindowThreadProcessId(entry.hwnd,&pid) && pid==entry.pid
+    return TaskbarModulePolicy::ClassicEntryBelongsToResident(entry.pid,residentPid)
+        && IsWindow(entry.hwnd) && GetWindowThreadProcessId(entry.hwnd,&pid) && pid==residentPid
         && (!wcscmp(name,L"Shell_TrayWnd") || !wcscmp(name,L"Shell_SecondaryTrayWnd"));
 }
-HRESULT ClassicRestore() {
+HRESULT ClassicRestore(DWORD residentPid) {
+    if(residentPid!=GetCurrentProcessId()) return E_INVALIDARG;
     const auto setAttribute=ClassicSetWca();
     HRESULT failure=S_OK;
     gClassicChanging=true;
     for(auto it=gClassicTaskbars.begin();it!=gClassicTaskbars.end();) {
-        if(!it->changed || !LiveClassicEntry(*it)) {it=gClassicTaskbars.erase(it);continue;}
+        if(!it->changed || !LiveClassicEntry(*it,residentPid)) {it=gClassicTaskbars.erase(it);continue;}
         ClassicAccentPolicy normal{};ClassicAttributeData data{WcaAccentPolicy,&normal,sizeof(normal)};
         DWORD_PTR response{};SetLastError(ERROR_SUCCESS);
         if(!setAttribute) {
@@ -562,37 +615,36 @@ HRESULT ClassicRestore() {
 }
 BOOL CALLBACK EnumClassicTaskbar(HWND hwnd, LPARAM parameter) {
     DWORD pid{};auto context=reinterpret_cast<ClassicEnumContext*>(parameter);
-    if(!GetWindowThreadProcessId(hwnd,&pid) || pid!=context->pid) return TRUE;
+    if(context->pid!=GetCurrentProcessId() || !GetWindowThreadProcessId(hwnd,&pid) || pid!=context->pid) return TRUE;
     wchar_t name[64]{};GetClassNameW(hwnd,name,static_cast<int>(std::size(name)));
     if(wcscmp(name,L"Shell_TrayWnd") && wcscmp(name,L"Shell_SecondaryTrayWnd")) return TRUE;
     context->windows->push_back(hwnd);return TRUE;
 }
 void ClassicUpdate(bool enabled,const AppearanceOptions& requested,const std::shared_ptr<Owner>& owner,Snapshot* result) {
-    if(CurrentOwner()!=owner || !IsCurrentRequest(owner,enabled,requested)) {*result={1,S_OK,0,GetCurrentProcessId()};return;}
+    if(CurrentOwner()!=owner || !owner->explorerPid || owner->explorerPid!=GetCurrentProcessId()
+        || !IsCurrentRequest(owner,enabled,requested)) {*result={1,S_OK,0,GetCurrentProcessId()};return;}
     if(!enabled) {
-        const auto hr=ClassicRestore();
+        const auto hr=ClassicRestore(owner->explorerPid);
         *result={FAILED(hr)?6u:0u,hr,static_cast<DWORD>(gClassicTaskbars.size()),GetCurrentProcessId()};return;
     }
     const auto setAttribute=ClassicSetWca();
     if(!setAttribute) {*result=gClassicResult={5,HRESULT_FROM_WIN32(ERROR_CALL_NOT_IMPLEMENTED),0,GetCurrentProcessId()};return;}
-    bool changed=!gClassicSeen || !SameOptions(gClassicOptions,requested) || gClassicDirty.exchange(false);
+    const bool dirty=gClassicDirty.exchange(false);
+    bool changed=!gClassicSeen || !SameOptions(gClassicOptions,requested) || dirty;
     gClassicOptions=requested;gClassicSeen=true;
     const auto now=GetTickCount64();
-    const auto primary=FindWindowW(L"Shell_TrayWnd",nullptr);
-    DWORD primaryPid{};if(primary) GetWindowThreadProcessId(primary,&primaryPid);
-    const bool primaryChanged=primary && primaryPid && !std::any_of(gClassicTaskbars.begin(),gClassicTaskbars.end(),[&](const auto& entry){return entry.hwnd==primary && entry.pid==primaryPid;});
-    if(primaryChanged) gClassicTopologyCheck=0;
+    const auto residentPid=owner->explorerPid;
     if(!gClassicTopologyCheck || now-gClassicTopologyCheck>=2000) {
         std::vector<HWND> windows;
-        ClassicEnumContext context{&windows,primaryPid};
-        if(primaryPid) EnumWindows(EnumClassicTaskbar,reinterpret_cast<LPARAM>(&context));
+        ClassicEnumContext context{&windows,residentPid};
+        EnumWindows(EnumClassicTaskbar,reinterpret_cast<LPARAM>(&context));
         gClassicTopologyCheck=now;
         for(auto it=gClassicTaskbars.begin();it!=gClassicTaskbars.end();) {
-            if(!LiveClassicEntry(*it)) {it=gClassicTaskbars.erase(it);changed=true;}else ++it;
+            if(!LiveClassicEntry(*it,residentPid)) {it=gClassicTaskbars.erase(it);changed=true;}else ++it;
         }
         for(const auto hwnd:windows) {
-            if(std::any_of(gClassicTaskbars.begin(),gClassicTaskbars.end(),[hwnd](const auto& entry){return entry.hwnd==hwnd;})) continue;
-            ClassicTaskbarEntry entry;entry.hwnd=hwnd;GetWindowThreadProcessId(hwnd,&entry.pid);
+            if(std::any_of(gClassicTaskbars.begin(),gClassicTaskbars.end(),[hwnd,residentPid](const auto& entry){return entry.hwnd==hwnd && entry.pid==residentPid;})) continue;
+            ClassicTaskbarEntry entry;entry.hwnd=hwnd;entry.pid=residentPid;
             gClassicTaskbars.push_back(entry);changed=true;
         }
     }
@@ -607,7 +659,7 @@ void ClassicUpdate(bool enabled,const AppearanceOptions& requested,const std::sh
     const ClassicAccentPolicy desired{TaskbarModulePolicy::ClassicAccentStateForMode(requested.mode),0u,color,0};
     gClassicChanging=true;
     for(auto& entry:gClassicTaskbars) {
-        if(!LiveClassicEntry(entry)) continue;
+        if(!LiveClassicEntry(entry,residentPid)) continue;
         if(CurrentOwner()!=owner || !IsCurrentRequest(owner,true,requested)) {gClassicChanging=false;*result={1,S_OK,0,GetCurrentProcessId()};return;}
         auto policy=desired;ClassicAttributeData write{WcaAccentPolicy,&policy,sizeof(policy)};SetLastError(ERROR_SUCCESS);
         if(!setAttribute(entry.hwnd,&write)) {gClassicChanging=false;*result=gClassicResult={6,ClassicErrorHresult(),0,GetCurrentProcessId()};return;}
@@ -617,10 +669,14 @@ void ClassicUpdate(bool enabled,const AppearanceOptions& requested,const std::sh
     *result=gClassicResult={2,S_OK,static_cast<DWORD>(gClassicTaskbars.size()),GetCurrentProcessId()};
 }
 void MarkClassicChange(UINT message,HWND hwnd) {
-    if(!IsClassicWindows() || gClassicChanging.load()) return;
-    if(message!=WM_DWMCOMPOSITIONCHANGED && message!=WM_SETTINGCHANGE && message!=WM_THEMECHANGED && message!=WM_DISPLAYCHANGE && message!=WM_DPICHANGED) return;
+    if(!IsClassicWindows() || gClassicChanging.load() || !IsClassicDirtyMessage(message)) return;
+    DWORD pid{};
+    if(!hwnd || !GetWindowThreadProcessId(hwnd,&pid) || pid!=GetCurrentProcessId()) return;
     wchar_t name[64]{};GetClassNameW(hwnd,name,static_cast<int>(std::size(name)));
     if(!wcscmp(name,L"Shell_TrayWnd") || !wcscmp(name,L"Shell_SecondaryTrayWnd")) gClassicDirty=true;
+}
+extern "C" __declspec(dllexport) void __cdecl CWTaskbarMarkClassicDirty(UINT message,HWND hwnd) noexcept {
+    MarkClassicChange(message,hwnd);
 }
 bool HasOtherTaskbarTool() {
     Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0));

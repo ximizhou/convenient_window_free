@@ -36,6 +36,12 @@ inline DWORD ClassicGradientColor(DWORD rgb, DWORD opacity) noexcept {
 inline bool HasForeignModule(HANDLE installed,HMODULE current) noexcept {
     return installed && installed!=reinterpret_cast<HANDLE>(current);
 }
+inline bool ClassicEntryBelongsToResident(DWORD entryPid,DWORD residentPid) noexcept {
+    return entryPid!=0 && residentPid!=0 && entryPid==residentPid;
+}
+inline bool ShouldForwardClassicDirty(HMODULE installed,HMODULE current,bool residentLoaded,bool markAvailable) noexcept {
+    return residentLoaded && markAvailable && HasForeignModule(reinterpret_cast<HANDLE>(installed),current);
+}
 inline bool ShouldClearStaleMarker(HANDLE installed,HMODULE current,bool residentLoaded) noexcept {
     return HasForeignModule(installed,current) && !residentLoaded;
 }

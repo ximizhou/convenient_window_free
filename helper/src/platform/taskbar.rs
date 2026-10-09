@@ -17,6 +17,8 @@ pub struct TaskbarAppearanceStatus {
     pub state: String,
     pub materials: Vec<String>,
     pub available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub terminal: bool,
     #[serde(skip_serializing_if = "is_false")]
@@ -30,8 +32,44 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+#[cfg(any(test, all(target_os = "windows", target_arch = "x86_64")))]
+fn backend_for_windows_version(major: u32, build: u32) -> Option<&'static str> {
+    if major != 10 || build < 18362 {
+        return None;
+    }
+    Some(if build < 22621 { "classic" } else { "xaml" })
+}
+
+fn taskbar_backend() -> Option<&'static str> {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        use windows::core::{w, PCSTR};
+        use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+        use windows::Win32::System::SystemInformation::OSVERSIONINFOW;
+        static BACKEND: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+        *BACKEND.get_or_init(|| unsafe {
+            let module = GetModuleHandleW(w!("ntdll.dll")).ok()?;
+            let address = GetProcAddress(module, PCSTR(b"RtlGetVersion\0".as_ptr()))?;
+            type GetVersion = unsafe extern "system" fn(*mut OSVERSIONINFOW) -> i32;
+            let get_version: GetVersion = std::mem::transmute(address);
+            let mut version = OSVERSIONINFOW {
+                dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+                ..Default::default()
+            };
+            if get_version(&mut version) != 0 {
+                return None;
+            }
+            backend_for_windows_version(version.dwMajorVersion, version.dwBuildNumber)
+        })
+    }
+    #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+    {
+        None
+    }
+}
+
 fn supported_materials() -> Vec<String> {
-    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+    if taskbar_backend().is_some() {
         ["transparent", "acrylic", "solid"]
             .into_iter()
             .map(str::to_owned)
@@ -46,7 +84,8 @@ impl TaskbarAppearanceStatus {
         Self {
             state: "inactive".into(),
             materials: supported_materials(),
-            available: cfg!(all(target_os = "windows", target_arch = "x86_64")),
+            available: taskbar_backend().is_some(),
+            backend: taskbar_backend().map(str::to_owned),
             terminal: false,
             retryable: false,
             backgrounds: 0,
@@ -58,6 +97,7 @@ impl TaskbarAppearanceStatus {
             state: "error".into(),
             materials: supported_materials(),
             available: false,
+            backend: taskbar_backend().map(str::to_owned),
             terminal: true,
             retryable: true,
             backgrounds: 0,
@@ -117,7 +157,8 @@ fn decode_status(snapshot: NativeSnapshot) -> TaskbarAppearanceStatus {
             _ => "error",
         }
         .into(),
-        available: snapshot.state != 5,
+        available: snapshot.state != 5 && taskbar_backend().is_some(),
+        backend: taskbar_backend().map(str::to_owned),
         terminal: false,
         retryable: false,
         materials: supported_materials(),
@@ -807,6 +848,17 @@ mod tests {
         assert_eq!(policy.decide(true, 2, 1, &error), UpdateDecision::Wait);
         assert_eq!(policy.decide(true, 2, 300, &error), UpdateDecision::Reset);
         assert_eq!(policy.reset_count, 2);
+    }
+
+    #[test]
+    fn windows_build_capabilities_match_native_backend_boundaries() {
+        assert_eq!(backend_for_windows_version(6, 7601), None);
+        assert_eq!(backend_for_windows_version(10, 18361), None);
+        assert_eq!(backend_for_windows_version(10, 18362), Some("classic"));
+        assert_eq!(backend_for_windows_version(10, 19045), Some("classic"));
+        assert_eq!(backend_for_windows_version(10, 22000), Some("classic"));
+        assert_eq!(backend_for_windows_version(10, 22621), Some("xaml"));
+        assert_eq!(backend_for_windows_version(10, 26200), Some("xaml"));
     }
 
     #[test]

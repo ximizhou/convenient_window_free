@@ -104,6 +104,7 @@ export interface TaskbarAppearanceStatus {
   errorCode?: string;
   backgrounds?: number;
   available?: boolean;
+  backend?: "classic" | "xaml";
   /** The helper will not retry this state until the user changes the revision. */
   terminal?: boolean;
   /** The existing Apply/Retry action may clear the terminal latch. */

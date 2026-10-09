@@ -105,6 +105,13 @@ it("renders terminal failures and retries only after restore acknowledgement", a
       update({ status: status('recovering', { terminal: false }) });
       assert.equal(apply().disabled, true, 'active automatic recovery is busy');
       assert.equal(restore().disabled, false);
+      update({ status: status('inactive', { backend: 'classic', available: true, terminal: false, retryable: false }), appearance: appearance(false) });
+      assert.ok(document.querySelector('[data-taskbar-compatibility]').textContent.includes(en.beautyClassicNote));
+      assert.equal(document.querySelector('.beauty-check input').disabled, true, 'classic borders remain system-managed');
+      assert.ok(document.querySelector('.beauty-diagnostics').textContent.includes('classic'));
+      update({ status: status('inactive', { backend: 'xaml', available: true, terminal: false, retryable: false }) });
+      assert.equal(document.querySelector('[data-taskbar-compatibility]'), null);
+      assert.equal(document.querySelector('.beauty-check input').disabled, false, 'XAML border option remains available');
       update({ status: status('error'), connected: false });
       assert.equal(apply().disabled, true);
       update({ connected: true, masterEnabled: false });

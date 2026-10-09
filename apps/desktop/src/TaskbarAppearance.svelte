@@ -101,7 +101,7 @@
     <div class:preview-acrylic={appearance.mode === "acrylic"} class="beauty-wallpaper" style={previewStyle}>
       <span class="beauty-orbit orbit-one"></span><span class="beauty-orbit orbit-two"></span>
       <span class="preview-caption">{t.beautyPreview}</span>
-      <div class:preview-border={appearance.showBorder} class="preview-taskbar" aria-hidden="true">
+      <div class:preview-border={appearance.showBorder && status?.backend !== "classic"} class="preview-taskbar" aria-hidden="true">
         <div class="preview-apps"><span class="preview-windows"><i></i><i></i><i></i><i></i></span><span class="preview-search"></span><span class="preview-folder"></span><span class="preview-browser"></span></div>
         <div class="preview-tray"><span>⌁</span><span>10:24</span></div>
       </div>
@@ -121,10 +121,12 @@
     <label class="beauty-range"><span><strong>{t.beautyOpacity}</strong><output>{tintEnabled ? `${appearance.opacity}%` : "—"}</output></span><input aria-label={t.beautyOpacity} aria-describedby="taskbar-material-detail" max="100" min="0" step="1" type="range" value={appearance.opacity} disabled={!tintEnabled} on:input={(event) => onChange({ opacity: Number((event.currentTarget as HTMLInputElement).value) })} /></label>
     <label class="beauty-color"><span><strong>{t.beautyTint}</strong><small>{tintEnabled ? appearance.tint : t.beautyNoTint}</small></span><input aria-label={t.beautyTint} type="color" value={appearance.tint} disabled={!tintEnabled} on:input={(event) => onChange({ tint: (event.currentTarget as HTMLInputElement).value.toUpperCase() })} /></label>
   </div>
-  <label class="beauty-check"><span>{t.beautyBorder}</span><input type="checkbox" checked={appearance.showBorder} on:change={(event) => onChange({ showBorder: (event.currentTarget as HTMLInputElement).checked })} /><i aria-hidden="true"></i></label>
+  <label class="beauty-check"><span>{t.beautyBorder}</span><input type="checkbox" checked={appearance.showBorder} disabled={status?.backend === "classic"} on:change={(event) => onChange({ showBorder: (event.currentTarget as HTMLInputElement).checked })} /><i aria-hidden="true"></i></label>
+
+  {#if status?.backend === "classic"}<p class="beauty-material-detail" data-taskbar-compatibility>{t.beautyClassicNote}</p>{/if}
 
   <div class="beauty-actions"><button class="apply" disabled={!canApply || retryPending || (busy && appearance.enabled) || applied} on:click={applyAppearance} type="button">{applied ? t.enabledState : appearance.enabled ? t.beautyTryAgain : t.beautyActivate}</button><button class="quiet" disabled={!appearance.enabled && !applied && !busy && !retryPending && !status?.terminal && status?.state !== "error"} on:click={restoreAppearance} type="button">{t.beautyRestore}</button></div>
   <div class="beauty-status" class:success={applied} class:problem={status?.state === "error" || status?.state === "conflict" || status?.state === "unsupported"} aria-live="polite"><i></i><div><span>{t[stateKey]}</span>{#if status?.backgrounds && applied}<small>{format(t.beautyMonitors, {count: status.backgrounds})}</small>{/if}</div></div>
-  {#if status?.errorCode}<details class="beauty-diagnostics"><summary>{t.beautyDiagnostics}</summary><code>{status.errorCode}</code></details>{/if}
+  {#if status?.errorCode || status?.backend}<details class="beauty-diagnostics"><summary>{t.beautyDiagnostics}</summary>{#if status?.backend}<code>{t.beautyBackend}: {status.backend}</code>{/if}{#if status?.errorCode}<code>{status.errorCode}</code>{/if}</details>{/if}
   <details class="beauty-safety"><summary>{t.beautySafety}</summary><p>{t.beautySafetyDetail}</p><p>{t.beautyScope}</p><p>{t.beautyPreviewNote}</p></details>
 </section>
