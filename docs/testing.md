@@ -57,6 +57,8 @@ The `macOS and Linux X11` workflow runs the desktop frontend checks, helper form
 
 Native acceptance still needs one real macOS machine with Accessibility and Screen Recording enabled, plus one Linux X11 desktop (not only Xvfb), to verify hot zones, global gestures, move/resize, foreground selection, topmost, and screenshot output. Linux Wayland is intentionally limited to the capability/degradation contract.
 
+Taskbar appearance remains a Windows-only real-machine gate: Windows 10 1903+ and Windows 11 21H2 use the classic `SetWindowCompositionAttribute` compatibility backend; Windows 11 22H2+ uses the XAML Diagnostics backend. Automated native regressions do not inject Explorer. Verify all three materials, Explorer restart, multiple taskbars, auto-hide, DPI/theme changes, disable/restore, competing tools, and that terminal failures stop instead of retrying forever. Windows 10 acrylic is compatibility-only and may look different from Windows 11.
+
 ## Brightness Controls
 
 Automated tests cover target-display selection, brightness range/clamping, per-display queue coalescing, duplicate/disconnected DRM connectors, backlight association, DDC packets, Windows WMI/DDC fallback resolution, GDI gamma scaling/clamping, command failure/timeout cleanup, and settings round trips. macOS protocol and value tests also run on Windows and Linux; Intel IOKit ABI layout assertions run when compiling for that target.

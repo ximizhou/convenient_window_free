@@ -40,6 +40,11 @@ static_assert(sizeof(Wire) == 52);
 HMODULE gModule;
 UINT gAttachMessage;
 std::atomic_bool gDiagnosticsStarted{false};
+bool IsClassicWindows();
+void MarkClassicChange(UINT message,HWND hwnd);
+struct Owner;
+void ClassicUpdate(bool enabled,const AppearanceOptions& requested,const std::shared_ptr<Owner>& owner,Snapshot* result);
+extern std::atomic_bool gClassicDirty;
 
 struct Handle {
     HANDLE value{};
@@ -317,7 +322,7 @@ void MonitorOwner() {
         auto owner=CurrentOwner();
         if(!owner) {WaitForSingleObject(gOwnerChanged,INFINITE);continue;}
         LONG last=-2; auto start=GetTickCount64(); DWORD previousCount=0; AppearanceOptions previousOptions{};
-        unsigned restoreRetries=0;ULONGLONG restoreAttempt=0;
+        unsigned restoreRetries=0;ULONGLONG restoreAttempt=0;ULONGLONG classicPollAt=0;Snapshot classicSnapshot{};
         for(;;) {
             auto current=CurrentOwner();if(current!=owner) break;
             bool dead=WaitForSingleObject(owner->process.value,200)==WAIT_OBJECT_0;
@@ -326,6 +331,29 @@ void MonitorOwner() {
             DWORD count=0;{std::scoped_lock lock(gEntriesLock);for(auto& [id,e]:gEntries) if(e->background && e->ready && !e->removed) ++count;}
             AppearanceOptions options{};
             if(desired>0 && !ReadOptions(owner,options)) continue;
+            if(IsClassicWindows()) {
+                const auto now=GetTickCount64();
+                const bool intentChanged=desired!=last;
+                const bool optionsChanged=!SameOptions(previousOptions,options);
+                if(intentChanged) {restoreRetries=0;restoreAttempt=now;}
+                const bool retryRestore=desired<=0 && FAILED(classicSnapshot.error) && restoreRetries<4 &&
+                    now-restoreAttempt>=static_cast<ULONGLONG>(500u<<restoreRetries);
+                const bool topologyPoll=desired>0 && now-classicPollAt>=2000;
+                if(intentChanged || retryRestore || (desired>0 && (optionsChanged || gClassicDirty.load() || topologyPoll))) {
+                    if(retryRestore) {++restoreRetries;restoreAttempt=now;}
+                    ClassicUpdate(desired>0,options,owner,&classicSnapshot);
+                    Report(owner,classicSnapshot.state,classicSnapshot.error,classicSnapshot.backgrounds);
+                    classicPollAt=now;
+                }
+                last=desired;previousOptions=options;
+                if((dead || desired<0) && (SUCCEEDED(classicSnapshot.error) || restoreRetries>=4)) {
+                    std::scoped_lock lock(gOwnerLock);if(gOwner==owner) gOwner.reset();break;
+                }
+                // A signaled process handle no longer supplies the regular wait.
+                // Back off failed death-restoration instead of busy-spinning.
+                if(dead && FAILED(classicSnapshot.error)) Sleep(200);
+                continue;
+            }
             const bool optionsChanged = !SameOptions(previousOptions,options);
             if(desired!=last) {restoreRetries=0;restoreAttempt=GetTickCount64();}
             if(desired<=0 && count && owner->wire->snapshot.state==3 && GetTickCount64()-restoreAttempt>5000) Report(owner,6,HRESULT_FROM_WIN32(WAIT_TIMEOUT),count);
@@ -378,7 +406,7 @@ HRESULT AttachOwner(DWORD pid,HWND taskbar) noexcept {
         }
         InterlockedExchange(&owner->wire->attached,1);
         SetEvent(gOwnerChanged);
-        if(owner->wire->enabled>0) InitializeDiagnostics();
+        if(owner->wire->enabled>0 && !IsClassicWindows()) InitializeDiagnostics();
         return S_OK;
     } catch(...) {return winrt::to_hresult();}
 }
@@ -402,6 +430,7 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK TaskbarHook(int code,WPARAM wp
     if(code>=0) {
         if(!gAttachMessage) gAttachMessage=RegisterWindowMessageW(L"ConvenientWindow.Taskbar.Attach.v2");
         auto message=reinterpret_cast<CWPSTRUCT*>(lparam);
+        if(message) MarkClassicChange(message->message,message->hwnd);
         if(message && message->message==gAttachMessage) {
             try {
                 const auto pid=static_cast<DWORD>(message->wParam);
@@ -450,11 +479,148 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK TaskbarHook(int code,WPARAM wp
 }
 
 bool IsModernWindows() {
-    using VersionFunction=LONG(WINAPI*)(OSVERSIONINFOW*);
-    auto ntdll=GetModuleHandleW(L"ntdll.dll");
-    auto versionFunction=reinterpret_cast<VersionFunction>(GetProcAddress(ntdll,"RtlGetVersion"));
-    OSVERSIONINFOW version{};version.dwOSVersionInfoSize=sizeof(version);
-    return versionFunction && versionFunction(&version)==0 && version.dwMajorVersion>=10 && version.dwBuildNumber>=22621;
+    static const bool result=[] {
+        using VersionFunction=LONG(WINAPI*)(OSVERSIONINFOW*);
+        auto ntdll=GetModuleHandleW(L"ntdll.dll");
+        auto versionFunction=reinterpret_cast<VersionFunction>(GetProcAddress(ntdll,"RtlGetVersion"));
+        OSVERSIONINFOW version{};version.dwOSVersionInfoSize=sizeof(version);
+        return versionFunction && versionFunction(&version)==0 && version.dwMajorVersion==10 && version.dwBuildNumber>=22621;
+    }();
+    return result;
+}
+
+// The classic backend shares the existing Explorer-side owner monitor and
+// lifetime fence but never loads XAML Diagnostics. The private Accent policy
+// lacks a reliable original-policy getter, so restore asks Explorer to return
+// to its system default rather than claiming an exact original-policy replay.
+bool IsClassicWindows() {
+    static const bool result=[] {
+        using VersionFunction=LONG(WINAPI*)(OSVERSIONINFOW*);
+        const auto versionFunction=reinterpret_cast<VersionFunction>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlGetVersion"));
+        OSVERSIONINFOW version{};version.dwOSVersionInfoSize=sizeof(version);
+        return versionFunction && versionFunction(&version)==0 && TaskbarModulePolicy::IsClassicWindows10Build(version.dwMajorVersion,version.dwBuildNumber);
+    }();
+    return result;
+}
+enum { WcaAccentPolicy = 19 };
+struct ClassicAccentPolicy { DWORD state; DWORD flags; DWORD gradient; DWORD animation; };
+struct ClassicAttributeData { DWORD attribute; PVOID data; SIZE_T size; };
+using ClassicSetAttribute = BOOL (WINAPI*)(HWND, ClassicAttributeData*);
+struct ClassicTaskbarEntry { HWND hwnd{}; DWORD pid{}; bool changed{}; };
+struct ClassicEnumContext { std::vector<HWND>* windows; DWORD pid; };
+std::vector<ClassicTaskbarEntry> gClassicTaskbars;
+AppearanceOptions gClassicOptions{};
+bool gClassicSeen=false;
+Snapshot gClassicResult{};
+ULONGLONG gClassicTopologyCheck{};
+std::atomic_bool gClassicDirty{true};
+std::atomic_bool gClassicChanging{false};
+
+ClassicSetAttribute ClassicSetWca() {
+    static const auto function=reinterpret_cast<ClassicSetAttribute>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"SetWindowCompositionAttribute"));
+    return function;
+}
+bool IsExplorerTaskbar(HWND hwnd) {
+    DWORD pid{};
+    if(!hwnd || !GetWindowThreadProcessId(hwnd,&pid) || !pid) return false;
+    Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid));
+    if(!process.value) return false;
+    wchar_t image[32768]{}; DWORD length=static_cast<DWORD>(std::size(image));
+    if(!QueryFullProcessImageNameW(process.value,0,image,&length)) return false;
+    const auto slash=wcsrchr(image,L'\\');
+    return _wcsicmp(slash ? slash+1 : image,L"explorer.exe")==0;
+}
+HRESULT ClassicErrorHresult() {
+    const auto error=GetLastError();
+    return HRESULT_FROM_WIN32(error ? error : ERROR_GEN_FAILURE);
+}
+bool LiveClassicEntry(const ClassicTaskbarEntry& entry) {
+    DWORD pid{};wchar_t name[64]{};
+    GetClassNameW(entry.hwnd,name,static_cast<int>(std::size(name)));
+    return IsWindow(entry.hwnd) && GetWindowThreadProcessId(entry.hwnd,&pid) && pid==entry.pid
+        && (!wcscmp(name,L"Shell_TrayWnd") || !wcscmp(name,L"Shell_SecondaryTrayWnd"));
+}
+HRESULT ClassicRestore() {
+    const auto setAttribute=ClassicSetWca();
+    HRESULT failure=S_OK;
+    gClassicChanging=true;
+    for(auto it=gClassicTaskbars.begin();it!=gClassicTaskbars.end();) {
+        if(!it->changed || !LiveClassicEntry(*it)) {it=gClassicTaskbars.erase(it);continue;}
+        ClassicAccentPolicy normal{};ClassicAttributeData data{WcaAccentPolicy,&normal,sizeof(normal)};
+        DWORD_PTR response{};SetLastError(ERROR_SUCCESS);
+        if(!setAttribute) {
+            SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+            failure=ClassicErrorHresult();++it;continue;
+        }
+        if(!setAttribute(it->hwnd,&data) || !SendMessageTimeoutW(it->hwnd,WM_DWMCOMPOSITIONCHANGED,1,0,SMTO_ABORTIFHUNG | SMTO_BLOCK,250,&response)) {
+            failure=ClassicErrorHresult();++it;
+        } else it=gClassicTaskbars.erase(it);
+    }
+    gClassicChanging=false;
+    gClassicSeen=false;gClassicTopologyCheck=0;gClassicDirty=true;
+    return failure;
+}
+BOOL CALLBACK EnumClassicTaskbar(HWND hwnd, LPARAM parameter) {
+    DWORD pid{};auto context=reinterpret_cast<ClassicEnumContext*>(parameter);
+    if(!GetWindowThreadProcessId(hwnd,&pid) || pid!=context->pid) return TRUE;
+    wchar_t name[64]{};GetClassNameW(hwnd,name,static_cast<int>(std::size(name)));
+    if(wcscmp(name,L"Shell_TrayWnd") && wcscmp(name,L"Shell_SecondaryTrayWnd")) return TRUE;
+    context->windows->push_back(hwnd);return TRUE;
+}
+void ClassicUpdate(bool enabled,const AppearanceOptions& requested,const std::shared_ptr<Owner>& owner,Snapshot* result) {
+    if(CurrentOwner()!=owner || !IsCurrentRequest(owner,enabled,requested)) {*result={1,S_OK,0,GetCurrentProcessId()};return;}
+    if(!enabled) {
+        const auto hr=ClassicRestore();
+        *result={FAILED(hr)?6u:0u,hr,static_cast<DWORD>(gClassicTaskbars.size()),GetCurrentProcessId()};return;
+    }
+    const auto setAttribute=ClassicSetWca();
+    if(!setAttribute) {*result=gClassicResult={5,HRESULT_FROM_WIN32(ERROR_CALL_NOT_IMPLEMENTED),0,GetCurrentProcessId()};return;}
+    bool changed=!gClassicSeen || !SameOptions(gClassicOptions,requested) || gClassicDirty.exchange(false);
+    gClassicOptions=requested;gClassicSeen=true;
+    const auto now=GetTickCount64();
+    const auto primary=FindWindowW(L"Shell_TrayWnd",nullptr);
+    DWORD primaryPid{};if(primary) GetWindowThreadProcessId(primary,&primaryPid);
+    const bool primaryChanged=primary && primaryPid && !std::any_of(gClassicTaskbars.begin(),gClassicTaskbars.end(),[&](const auto& entry){return entry.hwnd==primary && entry.pid==primaryPid;});
+    if(primaryChanged) gClassicTopologyCheck=0;
+    if(!gClassicTopologyCheck || now-gClassicTopologyCheck>=2000) {
+        std::vector<HWND> windows;
+        ClassicEnumContext context{&windows,primaryPid};
+        if(primaryPid) EnumWindows(EnumClassicTaskbar,reinterpret_cast<LPARAM>(&context));
+        gClassicTopologyCheck=now;
+        for(auto it=gClassicTaskbars.begin();it!=gClassicTaskbars.end();) {
+            if(!LiveClassicEntry(*it)) {it=gClassicTaskbars.erase(it);changed=true;}else ++it;
+        }
+        for(const auto hwnd:windows) {
+            if(std::any_of(gClassicTaskbars.begin(),gClassicTaskbars.end(),[hwnd](const auto& entry){return entry.hwnd==hwnd;})) continue;
+            ClassicTaskbarEntry entry;entry.hwnd=hwnd;GetWindowThreadProcessId(hwnd,&entry.pid);
+            gClassicTaskbars.push_back(entry);changed=true;
+        }
+    }
+    if(gClassicTaskbars.empty()) {*result=gClassicResult={6,HRESULT_FROM_WIN32(ERROR_NOT_FOUND),0,GetCurrentProcessId()};return;}
+    if(!changed) {*result=gClassicResult;return;}
+    auto color=TaskbarModulePolicy::ClassicGradientColor(requested.tint,requested.mode==kModeTransparent?0:requested.opacity);
+    // Legacy acrylic needs non-zero alpha; it is a compatibility effect, not
+    // an exact match for the modern XAML material. Border stays system-managed.
+    if(requested.mode==kModeAcrylic && !(color & 0xFF000000u)) color |= 0x01000000u;
+    // The classic backend cannot reproduce the XAML stroke rectangle reliably.
+    // Keep Accent flags neutral rather than drawing an unexplained left border.
+    const ClassicAccentPolicy desired{TaskbarModulePolicy::ClassicAccentStateForMode(requested.mode),0u,color,0};
+    gClassicChanging=true;
+    for(auto& entry:gClassicTaskbars) {
+        if(!LiveClassicEntry(entry)) continue;
+        if(CurrentOwner()!=owner || !IsCurrentRequest(owner,true,requested)) {gClassicChanging=false;*result={1,S_OK,0,GetCurrentProcessId()};return;}
+        auto policy=desired;ClassicAttributeData write{WcaAccentPolicy,&policy,sizeof(policy)};SetLastError(ERROR_SUCCESS);
+        if(!setAttribute(entry.hwnd,&write)) {gClassicChanging=false;*result=gClassicResult={6,ClassicErrorHresult(),0,GetCurrentProcessId()};return;}
+        entry.changed=true;
+    }
+    gClassicChanging=false;
+    *result=gClassicResult={2,S_OK,static_cast<DWORD>(gClassicTaskbars.size()),GetCurrentProcessId()};
+}
+void MarkClassicChange(UINT message,HWND hwnd) {
+    if(!IsClassicWindows() || gClassicChanging.load()) return;
+    if(message!=WM_DWMCOMPOSITIONCHANGED && message!=WM_SETTINGCHANGE && message!=WM_THEMECHANGED && message!=WM_DISPLAYCHANGE && message!=WM_DPICHANGED) return;
+    wchar_t name[64]{};GetClassNameW(hwnd,name,static_cast<int>(std::size(name)));
+    if(!wcscmp(name,L"Shell_TrayWnd") || !wcscmp(name,L"Shell_SecondaryTrayWnd")) gClassicDirty=true;
 }
 bool HasOtherTaskbarTool() {
     Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0));
@@ -509,7 +675,8 @@ extern "C" __declspec(dllexport) void __cdecl CWTaskbarUpdate(BOOL enabled,const
             *result={4,HRESULT_FROM_WIN32(ERROR_BUSY),0,pid};return;
         }
         if(!gWire && enabled) {
-            if(!IsModernWindows()) {*result={5,HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED),0,pid};return;}
+            if(!IsModernWindows() && !IsClassicWindows()) {*result={5,HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED),0,pid};return;}
+            if(!IsExplorerTaskbar(taskbar)) {*result={5,HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED),0,pid};return;}
             const auto userSid=UserScope();
             TaskbarModulePolicy::UserScopedMediumSecurity security(userSid);
             if(!security.valid()) winrt::throw_last_error();

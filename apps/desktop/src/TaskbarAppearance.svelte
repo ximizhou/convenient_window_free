@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { zh, en, format } from "./i18n";
   import type { UiKey } from "./i18n";
   import { defaultSettings } from "./settings-store";
@@ -16,16 +17,59 @@
     { id: "acrylic", label: "beautyAcrylic", detail: "beautyAcrylicDetail" },
     { id: "solid", label: "beautySolid", detail: "beautySolidDetail" }
   ];
+  let retryPending = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryRestoreFailed = false;
+
+  function cancelRetry(): void {
+    retryPending = false;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+
+  function applyAppearance(): void {
+    retryRestoreFailed = false;
+    if (!appearance.enabled) {
+      onChange({ enabled: true });
+      return;
+    }
+    // Retry uses the existing config path: restore first, wait for the helper
+    // acknowledgement, then enable. No new IPC or unrelated-revision trigger.
+    retryPending = true;
+    retryTimer = setTimeout(() => {
+      cancelRetry();
+      retryRestoreFailed = true;
+    }, 5000);
+    onChange({ enabled: false });
+  }
+
+  function restoreAppearance(): void {
+    cancelRetry();
+    retryRestoreFailed = false;
+    onChange({ enabled: false });
+  }
+
+  $: if (retryPending && (!connected || !masterEnabled)) cancelRetry();
+  $: if (retryPending && !appearance.enabled && status?.state === "inactive") {
+    cancelRetry();
+    onChange({ enabled: true });
+  }
+  onDestroy(cancelRetry);
+
   $: t = english ? en : zh;
   $: supportsMaterials = materials.every((material) => status?.materials?.includes(material.id));
-  $: canApply = connected && masterEnabled && status?.available === true && supportsMaterials;
-  $: applied = status?.state === "applied" && appearance.enabled && supportsMaterials;
-  $: busy = status?.state === "connecting" || status?.state === "recovering" || status?.state === "restoring";
+  $: applied = status?.state === "applied" && !status?.terminal && appearance.enabled && supportsMaterials;
+  $: canRetry = connected && masterEnabled && status?.retryable !== false
+    && (status?.retryable === true || supportsMaterials)
+    && (status?.state === "error" || status?.state === "unsupported" || status?.state === "conflict");
+  $: canApply = (connected && masterEnabled && status?.available === true && supportsMaterials) || canRetry;
+  $: busy = !status?.terminal && (status?.state === "connecting" || status?.state === "recovering" || status?.state === "restoring");
   $: tintEnabled = appearance.mode !== "transparent";
   $: selected = materials.find((material) => material.id === appearance.mode) ?? materials[0];
   $: previewInk = !tintEnabled || appearance.opacity < 45 || tintBrightness(appearance.tint) > 160 ? "#294471" : "#EAF1FC";
   $: previewStyle = `--preview-tint:${appearance.tint};--preview-opacity:${tintEnabled ? appearance.opacity / 100 : 0};--preview-ink:${previewInk}`;
-  $: stateKey = statusKey(connected, masterEnabled, status, supportsMaterials, appearance.enabled);
+  $: stateKey = retryRestoreFailed ? "beautyRestoreError" : retryPending ? "beautyRestoring"
+    : statusKey(connected, masterEnabled, status, supportsMaterials, appearance.enabled);
 
   function tintBrightness(hex: string): number {
     const channels = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16));
@@ -36,9 +80,11 @@
     if (!isConnected || !masterOn) return "beautyNeedHelper";
     if (!current) return "beautyPending";
     if (current.state === "restoring") return "beautyRestoring";
-    if (current.state === "recovering") return enabled ? "beautyRecovering" : "beautyRestoring";
+    if (current.state === "recovering" && !current.terminal) return enabled ? "beautyRecovering" : "beautyRestoring";
     if (current.state === "conflict") return "beautyConflict";
     if (current.state === "unsupported") return "beautyUnsupported";
+    if (current.state === "error" && current.errorCode === "0x80070666") return "beautyVersionMismatch";
+    if (current.terminal && enabled) return "beautyRetryExhausted";
     if (current.state === "unavailable") return "beautyModule";
     if (current.state === "error") return current.errorCode === "0x80070666" ? "beautyVersionMismatch" : enabled ? "beautyError" : "beautyRestoreError";
     if (!supported) return "beautyNeedUpdate";
@@ -77,7 +123,7 @@
   </div>
   <label class="beauty-check"><span>{t.beautyBorder}</span><input type="checkbox" checked={appearance.showBorder} on:change={(event) => onChange({ showBorder: (event.currentTarget as HTMLInputElement).checked })} /><i aria-hidden="true"></i></label>
 
-  <div class="beauty-actions"><button class="apply" disabled={!canApply || (busy && appearance.enabled) || applied} on:click={() => onChange({ enabled: true })} type="button">{applied ? t.enabledState : appearance.enabled ? t.beautyTryAgain : t.beautyActivate}</button><button class="quiet" disabled={!appearance.enabled && !applied && !busy} on:click={() => onChange({ enabled: false })} type="button">{t.beautyRestore}</button></div>
+  <div class="beauty-actions"><button class="apply" disabled={!canApply || retryPending || (busy && appearance.enabled) || applied} on:click={applyAppearance} type="button">{applied ? t.enabledState : appearance.enabled ? t.beautyTryAgain : t.beautyActivate}</button><button class="quiet" disabled={!appearance.enabled && !applied && !busy && !retryPending && !status?.terminal && status?.state !== "error"} on:click={restoreAppearance} type="button">{t.beautyRestore}</button></div>
   <div class="beauty-status" class:success={applied} class:problem={status?.state === "error" || status?.state === "conflict" || status?.state === "unsupported"} aria-live="polite"><i></i><div><span>{t[stateKey]}</span>{#if status?.backgrounds && applied}<small>{format(t.beautyMonitors, {count: status.backgrounds})}</small>{/if}</div></div>
   {#if status?.errorCode}<details class="beauty-diagnostics"><summary>{t.beautyDiagnostics}</summary><code>{status.errorCode}</code></details>{/if}
   <details class="beauty-safety"><summary>{t.beautySafety}</summary><p>{t.beautySafetyDetail}</p><p>{t.beautyScope}</p><p>{t.beautyPreviewNote}</p></details>

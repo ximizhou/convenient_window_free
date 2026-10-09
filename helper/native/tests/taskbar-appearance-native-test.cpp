@@ -87,6 +87,14 @@ int wmain(int argc,wchar_t** argv) {
     const bool stale=mode==L"stale";
     const bool incompatible=mode==L"incompatible";
     const bool conflict=mode==L"conflict";
+    assert(TaskbarModulePolicy::IsClassicWindows10Build(10,18362));
+    assert(TaskbarModulePolicy::IsClassicWindows10Build(10,22000));
+    assert(!TaskbarModulePolicy::IsClassicWindows10Build(10,22621));
+    assert(TaskbarModulePolicy::ClassicAccentStateForMode(0)==2);
+    assert(TaskbarModulePolicy::ClassicAccentStateForMode(1)==4);
+    assert(TaskbarModulePolicy::ClassicAccentStateForMode(2)==1);
+    assert(TaskbarModulePolicy::ClassicGradientColor(0xAABBCC,100)==0xFFCCBBAA);
+    assert(TaskbarModulePolicy::ClassicGradientColor(0xAABBCC,0)==0x00CCBBAA);
     assert(TaskbarModulePolicy::ShouldClearStaleMarker(reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(0x1234)),current,false));
     assert(!TaskbarModulePolicy::ShouldClearStaleMarker(reinterpret_cast<HANDLE>(resident),current,true));
     assert(TaskbarModulePolicy::IsLegacyV2Name(L"taskbar-0123456789abcdef.dll"));
