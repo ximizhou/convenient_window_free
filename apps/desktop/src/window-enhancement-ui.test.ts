@@ -162,3 +162,43 @@ describe("per-area geometry UI boundaries", () => {
     expect(monitorStage).toContain('hotzonePreviewRect(selectedZone, selectedDisplay.bounds, edgeSize, selectedGeometry)');
   });
 });
+
+
+describe("drawer scroll layout contract", () => {
+  const bodyRules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selectors]) => selectors.trim().endsWith(".drawer-body"))
+    .map(([, selectors, declarations]) => ({
+      selector: selectors.trim(),
+      declarations: Object.fromEntries(declarations.split(";").filter(part => part.includes(":")).map(part => {
+        const separator = part.indexOf(":");
+        return [part.slice(0, separator).trim(), part.slice(separator + 1).trim()];
+      }))
+    }));
+
+  it("keeps long cards in normal block flow and does not hide horizontal overflow", () => {
+    const base = bodyRules.find(rule => rule.selector === ".drawer-body")?.declarations;
+    expect(base).toBeDefined();
+    expect(base?.display).toBe("block");
+    expect(base?.["min-height"]).toBe("0");
+    expect(base?.["overflow-y"]).toBe("auto");
+    expect(base?.["overflow-x"]).toBe("auto");
+    expect(base?.["scrollbar-gutter"]).toBe("stable");
+    for (const rule of bodyRules) {
+      expect(rule.declarations.display, rule.selector).not.toBe("flex");
+      for (const key of ["overflow", "overflow-x", "overflow-y"]) {
+        expect(rule.declarations[key] ?? "", rule.selector + " " + key).not.toMatch(/hidden|clip/);
+      }
+    }
+  });
+
+  it("retains the bottom scroll clearance in narrow and gesture drawer overrides", () => {
+    expect(bodyRules.length).toBeGreaterThanOrEqual(4);
+    for (const rule of bodyRules) {
+      // A later shorthand must not silently replace the base bottom clearance.
+      if (rule.declarations.padding) {
+        expect(rule.declarations.padding, rule.selector).toMatch(/calc\(28px \+ env\(safe-area-inset-bottom\)\)/);
+      }
+      expect(rule.declarations["padding-bottom"], rule.selector).toBeUndefined();
+    }
+  });
+});

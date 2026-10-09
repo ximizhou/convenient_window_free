@@ -2,8 +2,8 @@
   import TaskbarAppearance from "./TaskbarAppearance.svelte";
   import { gestureDisplayName } from "./gesture-names";
   import { runtimeErrorKey } from "./runtime-error";
-  import { onMount } from "svelte";
-  import { fly } from "svelte/transition";
+  import { onMount, tick } from "svelte";
+  import { fade, fly } from "svelte/transition";
   import { HelperClient, isSupportedHelperProtocol, isSupportedHelperSchema, SUPPORTED_HELPER_PROTOCOL, SUPPORTED_HELPER_SCHEMA } from "./helper-client";
   import { needsHelperUpgrade } from "./helper-version";
   import { HelperRecoveryGuard } from "./helper-recovery";
@@ -14,6 +14,7 @@
   import ModifierRecorder from "./ModifierRecorder.svelte";
   import ShortcutRecorder from "./ShortcutRecorder.svelte";
   import { gestureSimilarity, resampleGesture } from "./gesture-algorithm";
+  import { sameDisplaySnapshot } from "./monitor-topology";
   import { migrateMonitorProfileIds } from "./monitor-profile-migration";
   import { addModifierVariant, MAX_MODIFIER_VARIANTS } from "./modifier-variants";
   import { prepareSettingsUpdate } from "./settings-sync";
@@ -177,6 +178,7 @@
   let gestureConflict = "";
   let foregroundApp = "";
   let runtimeSummary = "";
+  $: runtimeSummary = displayReady ? `${displays.length}${statusText("displaysDetected", english)}` : "";
   let lastAction = "";
   let lastMessage: UiStatusKey | string = "waiting";
   let helperError = "";
@@ -294,7 +296,6 @@
       if (status === "disconnected") {
         helperElevated = null;
         displayReady = false;
-        runtimeSummary = "";
         helperPlatform = null;
         taskbarStatus = null;
         const wasReady = helperWasReady;
@@ -344,17 +345,19 @@
       } else if (message.type === "runtime.status") {
         const data = message.data as { displays?: DisplayInfo[]; foreground?: string; message?: string };
         if (!helperRecoveryFailed && Array.isArray(data.displays) && data.displays.length) {
+          const topologyChanged = !displayReady || !sameDisplaySnapshot(displays, data.displays);
           displayReady = true;
-          displays = data.displays;
-          const selectedDisplay = displays.find((display) =>
-            display.id === selectedDisplayId || display.legacyId === selectedDisplayId
-          );
-          if (selectedDisplay) selectedDisplayId = selectedDisplay.id;
-          if (migrateMonitorProfileIds(settings, displays)) persist("displaysMigrated");
-          if (!displays.some((display) => display.id === selectedDisplayId)) {
-            selectedDisplayId = displays.find((display) => display.primary)?.id ?? displays[0].id;
+          if (topologyChanged) {
+            displays = data.displays;
+            const selectedDisplay = displays.find((display) =>
+              display.id === selectedDisplayId || display.legacyId === selectedDisplayId
+            );
+            if (selectedDisplay) selectedDisplayId = selectedDisplay.id;
+            if (migrateMonitorProfileIds(settings, displays)) persist("displaysMigrated");
+            if (!displays.some((display) => display.id === selectedDisplayId)) {
+              selectedDisplayId = displays.find((display) => display.primary)?.id ?? displays[0].id;
+            }
           }
-          runtimeSummary = `${displays.length}${statusText("displaysDetected")}`;
         }
         if (data.foreground) foregroundApp = data.foreground;
         const status = message.data as { code?: string; params?: { title?: string; topmost?: boolean } };
@@ -1102,20 +1105,34 @@
     lastMessage = "helperStopping";
   }
   async function setPowerEnabled(enabled: boolean): Promise<void> {
-    if (switchingPrivilege) return;
-    settings.enabled = enabled;
+    if (switchingPrivilege || starting || stopping || upgradingHelper) return;
+    const previousEnabled = settings.enabled;
+    settings = { ...settings, enabled };
+    if (enabled) {
+      starting = true;
+      lastMessage = "helperStarting";
+    } else {
+      stopping = true;
+      lastMessage = "helperStopping";
+    }
+    // Flush the immediate busy state before storage/native work. Persist before launch;
+    // preserve recovery eligibility if saving fails, and never permit duplicate starts.
+    await tick();
     if (!(await applyNow())) {
-      settings.enabled = !enabled;
+      settings = { ...settings, enabled: previousEnabled };
+      starting = false;
+      stopping = false;
       return;
     }
     if (enabled) {
       resetHelperRecovery();
-      starting = true;
-      const started = await startHelper();
-      starting = false;
-      if (!started) {
-        settings.enabled = false;
-        await savePreparedSettings(normalizeSettings(settings));
+      try {
+        if (!(await startHelper())) {
+          settings = { ...settings, enabled: false };
+          await savePreparedSettings(normalizeSettings(settings));
+        }
+      } finally {
+        starting = false;
       }
     } else {
       stopHelper();
@@ -1264,7 +1281,7 @@
         </header>
 
         {#key mode}
-          <div class="drawer-body" in:fly={{ y: 10, duration: 170 }}>
+          <div class="drawer-body" in:fade={{ duration: 170 }}>
             {#if mode === "hotzones"}
               <div class="feature-intro hotzone-master-intro">
                 <div class="feature-copy-stack">
@@ -1276,7 +1293,7 @@
               </div>
               <div class="feature-settings-head"><span>{ui("hotzoneSettings")}</span><strong>{settings.hotzonesEnabled ? ui("unifiedOn") : ui("keepConfig")}</strong></div>
               <div class="feature-settings-body" class:off={!settings.hotzonesEnabled} inert={!settings.hotzonesEnabled}>
-                {#if !displayReady}<p class="empty hotzone-connection-note" class:error={Boolean(helperError)} role={helperError ? "alert" : "status"}>{helperError ? statusText(helperError, english) : ui("waitingForDisplays")}</p>{/if}
+                <p class:visible={!displayReady} class="empty hotzone-connection-note" class:error={Boolean(helperError)} role={helperError ? "alert" : "status"}>{helperError ? statusText(helperError, english) : ui("waitingForDisplays")}</p>
                 <div class="monitor-hotzone-settings" inert={!displayReady}>
                 <div class="trigger-tabs">
                   {#each triggerGroups as group}

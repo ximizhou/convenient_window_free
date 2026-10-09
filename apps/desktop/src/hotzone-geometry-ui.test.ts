@@ -215,3 +215,147 @@ it("edits geometry through the real App, isolates areas and displays, and round-
     rmSync(directory, { recursive: true, force: true });
   }
 }, 60000);
+
+
+it("keeps compiled geometry inputs mounted across readiness while cancelling drafts at area/display boundaries", async () => {
+  const directory = mkdtempSync(nodePath.join(import.meta.dirname, ".hotzone-geometry-dom-test-"));
+  try {
+    const entry = nodePath.join(directory, "entry.ts");
+    writeFileSync(nodePath.join(directory, "Harness.svelte"), `
+      <script lang="ts">
+        import Editor from '../HotzoneGeometryEditor.svelte';
+        import type { DisplayInfo, HotzoneSetting, HotzoneGeometry } from '../types';
+        export let onChange: (geometry: HotzoneGeometry) => void;
+        let state = {
+          ready: true, monitorId: 'display-a', edgeSize: 8, language: 'en-US' as const,
+          display: { id: 'display-a', primary: true, bounds: { left: 0, top: 0, right: 1920, bottom: 1080 }, workArea: { left: 0, top: 0, right: 1920, bottom: 1040 } } as DisplayInfo | undefined,
+          zone: { id: 'top-left', actions: [], geometry: { kind: 'corner', width: 24, height: 12, linked: true } } as HotzoneSetting
+        };
+        export function update(patch: Partial<typeof state>): void { state = { ...state, ...patch }; }
+      </script>
+      <Editor {...state} {onChange} onReset={() => {}} onSelectZone={() => {}} />
+    `);
+    writeFileSync(entry, `
+      import assert from 'node:assert/strict';
+      import { mount, unmount, flushSync } from 'svelte';
+      import Harness from './Harness.svelte';
+      const changes = [];
+      const component = mount(Harness, { target: document.body, props: { onChange: value => changes.push({ ...value }) } });
+      const update = patch => { component.update(patch); flushSync(); };
+      const input = name => document.querySelector('input[aria-label="' + name + '"]');
+      const typeDraft = (node, value) => {
+        node.focus(); node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+        assert.equal(node.getAttribute('aria-invalid'), 'true');
+      };
+      const blur = node => { node.dispatchEvent(new Event('blur')); flushSync(); };
+      const corner = (id, width = 24, height = 12) => ({ id, actions: [], geometry: { kind: 'corner', width, height, linked: true } });
+      const edge = (id, thickness = 8, lengthPercent = 40) => ({ id, actions: [], geometry: { kind: 'edge', thickness, lengthPercent } });
+      const displayA = { id: 'display-a', primary: true, bounds: { left: 0, top: 0, right: 1920, bottom: 1080 }, workArea: { left: 0, top: 0, right: 1920, bottom: 1040 } };
+      const displayB = { ...displayA, id: 'display-b', primary: false };
+      flushSync();
+      const section = document.querySelector('.hotzone-geometry');
+      const width = input('Width'), height = input('Height');
+      assert.ok(width && height);
+      const mutations = [];
+      const observer = new MutationObserver(records => mutations.push(...records));
+      observer.observe(section, { childList: true, subtree: true });
+      for (const [node, saved] of [[width, '24'], [height, '12']]) {
+        typeDraft(node, '1');
+        update({ ready: false, display: undefined });
+        assert.ok(input('Width') === width, 'ready=false must preserve the corner width DOM node');
+        assert.ok(input('Height') === height, 'ready=false must preserve the corner height DOM node');
+        assert.ok(section.hasAttribute('inert'), 'readiness still disables the editor');
+        assert.equal(node.value, saved, 'disconnect cancels the unfinished draft on the same node');
+        assert.equal(node.getAttribute('aria-invalid'), 'false');
+        blur(node);
+        update({ ready: true, display: displayA });
+        assert.ok(input('Width') === width, 'ready=true must preserve the corner width DOM node');
+        assert.ok(input('Height') === height, 'ready=true must preserve the corner height DOM node');
+        assert.equal(section.hasAttribute('inert'), false);
+        assert.equal(node.value, saved);
+        blur(node);
+        assert.equal(changes.length, 0, 'late blur must not clamp an old draft into settings');
+      }
+      typeDraft(width, '1');
+      update({ edgeSize: 16 });
+      assert.equal(width.value, '1', 'an unrelated update must keep the unfinished draft');
+      assert.ok(input('Width') === width, 'the input DOM node must stay mounted');
+      update({ zone: corner('top-right') });
+      assert.ok(input('Width') === width, 'same-kind zone changes need not recreate controls');
+      assert.equal(width.value, '24', 'equal saved values still cancel a prior-zone draft');
+      blur(width);
+      typeDraft(height, '');
+      update({ zone: corner('bottom-left', 48, 36) });
+      assert.ok(input('Height') === height, 'the input DOM node must stay mounted');
+      assert.equal(height.value, '36', 'a new area supplies its own committed value');
+      blur(height);
+      typeDraft(width, '1');
+      update({ monitorId: 'display-b', display: displayB });
+      assert.ok(input('Width') === width, 'the input DOM node must stay mounted');
+      assert.equal(width.value, '48', 'equal-valued monitor switches still cancel drafts');
+      blur(width);
+      typeDraft(width, '1');
+      update({ monitorId: 'display-a', display: displayA, zone: corner('top-left') });
+      assert.equal(width.value, '24');
+      blur(width);
+      assert.equal(changes.length, 0, 'area/display changes cannot write an unfinished draft');
+      mutations.push(...observer.takeRecords());
+      observer.disconnect();
+      assert.equal(mutations.some(record => [...record.removedNodes].some(node => node === width || node === height || node.contains?.(width) || node.contains?.(height))), false, 'corner inputs are never removed at readiness/context boundaries');
+      update({ zone: edge('right') });
+      const thickness = input('Thickness'), length = input('Length');
+      const slider = document.querySelector('.geometry-slider');
+      for (const [node, saved] of [[thickness, '8'], [length, '40']]) {
+        typeDraft(node, '1');
+        update({ ready: false, display: undefined });
+        assert.ok(input('Thickness') === thickness, 'readiness must preserve the edge thickness node');
+        assert.ok(input('Length') === length, 'readiness must preserve the edge length node');
+        assert.ok(document.querySelector('.geometry-slider') === slider, 'readiness must preserve the slider node');
+        assert.equal(node.value, saved);
+        blur(node);
+        update({ ready: true, display: displayA });
+        assert.ok(input('Thickness') === thickness, 'the input DOM node must stay mounted');
+        assert.ok(input('Length') === length, 'the input DOM node must stay mounted');
+        blur(node);
+      }
+      typeDraft(thickness, '1');
+      update({ zone: edge('left') });
+      assert.ok(input('Thickness') === thickness, 'the input DOM node must stay mounted');
+      assert.equal(thickness.value, '8');
+      blur(thickness);
+      typeDraft(length, '');
+      update({ monitorId: 'display-b', display: displayB, zone: edge('left', 16, 60) });
+      assert.ok(input('Length') === length, 'the input DOM node must stay mounted');
+      assert.equal(length.value, '60');
+      blur(length);
+      assert.equal(changes.length, 0);
+      // Cancellation must not accidentally disable valid edits on the retained controls.
+      thickness.value = '20'; thickness.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+      assert.deepEqual(changes, [{ kind: 'edge', thickness: 20, lengthPercent: 60 }]);
+      await unmount(component);
+      console.log('Geometry retained-DOM and draft boundaries passed');
+    `);
+    await build({
+      configFile: false, logLevel: "silent", plugins: [svelte()],
+      build: { target: "esnext", minify: false, outDir: nodePath.join(directory, "bundle"),
+        lib: { entry, formats: ["es"], fileName: () => "entry.mjs" },
+        rollupOptions: { external: ["node:assert/strict"] }
+      }
+    });
+    writeFileSync(nodePath.join(directory, "run.mjs"), `
+      import { Window } from 'happy-dom';
+      const window = new Window({ width: 359, height: 544 });
+      for (const name of ['window', 'document', 'Node', 'Text', 'Comment', 'Element', 'HTMLElement', 'HTMLInputElement', 'HTMLMediaElement', 'Event', 'KeyboardEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame']) {
+        globalThis[name] = name === 'window' ? window : window[name];
+      }
+      Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true });
+      try { await import('./bundle/entry.mjs'); }
+      finally { await window.happyDOM.close(); }
+    `);
+    const output = execFileSync(process.execPath, [nodePath.join(directory, "run.mjs")], { encoding: "utf8", timeout: 30000, stdio: "pipe" });
+    expect(output).toContain("Geometry retained-DOM and draft boundaries passed");
+  } finally {
+    if (nodePath.dirname(nodePath.resolve(directory)) !== nodePath.resolve(import.meta.dirname)) throw new Error("Unexpected test directory");
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 60000);

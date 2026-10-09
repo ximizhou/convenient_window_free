@@ -1,5 +1,11 @@
 # Testing
 
+## Startup and scroll-layout follow-up (0.6.4, 2026-10-10)
+
+The desktop frontend passes 25 test files / 272 tests, zero-error/warning Svelte checks and a production frontend build. A compiled geometry DOM regression keeps editor nodes mounted across helper readiness changes while still cancelling drafts at display/area boundaries. Production UI smoke covers 800×544, 359×544, 640×600 and 800×600 layouts with ten power/hint cycles per size, failed-save and duplicate-start protection, unchanged-display snapshot reuse and reachable bottom content. The browser uses mocked host/IPC and does not replace native Windows, DPI or multi-monitor acceptance.
+
+Verify the master switch reports progress promptly, does not start after a failed save, and preserves action/hint choices. Scroll to geometry and the last settings section before and after disconnect/reconnect; inputs, presets and bottom content must remain reachable without clipping. Unchanged runtime display snapshots must not rebuild the preview; bounds, work-area, primary-display and identity changes must still refresh it. This frontend-only follow-up does not change the helper, schema or protocol, and previously packaged installers do not contain it until rebuilt.
+
 ## Per-zone geometry and schema-v9 acceptance
 
 Require the exact protocol7/schema9 ready handshake before sending configuration; test old, missing and future schemas without writes or dropped geometry. Migrate earlier settings without materializing overrides or changing legacy global sizes and actions. Verify shared rectangle/normalization fixtures, corner priority over full-length edges, per-display isolation, deep copies, persistence, export/import and per-zone reset. UI regression must mount the real App, cancel numeric drafts on context changes, preserve non-square ratios, update both previews, and allow selecting all eight zones inside a narrow drawer. Browser host/IPC mocks are not native acceptance evidence.

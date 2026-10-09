@@ -87,7 +87,7 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
         picker.click(); flushSync();
         const option = [...document.querySelectorAll('.picker-menu button')].find(button => button.textContent.trim() === label);
         assert.ok(option, 'the requested action must be available');
-        option.click(); await settle();
+        option.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
       };
       open(2);
       assert.equal(document.querySelector('.window-tabs button').classList.contains('active'), true, 'Windows enhancement must initially show the edge tab');
@@ -340,7 +340,7 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       assert.equal(document.querySelector('.permission-startup'), null);
       const off = [...document.querySelectorAll('.runtime-actions button')].find(button => button.textContent.trim() === 'Close');
       assert.ok(off && !off.disabled, 'stop remains a primary visible action');
-      off.click(); await settle();
+      off.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
       assert.equal(stored.enabled, false, 'stop must still use the existing host persistence path');
       assert.equal(stored.showHotzoneHint, false, 'turning off all features must retain the hint choice');
       assert.equal(document.querySelector('.power-summary').dataset.state, 'off');
@@ -349,7 +349,7 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       assert.equal(document.querySelector('.power-orb').classList.contains('on'), false);
       const on = [...document.querySelectorAll('.runtime-actions button')].find(button => button.textContent.trim() === 'Open');
       assert.ok(on && !on.disabled, 'start remains available after stopping');
-      on.click(); await settle();
+      on.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
       assert.equal(stored.enabled, true);
       ready(false);
       await unmount(component); document.body.replaceChildren();
