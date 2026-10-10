@@ -92,6 +92,10 @@ npm run desktop:runtime-force-kill-smoke
 
 The normal gate verifies helper readiness, schema v8 persistence, graceful stop, and zero sidecar residue. The conflict gate creates its own lock-holding helper, requires the desktop log marker `HELPER_INSTANCE_CONFLICT`, and then stops the holder through the authenticated protocol. The force-kill gate waits for the real packaged helper, force-terminates the owning desktop process, and requires the Job Object to remove the assigned sidecar and close port `56873`. All gates require a fresh explicit temporary data root, place WebView data under that root, reject writes to the real application-data directory, and remove their temporary data unless `-KeepData` is requested for diagnosis.
 
+## Release Script API Parameters
+
+The desktop build runs `scripts/publish-desktop-release.test.ps1` before packaging. This read-only AST check validates every static REST parameter against the local cmdlet metadata, catching split or ambiguous switches in creation, upload, replacement and promotion paths without network calls or credentials. It must fail on `-Use BasicParsing` and accept the full `-UseBasicParsing` parameter.
+
 ## Gesture Settings Navigation
 
 The full-App regression must assert that no three-card overview is rendered, while the library still selects built-in/action and screenshot templates. Its New button must create and persist a custom action gesture without replacing built-ins. Switching to screenshot must not create or delete templates; recording/action controls, pin-offset persistence and responsive layouts remain accessible. UI simplification does not change helper recognition or runtime configuration.

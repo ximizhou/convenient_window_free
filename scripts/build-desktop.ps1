@@ -11,6 +11,8 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
   throw "Desktop packages can only be built on Windows"
 }
 
+& (Join-Path $PSScriptRoot 'publish-desktop-release.test.ps1')
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $desktopDir = Join-Path $repoRoot "apps\desktop"
 $tauriDir = Join-Path $desktopDir "src-tauri"
