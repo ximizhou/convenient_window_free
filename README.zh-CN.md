@@ -25,7 +25,7 @@
 
 ## 0.6.4 开发候选
 
-开发源码在完整 0.6.3 基线上整合 PR [#21](https://github.com/ximizhou/convenient_window_free/pull/21)、[#22](https://github.com/ximizhou/convenient_window_free/pull/22)、[#23](https://github.com/ximizhou/convenient_window_free/pull/23)、[#24](https://github.com/ximizhou/convenient_window_free/pull/24) 与 [#25](https://github.com/ximizhou/convenient_window_free/pull/25)。这是本地候选，不是新 Release；0.6.3 stable 资产保持不可变。
+开发源码在完整 0.6.3 基线上整合 PR [#21](https://github.com/ximizhou/convenient_window_free/pull/21)、[#22](https://github.com/ximizhou/convenient_window_free/pull/22)、[#23](https://github.com/ximizhou/convenient_window_free/pull/23)、[#24](https://github.com/ximizhou/convenient_window_free/pull/24) 、[#25](https://github.com/ximizhou/convenient_window_free/pull/25) 与 [#26](https://github.com/ximizhou/convenient_window_free/pull/26)。这是本地候选，不是新 Release；0.6.3 stable 资产保持不可变。
 
 - 图钉同时跟随窗口位置与层级，不被自己的静止窗口盖住，也不盖过其他更上层窗口。
 - 贴图保持原像素尺寸；`ocr.pinOffset` 默认 true，向右下偏移 16 px，关闭后原地覆盖。大图或靠边贴图可能超出屏幕，不再自动缩放。
@@ -33,7 +33,7 @@
 - helper 保留 engine 的原始退出订阅，不遗漏刚启动时收到的停止要求。
 - Windows 管理员模式只在当前会话提权 helper，配置命令仍由普通宿主执行；失败查询无法确认时显示 unknown，不沿用旧权限缓存。
 
-管理员模式不支持保护进程；[issue #20](https://github.com/ximizhou/convenient_window_free/issues/20) 第二阶段的管理员计划任务/登录自动提权不在本候选范围。宿主 adapter 需要各自 runtime 验收，两宿主不能同时占用固定 56873。详见 [候选说明](docs/release-notes/0.6.4.md)、[测试清单](docs/testing.md#064-local-candidate-acceptance) 与 [本地打包](docs/release.md#develop-acceptance)。自动结果和产物身份应按实际候选记录，真人 UAC、多屏/DPI 和任务栏恢复仍需实机检查。
+桌面另有默认关闭的“登录时请求管理员权限”，开启时同时启用自启，保存设置不替换当前 helper。仅 `--autostart --request-admin` 登录实例第一次启动 helper 时弹 UAC；取消回退普通模式，启动未确认则阻止替代启动或重复授权。设置与托盘同步自启，任务管理器禁用后重新启用保留请求参数；应用内关闭自启则清除请求，只删除当前可执行文件所属条目。不创建计划任务、不静默提权，普通前台启动和自动恢复不弹登录授权。管理员模式不支持保护进程；真实登录、UAC 与升级卸载仍待转测。宿主 adapter 需要各自 runtime 验收，两宿主不能同时占用固定 56873。详见 [候选说明](docs/release-notes/0.6.4.md)、[测试清单](docs/testing.md#064-local-candidate-acceptance) 与 [本地打包](docs/release.md#develop-acceptance)。自动结果和产物身份应按实际候选记录，真人 UAC、多屏/DPI 和任务栏恢复仍需实机检查。
 
 ## 主要功能
 

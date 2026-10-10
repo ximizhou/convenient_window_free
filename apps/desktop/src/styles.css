@@ -923,12 +923,28 @@ body, .topbar, .drawer, .drawer-head, .mode-nav, .power-facts, .power-orb,
 .permission-state.warning { color: var(--amber); }
 .permission-settings .runtime-notice { margin-top: 10px; }
 .permission-toggle { display: flex; align-items: center; gap: 10px; min-height: 24px; color: var(--muted); font-size: 12px; cursor: pointer; }
-.permission-toggle > span:first-child { flex: 1; }
+.permission-toggle > span:first-child:not(.mini-switch) { flex: 1; }
 .permission-toggle small, .permission-settings > p { color: var(--faint); font-size: 11px; }
 .permission-toggle .mini-switch { position: relative; flex: none; }
 .permission-toggle input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 3px; }
 .permission-toggle input:disabled + span { opacity: .45; cursor: default; }
 .permission-settings > p { margin: 6px 0 0; }
+.permission-startup { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.permission-startup > label { flex: 1; }
+.login-toggle { margin-bottom: 10px; }
+.global-settings .language-setting { margin: 0; padding: 0; border: 0; }
+.global-settings h2, .global-settings .permission-toggle > span:first-child, .global-settings .timing label > span { margin: 0; color: var(--ink); font-size: 13px; font-weight: 500; line-height: 1.5; }
+.global-settings .permission-settings { margin-top: 20px; padding: 0; border: 0; }
+.global-settings .login-toggle { min-height: 34px; margin-bottom: 20px; }
+.global-settings .permission-heading { min-height: 34px; }
+.global-settings .permission-startup { min-height: 34px; margin-top: 20px; }
+.global-settings .permission-state, .global-settings .permission-toggle > .permission-state, .global-settings .permission-toggle small, .global-settings .permission-settings > p { color: var(--muted); font-size: 11.5px; font-weight: 400; line-height: 1.55; }
+.global-settings .permission-state.warning { color: var(--amber); }
+.global-settings .timing { padding-top: 20px; }
+.global-settings .timing label { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.global-settings .timing label > div { width: 116px; flex: none; }
+.global-settings .timing input { height: 34px; }
+.global-settings .timing em { top: 9px; font-size: 11.5px; }
 
 /* A small per-area editor; the preview is proportional, not a hit target. */
 .hotzone-geometry { min-width: 0; margin-top: 12px; padding: 13px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raised); }

@@ -1,8 +1,9 @@
 import { translator, LANGUAGE_KEY, resolveInitialLanguage, type Language } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { DesktopDiagnostics, HostBridge } from "./host-bridge";
+import type { AdminStartupState, DesktopDiagnostics, HostBridge } from "./host-bridge";
 
 interface DesktopStatus {
   dataDir: string;
@@ -80,7 +81,8 @@ export async function createDesktopHostBridge(): Promise<HostBridge> {
           ok: true,
           alreadyRunning: result.alreadyRunning,
           helperPath: result.helperPath,
-          dataDir: result.dataDir
+          dataDir: result.dataDir,
+          warning: result.warning ?? undefined
         };
       } catch (error) {
         await refreshRuntimeState();
@@ -100,6 +102,29 @@ export async function createDesktopHostBridge(): Promise<HostBridge> {
     },
     getPrivilegeSupport: () => ({ supported: status.administratorModeSupported }),
     getPrivilegeState: () => ({ supported: status.administratorModeSupported, elevated }),
+    async getStartup() {
+      try { return { enabled: await invoke<boolean>("startup_status") }; }
+      catch { return { enabled: null, error: "startupUnknown" }; }
+    },
+    async setStartup(enabled) {
+      try { return { enabled: await invoke<boolean>("set_startup", { enabled }) }; }
+      catch (error) {
+        const actual = await invoke<boolean>("startup_status").catch(() => null);
+        return { enabled: actual, error: errorMessage(error) };
+      }
+    },
+    onStartupChanged: handler => listen<string | null>("startup-changed", event => handler(event.payload ?? undefined)),
+    async getAdminStartup() {
+      try { return await invoke<AdminStartupState>("admin_startup_status"); }
+      catch { return { enabled: null, error: "adminStartupUnknown" }; }
+    },
+    async setAdminStartup(enabled) {
+      try { return await invoke<AdminStartupState>("set_admin_startup", { enabled }); }
+      catch (error) {
+        const state = await invoke<AdminStartupState>("admin_startup_status").catch(() => ({ enabled: null }));
+        return { ...state, error: errorMessage(error) };
+      }
+    },
     async setHelperElevation(desired) {
       try {
         const result = await invoke<StartHelperResult>("set_helper_elevation", { elevated: desired });

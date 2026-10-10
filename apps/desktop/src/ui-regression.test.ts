@@ -42,6 +42,17 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       const installState = () => ({ installed: helperInstalled, development: false, version: '0.6.4', bytes: 0 });
       let elevationResult = { ok: true, elevated: true };
       const elevationRequests = [];
+      let startupState = { enabled: false };
+      let loginEnabled = false, startupChanged;
+      let finishStartup;
+      const startupRequests = [];
+      const startupReads = [], adminStartupReads = [];
+      let startupReadCalls = 0, adminStartupReadCalls = 0;
+      const deferred = () => {
+        let resolve;
+        const promise = new Promise(done => { resolve = done; });
+        return { promise, resolve };
+      };
       let setElevation = async elevated => { elevationRequests.push(elevated); return elevationResult; };
       configureHostBridge({
         kind: 'desktop', getInitialSettings: () => structuredClone(stored),
@@ -52,10 +63,16 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
         getPrivilegeState: () => ({ supported: true, elevated: null }),
         startHelper: async () => { startCalls++; return { ok: true }; },
         setHelperElevation: elevated => setElevation(elevated),
+        getAdminStartup: async () => { adminStartupReadCalls++; return adminStartupReads.shift()?.promise ?? startupState; },
+        getStartup: async () => { startupReadCalls++; return startupReads.shift()?.promise ?? { enabled: loginEnabled }; },
+        setStartup: async enabled => { loginEnabled = enabled; if (!enabled) startupState = { enabled: false }; return { enabled }; },
+        onStartupChanged: async handler => { startupChanged = handler; return () => {}; },
+        setAdminStartup: enabled => { startupRequests.push(enabled); return new Promise(resolve => { finishStartup = resolve; }); },
         saveSettings: async value => { if (failSaves) throw new Error("settings-write-failure"); stored = structuredClone(value); saves++; }
       });
       const settle = async () => { for (let i = 0; i < 8; i++) { await Promise.resolve(); flushSync(); } };
       const open = index => { document.querySelectorAll('.mode-nav button')[index].click(); flushSync(); };
+      const openSettings = () => { document.querySelector('.settings-toggle').click(); flushSync(); };
       const ready = elevated => { receiveStatus('connected'); receive({ type: 'helper.ready', data: { protocolVersion: SUPPORTED_HELPER_PROTOCOL, schemaVersion: 9, version: '0.6.4', elevated } }); flushSync(); };
       const pin = () => document.querySelector('.pin-offset-option button');
       const screenshot = () => { open(3); document.querySelector('button.screenshot').click(); flushSync(); };
@@ -178,10 +195,114 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       component = mount(App, { target: document.body }); flushSync(); await settle(); screenshot();
       assert.equal(pin().getAttribute('aria-pressed'), 'true', 'pin offset must survive remount');
       open(0); receiveStatus('connected'); flushSync();
-      assert.equal(document.querySelector('.permission-settings'), null, 'permission settings must not remain in the runtime center');
-      const openSettings = () => { document.querySelector('.settings-toggle').click(); flushSync(); };
+      assert.equal(document.querySelector('.permission-settings'), null, 'runtime center must not contain startup or privilege settings');
       openSettings();
-      const permission = () => document.querySelector('.permission-settings input[role="switch"]');
+      assert.equal(document.querySelectorAll('.permission-settings input[role="switch"]').length, 3, 'settings must contain all three startup and privilege switches');
+      const login = () => document.querySelector('.login-toggle input');
+      assert.equal(login().checked, false);
+      login().click(); await settle();
+      assert.equal(login().checked, true, 'login switch reflects the persisted state');
+      loginEnabled = false;
+      startupChanged(); await settle();
+      assert.equal(login().checked, false, 'tray changes refresh the open settings panel');
+      const startup = () => document.querySelector('.permission-startup input');
+      assert.equal(startup().checked, false);
+      assert.ok(document.querySelector('#admin-startup-description').textContent.includes('UAC'), 'login authorization must be explained beside its switch');
+      const beforeStartupConnections = connectCalls;
+      startup().click(); await settle();
+      assert.deepEqual(startupRequests, [true]);
+      assert.equal(startup().disabled, true);
+      assert.equal(login().disabled, true, 'login startup cannot race administrator preference update');
+      assert.equal(startup().checked, false, 'preference update must not be optimistically enabled');
+      startupChanged('busy-tray-error'); await settle();
+      assert.ok(!document.querySelector('.permission-settings').textContent.includes('busy-tray-error'), 'tray errors during a UI write must not replace the pending write notice');
+      startup().dispatchEvent(new Event('change')); await settle();
+      assert.equal(startupRequests.length, 1, 'preference update cannot be requested twice while persistence is pending');
+      finishStartup({ enabled: false, error: 'access denied' }); await settle();
+      assert.equal(startup().checked, false);
+      assert.equal(startup().disabled, false);
+      startup().click(); await settle();
+      loginEnabled = true;
+      finishStartup({ enabled: true }); await settle();
+      assert.equal(startup().checked, true);
+      assert.equal(login().checked, true, 'administrator preference update refreshes ordinary startup');
+      assert.equal(connectCalls, beforeStartupConnections, 'login preference does not replace the current helper');
+      startup().click(); await settle();
+      assert.equal(startupRequests.at(-1), false);
+      finishStartup({ enabled: false }); await settle();
+      assert.equal(startup().checked, false);
+      startupState = { enabled: true };
+      startupChanged(); await settle();
+      login().click(); await settle();
+      assert.equal(login().checked, false);
+      assert.equal(startup().checked, false, 'disabling login refreshes the cleared administrator request');
+
+      // Use the real focus listener and switches, not copies of App's refresh functions.
+      const lateFocus = deferred();
+      startupReads.push(lateFocus);
+      window.dispatchEvent(new Event('focus')); await settle();
+      startup().click(); await settle();
+      loginEnabled = true; startupState = { enabled: true };
+      finishStartup({ enabled: true }); await settle();
+      assert.equal(login().checked, true);
+      assert.equal(startup().checked, true);
+      lateFocus.resolve({ enabled: false }); await settle();
+      assert.equal(login().checked, true, 'old focus query must not overwrite a completed administrator-startup write');
+      assert.equal(startup().checked, true);
+
+      const lateFocusBeforeDisable = deferred();
+      startupReads.push(lateFocusBeforeDisable);
+      window.dispatchEvent(new Event('focus')); await settle();
+      login().click(); await settle();
+      assert.equal(login().checked, false);
+      assert.equal(startup().checked, false);
+      lateFocusBeforeDisable.resolve({ enabled: true }); await settle();
+      assert.equal(login().checked, false, 'old focus query must not overwrite a completed ordinary-startup write');
+      assert.equal(startup().checked, false);
+
+      const olderLogin = deferred(), olderAdmin = deferred();
+      const newerLogin = deferred(), newerAdmin = deferred();
+      startupReads.push(olderLogin, newerLogin);
+      adminStartupReads.push(olderAdmin, newerAdmin);
+      window.dispatchEvent(new Event('focus')); await settle();
+      window.dispatchEvent(new Event('focus')); await settle();
+      newerLogin.resolve({ enabled: true }); await settle();
+      assert.equal(login().checked, false, 'a refresh must wait for both startup fields before committing either');
+      assert.equal(startup().checked, false);
+      loginEnabled = true; startupState = { enabled: true };
+      newerAdmin.resolve({ enabled: true }); await settle();
+      assert.equal(login().checked, true, 'the newest complete refresh must update the ordinary-startup switch');
+      assert.equal(startup().checked, true, 'the newest complete refresh must update the administrator-startup switch');
+      olderLogin.resolve({ enabled: false }); await settle();
+      assert.equal(login().checked, true);
+      olderAdmin.resolve({ enabled: false }); await settle();
+      assert.equal(login().checked, true, 'reverse-order focus responses must not replace the newest startup snapshot');
+      assert.equal(startup().checked, true);
+
+      const olderTrayLogin = deferred(), olderTrayAdmin = deferred();
+      const focusedLogin = deferred(), focusedAdmin = deferred();
+      startupReads.push(olderTrayLogin, focusedLogin);
+      adminStartupReads.push(olderTrayAdmin, focusedAdmin);
+      startupChanged('tray-startup-write-failure'); flushSync();
+      assert.ok(document.querySelector('.permission-settings').textContent.includes('tray-startup-write-failure'), 'tray errors must be visible without waiting for the startup query');
+      window.dispatchEvent(new Event('focus')); await settle();
+      focusedLogin.resolve({ enabled: true }); focusedAdmin.resolve({ enabled: true }); await settle();
+      assert.ok(document.querySelector('.permission-settings').textContent.includes('tray-startup-write-failure'), 'focus refresh must not discard the preceding tray error when it supersedes the tray query');
+      olderTrayLogin.resolve({ enabled: false }); olderTrayAdmin.resolve({ enabled: false }); await settle();
+      assert.equal(login().checked, true, 'late tray query must not replace the newer focus snapshot');
+      assert.equal(startup().checked, true);
+      assert.ok(document.querySelector('.permission-settings').textContent.includes('tray-startup-write-failure'), 'reverse-order tray and focus query results must retain the tray error');
+      startupChanged(); await settle();
+      assert.ok(!document.querySelector('.permission-settings').textContent.includes('tray-startup-write-failure'), 'a successful tray event clears the previous tray error');
+      const lateTrayError = deferred();
+      startupReads.push(lateTrayError);
+      startupChanged('obsolete-tray-error'); await settle();
+      login().click(); await settle();
+      lateTrayError.resolve({ enabled: true }); await settle();
+      assert.equal(login().checked, false);
+      assert.equal(startup().checked, false);
+      assert.ok(!document.querySelector('.permission-settings').textContent.includes('obsolete-tray-error'), 'an invalidated tray refresh must not resurrect its old error notice');
+      const permission = () => document.querySelector('.permission-settings input[aria-label="Administrator access"], .permission-settings input[aria-label="管理员权限"]');
       assert.ok(permission(), 'both real Apps must expose the supported helper permission control');
       assert.equal(permission().getAttribute('aria-label'), 'Administrator access');
       assert.equal(permission().disabled, true, 'a socket without a ready permission report is still unknown');
@@ -308,7 +429,8 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       assert.equal(document.querySelector('.power-summary').dataset.state, 'running');
       assert.ok(document.querySelector('.power-orb').classList.contains('on'));
       openSettings();
-      assert.ok(document.querySelector('.permission-settings').textContent.includes('Standard'));
+      assert.equal(permission().checked, false);
+      assert.equal(document.querySelector('.permission-state'), null, 'known permission uses only the switch state');
       open(0);
       assert.ok(runtimeDetails().querySelector('.runtime-platform').textContent.includes('x86_64'), 'platform information belongs inside details');
       runtimeDetails().querySelector('summary').click(); flushSync();
@@ -325,7 +447,8 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
 
       ready(true);
       openSettings();
-      assert.ok(document.querySelector('.permission-settings').textContent.includes('Administrator'));
+      assert.equal(permission().checked, true);
+      assert.equal(document.querySelector('.permission-state'), null, 'known permission uses only the switch state');
       open(0);
       receiveStatus('disconnected'); flushSync();
       assert.equal(document.querySelector('.power-summary').dataset.state, 'error', 'a disconnect with a recovery error must not claim to be starting');
@@ -352,7 +475,15 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       on.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
       assert.equal(stored.enabled, true);
       ready(false);
+      const unmountedLogin = deferred(), unmountedAdmin = deferred();
+      startupReads.push(unmountedLogin); adminStartupReads.push(unmountedAdmin);
+      window.dispatchEvent(new Event('focus')); await settle();
+      const retiredStartupChanged = startupChanged;
       await unmount(component); document.body.replaceChildren();
+      const readsAfterUnmount = [startupReadCalls, adminStartupReadCalls];
+      retiredStartupChanged('late-unmounted-error');
+      unmountedLogin.resolve({ enabled: true }); unmountedAdmin.resolve({ enabled: true }); await settle();
+      assert.deepEqual([startupReadCalls, adminStartupReadCalls], readsAfterUnmount, 'unmount invalidates pending refreshes and ignores a queued old subscription callback');
       for (const language of ['en-US', 'zh-CN']) {
         stored.enabled = false;
         localStorage.setItem('convenient-window-language', language);

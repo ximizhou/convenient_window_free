@@ -20,7 +20,7 @@
   import { prepareSettingsUpdate } from "./settings-sync";
   import { numberSetting } from "./number-setting";
   import { SettingsApplyController } from "./settings-persistence";
-  import { getHostBridge } from "./host-bridge";
+  import { getHostBridge, type AdminStartupState } from "./host-bridge";
   import { defaultSettings, loadSettings, MAX_GESTURE_TEMPLATES, normalizeSettings, saveSettings } from "./settings-store";
   import { LANGUAGE_KEY, normalizeLanguage, resolveInitialLanguage, translator } from "./i18n";
   import { en, format, zh } from "./i18n";
@@ -131,6 +131,74 @@
   let helperElevated: boolean | null = null;
   let switchingPrivilege = false;
   let privilegeNotice = "";
+  let adminStartup: AdminStartupState = { enabled: null };
+  let changingAdminStartup = false;
+  let startupNotice = "";
+  let startup: { enabled: boolean | null; error?: string } = { enabled: null };
+  let changingStartup = false;
+  let startupRefreshVersion = 0;
+  let startupRefreshDisposed = false;
+
+  async function refreshAdminStartup(): Promise<void> {
+    if (startupRefreshDisposed || changingAdminStartup || changingStartup) return;
+    const version = ++startupRefreshVersion;
+    const [nextStartup, nextAdminStartup] = await Promise.all([
+      host.getStartup ? host.getStartup() : startup,
+      administratorModeSupported && host.getAdminStartup ? host.getAdminStartup() : adminStartup
+    ]);
+    // Publish one complete snapshot only if no later refresh, write, or unmount superseded it.
+    if (startupRefreshDisposed || version !== startupRefreshVersion || changingAdminStartup || changingStartup) return;
+    startup = nextStartup;
+    adminStartup = nextAdminStartup;
+  }
+
+  async function setStartup(enabled: boolean): Promise<void> {
+    if (!host.setStartup || changingStartup || changingAdminStartup) return;
+    ++startupRefreshVersion;
+    changingStartup = true;
+    startupNotice = "";
+    try {
+      startup = await host.setStartup(enabled);
+      startupNotice = startup.error ?? "";
+      if (administratorModeSupported && host.getAdminStartup) adminStartup = await host.getAdminStartup();
+    } finally { changingStartup = false; }
+  }
+
+  async function setAdminStartup(enabled: boolean): Promise<void> {
+    if (!host.setAdminStartup || changingAdminStartup || changingStartup) return;
+    ++startupRefreshVersion;
+    changingAdminStartup = true;
+    startupNotice = "";
+    try {
+      adminStartup = await host.setAdminStartup(enabled);
+      startupNotice = adminStartup.error ?? "";
+      if (host.getStartup) startup = await host.getStartup();
+    } finally { changingAdminStartup = false; }
+  }
+
+  onMount(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void refreshAdminStartup();
+    void host.onStartupChanged?.((error?: string) => {
+      if (disposed || changingAdminStartup || changingStartup) return;
+      // Native error events can be followed immediately by focus. Keep their notice
+      // independent of refresh ordering; a newer query must not silently discard it.
+      startupNotice = error ?? "";
+      void refreshAdminStartup();
+    }).then(stop => {
+      if (disposed) stop(); else unlisten = stop;
+    }).catch(() => {});
+    const onFocus = () => { void refreshAdminStartup(); };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      disposed = true;
+      startupRefreshDisposed = true;
+      ++startupRefreshVersion;
+      unlisten?.();
+      window.removeEventListener("focus", onFocus);
+    };
+  });
   let helperPlatform: HelperPlatformInfo | null = null;
   let displays: DisplayInfo[] = [fallbackDisplay];
   let displayReady = false;
@@ -1059,6 +1127,7 @@
 
   async function startHelper(): Promise<boolean> {
     const result = await host.startHelper();
+    privilegeNotice = result.warning ?? "";
     lastMessage = result.ok
       ? result.alreadyRunning ? "helperStarting" : "helperStartedConnecting"
       : result.error ?? "helperStartFailed";
@@ -1513,20 +1582,44 @@
             {:else if mode === "beautification"}
               <TaskbarAppearance {english} appearance={settings.taskbarAppearance} connected={helperStatus === "connected"} masterEnabled={settings.enabled} status={taskbarStatus} onChange={updateTaskbarAppearance} />
             {:else}
-              <div class="setting-title"><div><h2>{ui("moreGlobal")}</h2><p>{ui("moreDescription")}</p></div></div>
-              <div class="language-setting"><div><h2>{ui("language")}</h2><p>{ui("languageDescription")}</p></div><select aria-label={ui("language")} bind:value={language} on:change={setLanguage}><option value="zh-CN">{ui("chinese")}</option><option value="en-US">{ui("english")}</option></select></div>
-              <section class="permission-settings" aria-label={ui("runtimePermission")}>
-                <div class="permission-heading"><h2>{ui("adminMode")}</h2>
+              <div class="global-settings">
+                <div class="language-setting"><h2>{ui("language")}</h2><select aria-label={ui("language")} bind:value={language} on:change={setLanguage}><option value="zh-CN">{ui("chinese")}</option><option value="en-US">{ui("english")}</option></select></div>
+                <section class="permission-settings" aria-label={ui("runtimePermission")}>
+                  {#if host.getStartup}
+                    <label class="permission-toggle login-toggle">
+                      <span>{ui("trayAutostart")}</span>
+                      <span class="mini-switch">
+                        <input type="checkbox" role="switch" aria-label={ui("trayAutostart")} checked={startup.enabled === true} disabled={startup.enabled === null || changingStartup || changingAdminStartup} on:change={(event) => { event.currentTarget.checked = startup.enabled === true; void setStartup(!startup.enabled); }} />
+                        <span aria-hidden="true"></span>
+                      </span>
+                    </label>
+                  {/if}
+                  <div class="permission-heading"><h2>{ui("adminMode")}</h2>
+                    {#if administratorModeSupported}
+                      <label class="permission-toggle" title={ui("adminModeDetail")}>{#if switchingPrivilege || helperElevated === null}<span class="permission-state" class:warning={helperElevated === null} aria-live="polite">{switchingPrivilege ? ui("adminSwitching") : ui("adminStateUnknown")}</span>{/if}<span class="mini-switch"><input type="checkbox" role="switch" aria-label={ui("adminMode")} aria-describedby="helper-permission-description" checked={helperElevated === true} disabled={helperElevated === null || switchingPrivilege || starting || stopping || upgradingHelper || recoveringHelper || !settings.enabled || helperStatus !== "connected"} on:change={(event) => { event.currentTarget.checked = helperElevated === true; void switchHelperPrivilege(); }} /><span aria-hidden="true"></span></span></label>
+                    {:else}<span class="permission-state">{ui("runtimeUnavailable")}</span>{/if}
+                  </div>
+                  <p id="helper-permission-description">{ui("adminModeDetail")}</p>
                   {#if administratorModeSupported}
-                    <label class="permission-toggle" title={ui("adminModeDetail")}><span class="permission-state" class:warning={helperElevated === null} aria-live="polite">{switchingPrivilege ? ui("adminSwitching") : helperElevated === null ? ui("adminStateUnknown") : helperElevated ? ui("runtimeAdministrator") : ui("runtimeStandard")}</span><span class="mini-switch"><input type="checkbox" role="switch" aria-label={ui("adminMode")} aria-describedby="helper-permission-description" checked={helperElevated === true} disabled={helperElevated === null || switchingPrivilege || starting || stopping || upgradingHelper || recoveringHelper || !settings.enabled || helperStatus !== "connected"} on:change={(event) => { event.currentTarget.checked = helperElevated === true; void switchHelperPrivilege(); }} /><span aria-hidden="true"></span></span></label>
-                  {:else}<span class="permission-state">{ui("runtimeUnavailable")}</span>{/if}
-                </div>
-                <p id="helper-permission-description">{ui("adminModeDetail")}</p>
-                {#if privilegeNotice}<p class="runtime-notice" role="status">{statusText(privilegeNotice, english)}</p>{/if}
-                {#if helperError}<div class="runtime-notice error" role="alert">{statusText(helperError, english)}</div>{/if}
-              </section>
-              <div class="timing single"><label><span>{ui("pollInterval")}</span><div><input use:numberSetting={{ value: settings.pollIntervalMs, onChange: (value) => { settings.pollIntervalMs = value; persist(); } }} min="10" max="250" type="number" /><em>ms</em></div></label></div>
-              <div class="config-section"><h2>{ui("config")}</h2><div class="config-actions"><button class="quiet" on:click={exportSettings} type="button">{ui("export")}</button><button class="quiet" on:click={importSettings} type="button">{ui("import")}</button><button class="danger" on:click={resetSettings} type="button">{ui("reset")}</button></div></div>
+                    <div class="permission-startup">
+                      <label class="permission-toggle" title={ui("adminStartupDetail")}>
+                        <span>{ui("adminStartup")}</span>
+                        {#if changingAdminStartup}<small>{ui("adminSwitching")}</small>{/if}
+                        <span class="mini-switch">
+                          <input type="checkbox" role="switch" aria-label={ui("adminStartup")} aria-describedby="admin-startup-description" checked={adminStartup.enabled === true} disabled={adminStartup.enabled === null || changingAdminStartup || changingStartup} on:change={(event) => { event.currentTarget.checked = adminStartup.enabled === true; void setAdminStartup(!adminStartup.enabled); }} />
+                          <span></span>
+                        </span>
+                      </label>
+                    </div>
+                    <p id="admin-startup-description">{ui("adminStartupDetail")}</p>
+                  {/if}
+                  {#if startupNotice || startup.error || adminStartup.error}<p role="status">{statusText(startupNotice || startup.error || adminStartup.error || "")}</p>{/if}
+                  {#if privilegeNotice}<p class="runtime-notice" role="status">{statusText(privilegeNotice, english)}</p>{/if}
+                  {#if helperError}<div class="runtime-notice error" role="alert">{statusText(helperError, english)}</div>{/if}
+                </section>
+                <div class="timing single"><label><span>{ui("pollInterval")}</span><div><input use:numberSetting={{ value: settings.pollIntervalMs, onChange: (value) => { settings.pollIntervalMs = value; persist(); } }} min="10" max="250" type="number" /><em>ms</em></div></label></div>
+                <div class="config-section"><h2>{ui("config")}</h2><div class="config-actions"><button class="quiet" on:click={exportSettings} type="button">{ui("export")}</button><button class="quiet" on:click={importSettings} type="button">{ui("import")}</button><button class="danger" on:click={resetSettings} type="button">{ui("reset")}</button></div></div>
+              </div>
             {/if}
           </div>
         {/key}

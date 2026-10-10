@@ -88,6 +88,7 @@ Var CwLegacyDirectory
 !macro CW_REMOVE_STARTUP_ENTRY NAME
     ReadRegStr $R0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${NAME}"
     ${If} $R0 == '$\"$INSTDIR\${MAINBINARYNAME}.exe$\" --autostart'
+    ${OrIf} $R0 == '$\"$INSTDIR\${MAINBINARYNAME}.exe$\" --autostart --request-admin'
     ${OrIf} $R0 == '$INSTDIR\${MAINBINARYNAME}.exe --autostart'
       DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${NAME}"
       DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${NAME}"
@@ -99,6 +100,7 @@ Var CwLegacyDirectory
     ; A silent upgrade may be uninstalled before the first application launch.
     !insertmacro CW_REMOVE_STARTUP_ENTRY "${CW_LEGACY_NAME}"
     !insertmacro CW_REMOVE_STARTUP_ENTRY "convenient-window"
+    !insertmacro CW_REMOVE_STARTUP_ENTRY "${PRODUCTNAME}"
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
   ${EndIf}
 !macroend
