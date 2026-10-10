@@ -23,9 +23,9 @@ Download the Windows installer or portable archive from the [latest stable relea
 
 Release assets are currently unsigned. Windows may show an unknown-publisher or Microsoft Defender SmartScreen warning. Checksums and an artifact manifest are included with each release so the downloaded files can be verified.
 
-## 0.6.4 Development Candidate
+## 0.6.4 Pre-release Candidate
 
-The development source integrates PRs [#21](https://github.com/ximizhou/convenient_window_free/pull/21), [#22](https://github.com/ximizhou/convenient_window_free/pull/22), [#23](https://github.com/ximizhou/convenient_window_free/pull/23), [#24](https://github.com/ximizhou/convenient_window_free/pull/24), [#25](https://github.com/ximizhou/convenient_window_free/pull/25), and [#26](https://github.com/ximizhou/convenient_window_free/pull/26) on the complete 0.6.3 baseline. This is a local candidate, not a published release; 0.6.3 stable assets remain immutable.
+The development source integrates PRs [#21](https://github.com/ximizhou/convenient_window_free/pull/21), [#22](https://github.com/ximizhou/convenient_window_free/pull/22), [#23](https://github.com/ximizhou/convenient_window_free/pull/23), [#24](https://github.com/ximizhou/convenient_window_free/pull/24), [#25](https://github.com/ximizhou/convenient_window_free/pull/25), and [#26](https://github.com/ximizhou/convenient_window_free/pull/26) on the complete 0.6.3 baseline. The [0.6.4 pre-release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.4) is the public-download testing candidate, not a stable release; 0.6.3 stable assets remain immutable.
 
 - Pins follow both their window position and stacking order without covering unrelated higher windows.
 - Pinned screenshots start at original pixel size. `ocr.pinOffset` defaults to true (16 px down/right); turning it off covers the captured area. Large or edge-adjacent images may extend beyond the screen instead of being automatically resized.

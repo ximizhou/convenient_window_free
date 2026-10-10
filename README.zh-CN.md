@@ -23,9 +23,9 @@
 
 当前发布文件尚未进行代码签名，Windows 可能显示“未知发布者”或 Microsoft Defender SmartScreen 提示。每个 Release 都提供校验和与产物清单，可用于核对下载文件。
 
-## 0.6.4 开发候选
+## 0.6.4 Pre-release 测试候选
 
-开发源码在完整 0.6.3 基线上整合 PR [#21](https://github.com/ximizhou/convenient_window_free/pull/21)、[#22](https://github.com/ximizhou/convenient_window_free/pull/22)、[#23](https://github.com/ximizhou/convenient_window_free/pull/23)、[#24](https://github.com/ximizhou/convenient_window_free/pull/24) 、[#25](https://github.com/ximizhou/convenient_window_free/pull/25) 与 [#26](https://github.com/ximizhou/convenient_window_free/pull/26)。这是本地候选，不是新 Release；0.6.3 stable 资产保持不可变。
+开发源码在完整 0.6.3 基线上整合 PR [#21](https://github.com/ximizhou/convenient_window_free/pull/21)、[#22](https://github.com/ximizhou/convenient_window_free/pull/22)、[#23](https://github.com/ximizhou/convenient_window_free/pull/23)、[#24](https://github.com/ximizhou/convenient_window_free/pull/24) 、[#25](https://github.com/ximizhou/convenient_window_free/pull/25) 与 [#26](https://github.com/ximizhou/convenient_window_free/pull/26)。[0.6.4 Pre-release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.4) 用于公开下载安装转测，尚未转正式版；0.6.3 stable 资产保持不可变。
 
 - 图钉同时跟随窗口位置与层级，不被自己的静止窗口盖住，也不盖过其他更上层窗口。
 - 贴图保持原像素尺寸；`ocr.pinOffset` 默认 true，向右下偏移 16 px，关闭后原地覆盖。大图或靠边贴图可能超出屏幕，不再自动缩放。
