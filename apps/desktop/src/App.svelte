@@ -99,7 +99,6 @@
     { label: "自定义快捷键", labelEn: "Custom shortcut", group: "高级", groupEn: "Advanced", kind: "shortcut" },
     { label: "运行命令", labelEn: "Run command", group: "高级", groupEn: "Advanced", kind: "open-command" }
   ];
-  const maxCustomGestures = MAX_GESTURE_TEMPLATES - defaultSettings.mouseGestures.gestures.length;
   const CONFIG_APPLY_DEBOUNCE_MS = 260;
   const HELPER_STABILITY_MS = 60_000;
   const capabilityLabels: Record<keyof HelperPlatformInfo["capabilities"], [string, string]> = {
@@ -945,16 +944,6 @@
     gestureShortcutError = "";
   }
 
-  function selectFirstActionGesture(): void {
-    const gesture = settings.mouseGestures.gestures.find((item) => item.mode === "action");
-    if (gesture) selectGesture(gesture.id);
-  }
-
-  function selectScreenshotGesture(): void {
-    const gesture = settings.mouseGestures.gestures.find((item) => item.mode === "region-screenshot");
-    if (gesture) selectGesture(gesture.id);
-  }
-
   function recordGesture(sample: GesturePoint[]): void {
     const gesture = currentGesture();
     const normalized = resampleGesture(sample);
@@ -1466,12 +1455,6 @@
               <div class="gesture-intro">
                 <div><span>{ui("gestureTitle")}</span><h2>{ui("gestureHeading")}</h2><p>{ui("gestureDescription")}</p></div>
                 <label class="mini-switch"><input aria-label={ui("enableGesture")} bind:checked={settings.mouseGestures.enabled} on:change={() => persist()} type="checkbox" /><span></span></label>
-              </div>
-
-              <div class="gesture-capabilities" aria-label={ui("gestureOverview")}>
-                <button class:active={activeGesture.mode === "action" && activeGesture.builtin} on:click={selectFirstActionGesture} type="button"><i class="capability-mark action-mark">↗</i><span><b>{ui("actionGestures")}</b><small>{ui("actionGesturesDescription")}</small></span><em>{settings.mouseGestures.gestures.filter((item) => item.mode === "action" && item.builtin).length}{ui("gestureBuiltinCount")}</em></button>
-                <button class:active={activeGesture.mode === "action" && !activeGesture.builtin} on:click={createGesture} type="button"><i class="capability-mark custom-mark">＋</i><span><b>{ui("customGesture")}</b><small>{ui("recordPatternHint")}</small></span><em>{settings.mouseGestures.gestures.filter((item) => !item.builtin).length} / {maxCustomGestures}</em></button>
-                <button class:screenshot-active={activeGesture.mode === "region-screenshot"} on:click={selectScreenshotGesture} type="button"><i class="capability-mark screenshot-mark"></i><span><b>{ui("regionScreenshot")}</b><small>{ui("regionScreenshotHint")}</small></span><em>{ui("provided")}</em></button>
               </div>
 
               <div class="gesture-workbench">

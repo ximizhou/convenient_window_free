@@ -75,7 +75,14 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       const openSettings = () => { document.querySelector('.settings-toggle').click(); flushSync(); };
       const ready = elevated => { receiveStatus('connected'); receive({ type: 'helper.ready', data: { protocolVersion: SUPPORTED_HELPER_PROTOCOL, schemaVersion: 9, version: '0.6.4', elevated } }); flushSync(); };
       const pin = () => document.querySelector('.pin-offset-option button');
-      const screenshot = () => { open(3); document.querySelector('button.screenshot').click(); flushSync(); };
+      const screenshot = () => {
+        if (!document.querySelector('.gesture-catalog')) open(3);
+        assert.ok(!document.querySelector('.gesture-capabilities'), 'redundant gesture overview cards must not be rendered');
+        assert.ok(document.querySelector('.gesture-section-head button'), 'the library must keep its new-gesture entry');
+        const capture = document.querySelector('.gesture-library button.screenshot');
+        assert.ok(capture, 'screenshot selection must remain in the gesture library');
+        capture.click(); flushSync();
+      };
       let component = mount(App, { target: document.body });
       flushSync(); await settle();
       const topmostPin = () => {
@@ -194,6 +201,19 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       await unmount(component); document.body.replaceChildren();
       component = mount(App, { target: document.body }); flushSync(); await settle(); screenshot();
       assert.equal(pin().getAttribute('aria-pressed'), 'true', 'pin offset must survive remount');
+      document.querySelector('.gesture-library button:not(.screenshot)').click(); flushSync();
+      assert.ok(document.querySelector('.gesture-library button.active:not(.screenshot)'), 'built-in action gestures remain selectable from the library');
+      assert.ok(document.querySelector('.gesture-editor .action-editor'), 'built-in action controls remain reachable');
+      const gestureCountBeforeNew = stored.mouseGestures.gestures.length;
+      document.querySelector('.gesture-section-head button').click(); await settle();
+      assert.equal(stored.mouseGestures.gestures.length, gestureCountBeforeNew + 1, 'the remaining library new button must still create a custom gesture');
+      const createdGesture = stored.mouseGestures.gestures.at(-1);
+      assert.equal(createdGesture.builtin, false, 'new gestures remain custom, not built-in replacements');
+      assert.equal(createdGesture.mode, 'action', 'new gestures retain their action editor');
+      assert.ok(document.querySelector('.gesture-library button.active'), 'the created gesture remains selectable');
+      assert.ok(document.querySelector('.gesture-editor .action-editor'), 'the selected custom gesture keeps its action binding controls');
+      screenshot();
+      assert.equal(stored.mouseGestures.gestures.length, gestureCountBeforeNew + 1, 'selecting screenshot must not create or delete gestures');
       open(0); receiveStatus('connected'); flushSync();
       assert.equal(document.querySelector('.permission-settings'), null, 'runtime center must not contain startup or privilege settings');
       openSettings();

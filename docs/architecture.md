@@ -82,6 +82,10 @@ The desktop host and helper never write the same file:
 
 The UI awaits a successful durable desktop-settings write before sending that exact revision to the helper. Migration uses the same atomic writer and rolling `.bak` file; later saves replace that backup. A failed write is visible to the UI and is never applied to the helper. On first launch after upgrading from the early shared-file layout, the desktop host copies the legacy helper configuration into `desktop-settings.json` only when the new file does not exist; it never overwrites an existing desktop settings file.
 
+## Gesture settings navigation (0.6.4)
+
+Gesture settings use the library as the single selection surface and its New button for creation; no redundant three-card overview is rendered. Removing those shortcuts does not change templates, recording, recognition, action binding, or screenshot settings, and adds no runtime work.
+
 ## Number drafts and pinned-image placement (0.6.4)
 
 `number-setting.ts` separates incomplete numeric input from normalized settings. Valid in-range integers persist through the existing path; empty, incomplete, or out-of-range input remains a draft until blur or Enter. Changing display, hot zone, or trigger discards the old context draft. Monitor-specific hot-zone controls wait for an actual helper-reported display identity instead of writing a temporary placeholder profile. Cold-start editing can therefore be briefly unavailable.
