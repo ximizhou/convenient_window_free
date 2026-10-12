@@ -45,9 +45,14 @@ export interface ModifierAction {
   action: HotzoneAction;
 }
 
+export type HotzoneGeometry =
+  | { kind: "corner"; width: number; height: number; linked: boolean }
+  | { kind: "edge"; thickness: number; lengthPercent: number };
+
 export interface HotzoneSetting {
   id: HotzoneId;
   enabled: boolean;
+  geometry?: HotzoneGeometry;
   actions: TriggerAction[];
 }
 
@@ -76,6 +81,7 @@ export interface AppSettings {
   schemaVersion: number;
   enabled: boolean;
   hotzonesEnabled: boolean;
+  showHotzoneHint: boolean;
   edgeSize: number;
   hoverDelayMs: number;
   pollIntervalMs: number;
@@ -98,6 +104,11 @@ export interface TaskbarAppearanceStatus {
   errorCode?: string;
   backgrounds?: number;
   available?: boolean;
+  backend?: "classic" | "xaml";
+  /** The helper will not retry this state until the user changes the revision. */
+  terminal?: boolean;
+  /** The existing Apply/Retry action may clear the terminal latch. */
+  retryable?: boolean;
   materials?: TaskbarAppearanceMode[];
 }
 
@@ -142,6 +153,9 @@ export interface MouseGestureSettings {
 export interface EdgeHideSettings {
   enabled: boolean;
   animationEnabled: boolean;
+  animationDurationMs: number;
+  topTriggerDistance: number;
+  topHoverDelayMs: number;
   showPreview: boolean;
   showRestoreHint: boolean;
   keepExpandedWhenForeground: boolean;
@@ -164,6 +178,7 @@ export interface EdgeHideMonitorProfile {
 
 export interface WindowDragSettings {
   enabled: boolean;
+  updateHz: number;
   moveModifiers: ModifierKey[];
   resizeModifiers: ModifierKey[];
   moveButton: MouseButton;

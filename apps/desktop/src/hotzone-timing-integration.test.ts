@@ -39,7 +39,7 @@ it("keeps monitor-specific timings through detection, profile migration, zone sw
       let component = mount(App, { target: document.body });
       flushSync(); open();
       assert.ok(timing()[0].closest('[inert]'), 'timing must wait for actual monitor identity');
-      assert.equal(document.querySelector('.form-grid input').closest('[inert]'), null, 'global edge size remains editable');
+      assert.ok(document.querySelector('.geometry-field input').closest('[inert]'), 'per-area size editing must wait for a real monitor identity');
       assert.equal(saves, 0);
       detect();
       assert.equal(timing()[0].closest('[inert]'), null);

@@ -29,6 +29,11 @@ pub use self::windows::*;
 pub use self::unix::*;
 
 use crate::config::AppConfig;
+static WINDOW_DRAG_STARTED: std::sync::OnceLock<tokio::sync::Notify> = std::sync::OnceLock::new();
+
+pub fn window_drag_started_notification() -> &'static tokio::sync::Notify {
+    WINDOW_DRAG_STARTED.get_or_init(tokio::sync::Notify::new)
+}
 pub mod taskbar;
 use serde::Serialize;
 pub use taskbar::TaskbarAppearanceWorker;

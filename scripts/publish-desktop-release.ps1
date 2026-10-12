@@ -272,7 +272,7 @@ try {
       prerelease = $true
       make_latest = "false"
     } | ConvertTo-Json))
-    $release = Invoke-RestMethod -Use BasicParsing -Method Post -Headers $headers -ContentType "application/json; charset=utf-8" -Body $payload -Uri "$api/releases"
+    $release = Invoke-RestMethod -UseBasicParsing -Method Post -Headers $headers -ContentType "application/json; charset=utf-8" -Body $payload -Uri "$api/releases"
     $createdRelease = $true
   }
   $uploadBase = ($release.upload_url -replace '\{\?name,label\}$', '')

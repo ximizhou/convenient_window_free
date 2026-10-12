@@ -2,7 +2,7 @@
 
 简体中文 | [English](README.md)
 
-便捷窗口是一款跨平台桌面增强工具，提供触发角、窗口控制、全局鼠标手势和截图贴图。当前 Windows x64 稳定基线为 0.6.3。Windows 保留完整能力，macOS 与 Linux X11 先提供 P0 原生边界，Wayland 只做能力探测和明确降级。
+便捷窗口是一款跨平台桌面增强工具，提供触发角、窗口控制、全局鼠标手势和截图贴图。当前 Windows x64 稳定基线为 0.6.4。Windows 保留完整能力，macOS 与 Linux X11 先提供 P0 原生边界，Wayland 只做能力探测和明确降级。
 
 **把屏幕边缘和鼠标手势变成更快的窗口操作。**
 
@@ -23,9 +23,9 @@
 
 当前发布文件尚未进行代码签名，Windows 可能显示“未知发布者”或 Microsoft Defender SmartScreen 提示。每个 Release 都提供校验和与产物清单，可用于核对下载文件。
 
-## 0.6.4 开发候选
+## 0.6.4 稳定版
 
-开发源码在完整 0.6.3 基线上整合 PR [#21](https://github.com/ximizhou/convenient_window_free/pull/21)、[#22](https://github.com/ximizhou/convenient_window_free/pull/22)、[#23](https://github.com/ximizhou/convenient_window_free/pull/23)、[#24](https://github.com/ximizhou/convenient_window_free/pull/24) 与 [#25](https://github.com/ximizhou/convenient_window_free/pull/25)。这是本地候选，不是新 Release；0.6.3 stable 资产保持不可变。
+开发源码在完整 0.6.3 基线上整合 PR [#21](https://github.com/ximizhou/convenient_window_free/pull/21)、[#22](https://github.com/ximizhou/convenient_window_free/pull/22)、[#23](https://github.com/ximizhou/convenient_window_free/pull/23)、[#24](https://github.com/ximizhou/convenient_window_free/pull/24) 、[#25](https://github.com/ximizhou/convenient_window_free/pull/25) 与 [#26](https://github.com/ximizhou/convenient_window_free/pull/26)。[0.6.4 正式版](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.4) 已于 2026-10-11 原地转为 stable，未重建或替换资产；0.6.3 stable 资产保持不可变。开发源码已进入0.6.5，首项任务为窗口运动体验；稳定下载仍为0.6.4。
 
 - 图钉同时跟随窗口位置与层级，不被自己的静止窗口盖住，也不盖过其他更上层窗口。
 - 贴图保持原像素尺寸；`ocr.pinOffset` 默认 true，向右下偏移 16 px，关闭后原地覆盖。大图或靠边贴图可能超出屏幕，不再自动缩放。
@@ -33,7 +33,13 @@
 - helper 保留 engine 的原始退出订阅，不遗漏刚启动时收到的停止要求。
 - Windows 管理员模式只在当前会话提权 helper，配置命令仍由普通宿主执行；失败查询无法确认时显示 unknown，不沿用旧权限缓存。
 
-管理员模式不支持保护进程；[issue #20](https://github.com/ximizhou/convenient_window_free/issues/20) 第二阶段的管理员计划任务/登录自动提权不在本候选范围。宿主 adapter 需要各自 runtime 验收，两宿主不能同时占用固定 56873。详见 [候选说明](docs/release-notes/0.6.4.md)、[测试清单](docs/testing.md#064-local-candidate-acceptance) 与 [本地打包](docs/release.md#develop-acceptance)。自动结果和产物身份应按实际候选记录，真人 UAC、多屏/DPI 和任务栏恢复仍需实机检查。
+桌面另有默认关闭的“登录时请求管理员权限”，开启时同时启用自启，保存设置不替换当前 helper。仅 `--autostart --request-admin` 登录实例第一次启动 helper 时弹 UAC；取消回退普通模式，启动未确认则阻止替代启动或重复授权。设置与托盘同步自启，任务管理器禁用后重新启用保留请求参数；应用内关闭自启则清除请求，只删除当前可执行文件所属条目。不创建计划任务、不静默提权，普通前台启动和自动恢复不弹登录授权。管理员模式不支持保护进程；真实登录、UAC 与升级卸载仍待转测。宿主 adapter 需要各自 runtime 验收，两宿主不能同时占用固定 56873。详见 [候选说明](docs/release-notes/0.6.4.md)、[测试清单](docs/testing.md#064-local-candidate-acceptance) 与 [本地打包](docs/release.md#develop-acceptance)。自动结果和产物身份应按实际候选记录，真人 UAC、多屏/DPI 和任务栏恢复仍需实机检查。
+
+## 0.6.5 窗口体验（开发中）
+
+动画默认仍为160ms，新增160/260/400预设和80–800ms自定义。左、右、下保留独立的距离/移出比例触发；顶部距离默认48px、停留600ms，蓝线从中心增长至铺满后松手收纳，提前松手保留系统Snap。拖动暂停时侧边蓝线不闪烁。
+
+任意位置移动/缩放默认更新频率上限120Hz，可选60/120/240或自定义30–240Hz；开始/松手唤醒、重复位置去重，处理耗时计入等待预算。参数与状态边界见[架构](docs/architecture.md#window-motion-065)，自动证据和真机未决项见[开发验收](docs/testing.md#window-motion-development-acceptance-065)。本次源码与前端同步不生成新的桌面安装包，真实跟手度仍待反馈。
 
 ## 主要功能
 

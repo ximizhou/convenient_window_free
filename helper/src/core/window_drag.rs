@@ -21,6 +21,8 @@ struct DragSession {
 #[derive(Default)]
 pub struct WindowDragController {
     session: Option<DragSession>,
+    window: Option<WindowInfo>,
+    last_rect: Option<Rect>,
     /// 曾被应用名单拦下的本次按下的序号。
     ///
     /// 判定后来前移到了 `platform::draggable_window_at`（必须在摘除最大化状态之前做，
@@ -33,6 +35,8 @@ pub struct WindowDragController {
 impl WindowDragController {
     pub fn start(&mut self, capture: WindowDragCapture, window: &WindowInfo) {
         self.rejected_sequence = None;
+        self.window = Some(window.clone());
+        self.last_rect = None;
         self.session = Some(DragSession {
             sequence: capture.sequence,
             mode: capture.mode,
@@ -61,6 +65,16 @@ impl WindowDragController {
         self.session.is_some()
     }
 
+    pub fn moving_window(&self) -> Option<WindowInfo> {
+        let session = self.session?;
+        if session.mode != WindowDragMode::Move {
+            return None;
+        }
+        let mut window = self.window.clone()?;
+        window.rect = self.last_rect.unwrap_or(session.original_rect);
+        Some(window)
+    }
+
     pub fn update(&mut self, capture: WindowDragCapture, cancel: bool) -> Option<WindowDragUpdate> {
         let session = self.session?;
         if session.sequence != capture.sequence {
@@ -81,6 +95,10 @@ impl WindowDragController {
             WindowDragMode::Resize => resized_rect(session, capture.current),
         };
         let finished = capture.finished;
+        if !finished && self.last_rect == Some(rect) {
+            return None;
+        }
+        self.last_rect = Some(rect);
         if finished {
             self.session = None;
         }
@@ -133,6 +151,47 @@ fn resized_rect(session: DragSession, cursor: Point) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stationary_capture_does_not_repeat_native_window_updates() {
+        let mut controller = WindowDragController::default();
+        let window = WindowInfo {
+            handle: WindowHandle(1),
+            rect: Rect {
+                left: 100,
+                top: 100,
+                right: 700,
+                bottom: 500,
+            },
+            title: "Test".into(),
+            process_name: "test.exe".into(),
+            class_name: "Test".into(),
+            transient: false,
+            maximized: false,
+            arranged: false,
+            topmost: false,
+        };
+        let mut capture = WindowDragCapture {
+            sequence: 1,
+            mode: WindowDragMode::Move,
+            start: Point { x: 200, y: 200 },
+            current: Point { x: 230, y: 220 },
+            finished: false,
+        };
+        controller.start(capture, &window);
+        assert!(controller.update(capture, false).is_some());
+        for _ in 0..100 {
+            assert!(
+                controller.update(capture, false).is_none(),
+                "unchanged coordinates must not repaint the target window"
+            );
+        }
+        capture.finished = true;
+        assert!(
+            controller.update(capture, false).unwrap().finished,
+            "release is never deduplicated"
+        );
+    }
 
     #[test]
     fn movement_uses_signed_virtual_desktop_coordinates() {

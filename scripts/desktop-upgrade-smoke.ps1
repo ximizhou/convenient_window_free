@@ -71,13 +71,13 @@ try {
   if (-not $app.WaitForExit(30000)) { Stop-Process -Id $app.Id; throw 'Upgraded app did not exit' }
   if ($app.ExitCode -ne 0) { throw "Upgraded app exited with $($app.ExitCode)" }
   $desktopConfig = Get-Content -LiteralPath $settings -Raw -Encoding UTF8 | ConvertFrom-Json
-  if ($desktopConfig.schemaVersion -ne 8) { throw 'Desktop settings did not migrate to schema 8' }
+  if ($desktopConfig.schemaVersion -ne 9) { throw 'Desktop settings did not migrate to schema 9' }
   $backupConfig = Get-Content -LiteralPath ($settings + '.bak') -Raw -Encoding UTF8 | ConvertFrom-Json
   if ($backupConfig.schemaVersion -ne 7) { throw 'Original schema 7 backup was not retained' }
   $helperConfig = Join-Path $data 'helper-data/config.json'
   if (-not (Test-Path -LiteralPath $helperConfig)) { throw 'Upgraded helper did not persist its configuration' }
   $migrated = Get-Content -LiteralPath $helperConfig -Raw -Encoding UTF8 | ConvertFrom-Json
-  if ($migrated.schemaVersion -ne 8) { throw 'Upgrade did not migrate schema 7 to schema 8' }
+  if ($migrated.schemaVersion -ne 9) { throw 'Upgrade did not migrate schema 7 to schema 9' }
   foreach ($gesture in $migrated.mouseGestures.gestures) {
     $expected = $fixture.expectedNames.PSObject.Properties[$gesture.id].Value
     $nameProperty = $gesture.PSObject.Properties['name']

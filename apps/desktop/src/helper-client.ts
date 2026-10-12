@@ -8,9 +8,14 @@ type MessageHandler = (message: HelperMessage) => void;
 type StatusHandler = (status: HelperStatus) => void;
 
 export const SUPPORTED_HELPER_PROTOCOL = 7;
+export const SUPPORTED_HELPER_SCHEMA = 9;
 
 export function isSupportedHelperProtocol(value: unknown): boolean {
   return value === SUPPORTED_HELPER_PROTOCOL;
+}
+
+export function isSupportedHelperSchema(value: unknown): boolean {
+  return value === SUPPORTED_HELPER_SCHEMA;
 }
 
 export class HelperClient {
@@ -84,10 +89,11 @@ export class HelperClient {
       try {
         const message = JSON.parse(String(event.data)) as HelperMessage;
         if (message.type === "helper.ready") {
-          const data = message.data as { protocolVersion?: unknown; platform?: unknown } | null;
+          const data = message.data as { protocolVersion?: unknown; schemaVersion?: unknown; platform?: unknown } | null;
           const protocolVersion = data?.protocolVersion;
           this.latestPlatform = isPlatformInfo(data?.platform) ? data.platform : null;
-          this.protocolReady = isSupportedHelperProtocol(protocolVersion);
+          this.protocolReady = isSupportedHelperProtocol(protocolVersion)
+            && isSupportedHelperSchema(data?.schemaVersion);
           if (this.protocolReady) this.flushLatestConfig();
         }
         this.messageHandlers.forEach((handler) => handler(message));

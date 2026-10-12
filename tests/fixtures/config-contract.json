@@ -2,11 +2,16 @@
   "input": {
     "schemaVersion": 2,
     "enabled": true,
+    "showHotzoneHint": false,
     "edgeSize": 999,
     "hoverDelayMs": 0,
     "pollIntervalMs": 0,
     "actionCooldownMs": 99999,
-    "pausedApps": [" explorer.exe ", "", "explorer.exe"],
+    "pausedApps": [
+      " explorer.exe ",
+      "",
+      "explorer.exe"
+    ],
     "edgeHide": {
       "stripSize": 999,
       "triggerDistance": 0,
@@ -17,20 +22,51 @@
     "mouseGestures": {
       "minDistance": 999,
       "sensitivity": 1,
-      "pausedApps": [" game.exe ", "game.exe"]
+      "pausedApps": [
+        " game.exe ",
+        "game.exe"
+      ]
     },
     "windowDrag": {
-      "pausedApps": [" photoshop.exe ", "photoshop.exe", ""]
-    }
+      "pausedApps": [
+        " photoshop.exe ",
+        "photoshop.exe",
+        ""
+      ]
+    },
+    "hotzones": [
+      {
+        "id": "bottom",
+        "enabled": false,
+        "geometry": {
+          "kind": "edge",
+          "thickness": 99,
+          "lengthPercent": 110
+        }
+      },
+      {
+        "id": "top-left",
+        "enabled": false,
+        "geometry": {
+          "kind": "corner",
+          "width": 0,
+          "height": 200,
+          "linked": false
+        }
+      }
+    ]
   },
   "expected": {
-    "schemaVersion": 8,
+    "schemaVersion": 9,
+    "showHotzoneHint": false,
     "hotzonesEnabled": false,
     "edgeSize": 48,
     "hoverDelayMs": 0,
     "pollIntervalMs": 10,
     "actionCooldownMs": 5000,
-    "pausedApps": ["explorer.exe"],
+    "pausedApps": [
+      "explorer.exe"
+    ],
     "stripSize": 64,
     "edgeHidePreviewEnabled": true,
     "showRestoreHint": true,
@@ -41,14 +77,33 @@
     "restoreDelayMs": 5000,
     "minDistance": 240,
     "sensitivity": 35,
-    "gesturePausedApps": ["game.exe"],
+    "gesturePausedApps": [
+      "game.exe"
+    ],
     "windowDragEnabled": false,
-    "windowDragPausedApps": ["photoshop.exe"],
-    "moveModifiers": ["alt"],
-    "resizeModifiers": ["alt"],
+    "windowDragPausedApps": [
+      "photoshop.exe"
+    ],
+    "moveModifiers": [
+      "alt"
+    ],
+    "resizeModifiers": [
+      "alt"
+    ],
     "topmostPinEnabled": true,
     "ocrLanguage": "auto",
     "screenshotResult": "pin",
-    "pinOffset": true
+    "pinOffset": true,
+    "cornerGeometry": {
+      "kind": "corner",
+      "width": 2,
+      "height": 128,
+      "linked": false
+    },
+    "edgeGeometry": {
+      "kind": "edge",
+      "thickness": 48,
+      "lengthPercent": 100
+    }
   }
 }

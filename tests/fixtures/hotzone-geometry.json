@@ -1,0 +1,246 @@
+{
+  "rectangles": [
+    {
+      "name": "legacy top center",
+      "id": "top",
+      "bounds": {
+        "left": 0,
+        "top": 0,
+        "right": 1920,
+        "bottom": 1080
+      },
+      "edgeSize": 8,
+      "expected": {
+        "left": 576,
+        "top": 0,
+        "right": 1344,
+        "bottom": 8
+      }
+    },
+    {
+      "name": "legacy corner custom global",
+      "id": "bottom-right",
+      "bounds": {
+        "left": -1920,
+        "top": -1080,
+        "right": 0,
+        "bottom": 0
+      },
+      "edgeSize": 24,
+      "expected": {
+        "left": -24,
+        "top": -24,
+        "right": 0,
+        "bottom": 0
+      }
+    },
+    {
+      "name": "full bottom negative desktop",
+      "id": "bottom",
+      "bounds": {
+        "left": -1920,
+        "top": 0,
+        "right": 0,
+        "bottom": 1080
+      },
+      "edgeSize": 8,
+      "geometry": {
+        "kind": "edge",
+        "thickness": 16,
+        "lengthPercent": 100
+      },
+      "expected": {
+        "left": -1920,
+        "top": 1064,
+        "right": 0,
+        "bottom": 1080
+      }
+    },
+    {
+      "name": "vertical right half",
+      "id": "right",
+      "bounds": {
+        "left": -100,
+        "top": -200,
+        "right": 0,
+        "bottom": 0
+      },
+      "edgeSize": 8,
+      "geometry": {
+        "kind": "edge",
+        "thickness": 12,
+        "lengthPercent": 50
+      },
+      "expected": {
+        "left": -12,
+        "top": -150,
+        "right": 0,
+        "bottom": -50
+      }
+    },
+    {
+      "name": "corner rectangle top right",
+      "id": "top-right",
+      "bounds": {
+        "left": 0,
+        "top": 0,
+        "right": 2560,
+        "bottom": 1440
+      },
+      "edgeSize": 8,
+      "geometry": {
+        "kind": "corner",
+        "width": 24,
+        "height": 48,
+        "linked": false
+      },
+      "expected": {
+        "left": 2536,
+        "top": 0,
+        "right": 2560,
+        "bottom": 48
+      }
+    },
+    {
+      "name": "corner clamped tiny display",
+      "id": "bottom-left",
+      "bounds": {
+        "left": -5,
+        "top": 1,
+        "right": 0,
+        "bottom": 4
+      },
+      "edgeSize": 8,
+      "geometry": {
+        "kind": "corner",
+        "width": 128,
+        "height": 128,
+        "linked": true
+      },
+      "expected": {
+        "left": -5,
+        "top": 1,
+        "right": 0,
+        "bottom": 4
+      }
+    },
+    {
+      "name": "short edge odd rounding",
+      "id": "left",
+      "bounds": {
+        "left": 10,
+        "top": 20,
+        "right": 101,
+        "bottom": 125
+      },
+      "edgeSize": 8,
+      "geometry": {
+        "kind": "edge",
+        "thickness": 2,
+        "lengthPercent": 10
+      },
+      "expected": {
+        "left": 10,
+        "top": 67,
+        "right": 12,
+        "bottom": 78
+      }
+    },
+    {
+      "name": "bottom default clamped tiny display",
+      "id": "bottom",
+      "bounds": {
+        "left": 0,
+        "top": 0,
+        "right": 2,
+        "bottom": 2
+      },
+      "edgeSize": 8,
+      "expected": {
+        "left": 0,
+        "top": 0,
+        "right": 1,
+        "bottom": 2
+      }
+    },
+    {
+      "name": "top 80 percent",
+      "id": "top",
+      "bounds": {
+        "left": 0,
+        "top": 0,
+        "right": 100,
+        "bottom": 100
+      },
+      "edgeSize": 8,
+      "geometry": {
+        "kind": "edge",
+        "thickness": 5,
+        "lengthPercent": 80
+      },
+      "expected": {
+        "left": 10,
+        "top": 0,
+        "right": 90,
+        "bottom": 5
+      }
+    }
+  ],
+  "normalizations": [
+    {
+      "name": "edge ranges",
+      "id": "bottom",
+      "edgeSize": 24,
+      "input": {
+        "kind": "edge",
+        "thickness": 99,
+        "lengthPercent": -1
+      },
+      "expected": {
+        "kind": "edge",
+        "thickness": 48,
+        "lengthPercent": 10
+      }
+    },
+    {
+      "name": "corner ranges",
+      "id": "top-left",
+      "edgeSize": 8,
+      "input": {
+        "kind": "corner",
+        "width": -2,
+        "height": 300,
+        "linked": false
+      },
+      "expected": {
+        "kind": "corner",
+        "width": 2,
+        "height": 128,
+        "linked": false
+      }
+    },
+    {
+      "name": "mismatched edge",
+      "id": "right",
+      "edgeSize": 8,
+      "input": {
+        "kind": "corner",
+        "width": 10,
+        "height": 20,
+        "linked": true
+      },
+      "expected": null
+    },
+    {
+      "name": "mismatched corner",
+      "id": "bottom-left",
+      "edgeSize": 8,
+      "input": {
+        "kind": "edge",
+        "thickness": 10,
+        "lengthPercent": 50
+      },
+      "expected": null
+    }
+  ]
+}

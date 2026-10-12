@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   defaultSettings,
+  loadSettings,
   MAX_GESTURE_TEMPLATES,
   MAX_SETTINGS_STORAGE_BYTES,
   normalizeSettings,
@@ -9,13 +10,35 @@ import {
 import contractFixture from "../../../tests/fixtures/config-contract.json";
 import type { AppSettings } from "./types";
 
-const hostBridgeState = vi.hoisted(() => ({ current: null as null | { saveSettings(settings: unknown): Promise<void> } }));
+const hostBridgeState = vi.hoisted(() => ({ current: null as null | { getInitialSettings?(): unknown; saveSettings(settings: unknown): Promise<void> } }));
 
 vi.mock("./host-bridge", () => ({
   getOptionalHostBridge: () => hostBridgeState.current
 }));
 
 describe("normalizeSettings", () => {
+  it("defaults the hotzone hint on for missing settings while migrating legacy settings to schema v9", () => {
+    expect(defaultSettings.showHotzoneHint).toBe(true);
+    expect(defaultSettings.schemaVersion).toBe(9);
+    for (const input of [null, undefined, {}, { schemaVersion: 7 }, { schemaVersion: 8 }]) {
+      expect(normalizeSettings(input)).toMatchObject({ schemaVersion: 9, showHotzoneHint: true });
+    }
+  });
+
+  it.each([null, 0, 1, "false", "true", {}, []].map((value) => [value]))("defaults a non-boolean hotzone hint %j on", (showHotzoneHint) => {
+    const settings = normalizeSettings({ showHotzoneHint } as unknown as Partial<AppSettings>);
+    expect(settings.showHotzoneHint).toBe(true);
+  });
+
+  it.each([false, true])("preserves hotzone hint %s through normalization and JSON export/import", (showHotzoneHint) => {
+    const settings = normalizeSettings({ showHotzoneHint, enabled: false, hotzonesEnabled: false });
+    expect(settings).toMatchObject({ schemaVersion: 9, showHotzoneHint, enabled: false, hotzonesEnabled: false });
+    expect(normalizeSettings(settings).showHotzoneHint).toBe(showHotzoneHint);
+    const exported = JSON.stringify(normalizeSettings(settings), null, 2);
+    expect(JSON.parse(exported).showHotzoneHint).toBe(showHotzoneHint);
+    expect(normalizeSettings(JSON.parse(exported))).toMatchObject({ schemaVersion: 9, showHotzoneHint, enabled: false, hotzonesEnabled: false });
+  });
+
   it("keeps taskbar transparency off for legacy and malformed configuration", () => {
     expect(defaultSettings.taskbarAppearance.enabled).toBe(false);
     expect(normalizeSettings({}).taskbarAppearance.enabled).toBe(false);
@@ -50,6 +73,7 @@ describe("normalizeSettings", () => {
     expect({
       schemaVersion: settings.schemaVersion,
       hotzonesEnabled: settings.hotzonesEnabled,
+      showHotzoneHint: settings.showHotzoneHint,
       edgeSize: settings.edgeSize,
       hoverDelayMs: settings.hoverDelayMs,
       pollIntervalMs: settings.pollIntervalMs,
@@ -73,7 +97,9 @@ describe("normalizeSettings", () => {
       topmostPinEnabled: settings.topmostPin.enabled,
       ocrLanguage: settings.ocr.language,
       screenshotResult: settings.ocr.screenshotResult,
-      pinOffset: settings.ocr.pinOffset
+      pinOffset: settings.ocr.pinOffset,
+      cornerGeometry: settings.hotzones.find(zone => zone.id === "top-left")?.geometry,
+      edgeGeometry: settings.hotzones.find(zone => zone.id === "bottom")?.geometry
     }).toEqual(contractFixture.expected);
   });
 
@@ -109,7 +135,7 @@ describe("normalizeSettings", () => {
     expect(settings.edgeHide.triggerRatio).toBe(33);
     expect(settings.edgeHide.collapseDelayMs).toBe(300);
     expect(settings.edgeHide.restoreDelayMs).toBe(200);
-    expect(settings.schemaVersion).toBe(8);
+    expect(settings.schemaVersion).toBe(9);
     expect(settings.mouseGestures.gestures).toHaveLength(5);
   });
 
@@ -405,6 +431,37 @@ describe("normalizeSettings", () => {
 });
 
 describe("saveSettings", () => {
+  it("preserves either hotzone hint choice through desktop host storage and readback", async () => {
+    let stored: AppSettings | null = null;
+    const setItem = vi.fn();
+    vi.stubGlobal("localStorage", { setItem });
+    hostBridgeState.current = {
+      getInitialSettings: () => stored,
+      saveSettings: async (settings) => { stored = structuredClone(settings) as AppSettings; }
+    };
+    for (const showHotzoneHint of [false, true]) {
+      const settings = normalizeSettings({ showHotzoneHint, enabled: false, hotzonesEnabled: false });
+      await saveSettings(settings);
+      expect(stored).toMatchObject({ schemaVersion: 9, showHotzoneHint });
+      expect(loadSettings()).toMatchObject({ schemaVersion: 9, showHotzoneHint, enabled: false, hotzonesEnabled: false });
+    }
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it("preserves either hotzone hint choice through local fallback storage and readback", async () => {
+    let stored: string | null = null;
+    vi.stubGlobal("localStorage", {
+      getItem: () => stored,
+      setItem: (_key: string, value: string) => { stored = value; }
+    });
+    for (const showHotzoneHint of [false, true]) {
+      const settings = normalizeSettings({ showHotzoneHint, enabled: false, hotzonesEnabled: false });
+      await saveSettings(settings);
+      expect(JSON.parse(stored!)).toMatchObject({ schemaVersion: 9, showHotzoneHint });
+      expect(loadSettings()).toMatchObject({ schemaVersion: 9, showHotzoneHint, enabled: false, hotzonesEnabled: false });
+    }
+  });
+
   afterEach(() => {
     hostBridgeState.current = null;
     vi.unstubAllGlobals();
@@ -421,6 +478,30 @@ describe("saveSettings", () => {
       await saveSettings(settings);
       expect(normalizeSettings(JSON.parse(stored)).ocr.pinOffset).toBe(pinOffset);
     }
+  });
+
+  it("deep clones stored global and per-monitor geometry without changing the editing draft", async () => {
+    let stored: AppSettings | undefined;
+    hostBridgeState.current = { saveSettings: async (value) => { stored = value as AppSettings; } };
+    const settings = normalizeSettings(defaultSettings);
+    settings.hotzones[0].geometry = { kind: "corner", width: 24, height: 48, linked: true };
+    settings.hotzones[1].geometry = { kind: "edge", thickness: 16, lengthPercent: 80 };
+    settings.monitorProfiles = [{ monitorId: "monitor:clone", hotzones: structuredClone(settings.hotzones) }];
+    const before = structuredClone(settings);
+    await saveSettings(settings);
+    expect(stored).toMatchObject({ schemaVersion: 9, hotzones: before.hotzones, monitorProfiles: before.monitorProfiles });
+    for (const [original, copied] of [
+      [settings.hotzones, stored!.hotzones],
+      [settings.monitorProfiles[0].hotzones, stored!.monitorProfiles[0].hotzones]
+    ]) {
+      expect(copied[0].geometry).not.toBe(original[0].geometry);
+      expect(copied[1].geometry).not.toBe(original[1].geometry);
+      const corner = copied[0].geometry!;
+      if (corner.kind === "corner") corner.width = 128;
+      const edge = copied[1].geometry!;
+      if (edge.kind === "edge") edge.lengthPercent = 10;
+    }
+    expect(settings).toEqual(before);
   });
 
   it("rounds gesture coordinates before writing to desktop storage", () => {
@@ -491,4 +572,138 @@ it("keeps Alt required for missing and empty drag bindings, matching the helper 
   const normalized = normalizeSettings(settings);
   expect(normalized.windowDrag.moveModifiers).toEqual(["alt"]);
   expect(normalized.windowDrag.resizeModifiers).toEqual(["alt"]);
+});
+
+describe("schema 9 hotzone geometry", () => {
+  it.each(Array.from({ length: 9 }, (_, schemaVersion) => schemaVersion))(
+    "migrates schema %s without materializing geometry or changing legacy sizes", (schemaVersion) => {
+      const settings = normalizeSettings({ schemaVersion, edgeSize: 24,
+        hotzones: defaultSettings.hotzones,
+        monitorProfiles: [{ monitorId: "monitor:legacy", hotzones: defaultSettings.hotzones }]
+      });
+      expect(settings.schemaVersion).toBe(9);
+      expect(settings.edgeSize).toBe(24);
+      for (const zone of [...settings.hotzones, ...settings.monitorProfiles[0].hotzones]) {
+        expect(Object.hasOwn(zone, "geometry")).toBe(false);
+      }
+      expect(normalizeSettings({ schemaVersion, edgeSize: 999 }).edgeSize).toBe(48);
+      expect(normalizeSettings({ schemaVersion, edgeSize: -1 }).edgeSize).toBe(2);
+      expect(normalizeSettings(JSON.parse(JSON.stringify(settings)))).toMatchObject({
+        schemaVersion: 9, edgeSize: settings.edgeSize, hotzones: settings.hotzones, monitorProfiles: settings.monitorProfiles
+      });
+    }
+  );
+
+  it("retains disabled/non-action geometry and deep copies both global and per-monitor values", () => {
+    const source = structuredClone(defaultSettings);
+    source.hotzones[0].geometry = { kind: "corner", width: 24, height: 48, linked: true };
+    source.hotzones[1].geometry = { kind: "edge", thickness: 16, lengthPercent: 100 };
+    source.monitorProfiles = [
+      { monitorId: "monitor:a", hotzones: source.hotzones },
+      { monitorId: "monitor:b", hotzones: source.hotzones }
+    ];
+    const before = structuredClone(source);
+    const settings = normalizeSettings(source);
+    expect(settings.hotzones).toEqual(before.hotzones);
+    expect(settings.monitorProfiles).toEqual(before.monitorProfiles);
+    expect(settings.hotzones[0].geometry).not.toBe(source.hotzones[0].geometry);
+    expect(settings.hotzones[1].geometry).not.toBe(source.hotzones[1].geometry);
+    for (const profile of settings.monitorProfiles) {
+      expect(profile.hotzones[0].geometry).not.toBe(source.hotzones[0].geometry);
+      expect(profile.hotzones[0].geometry).not.toBe(settings.hotzones[0].geometry);
+      expect(profile.hotzones[1].geometry).not.toBe(settings.hotzones[1].geometry);
+      expect(profile.hotzones[0].actions).not.toBe(source.hotzones[0].actions);
+    }
+    const corner = settings.hotzones[0].geometry!;
+    if (corner.kind === "corner") corner.width = 64;
+    expect(settings.monitorProfiles[0].hotzones[0].geometry).toEqual(before.hotzones[0].geometry);
+    expect(source).toEqual(before);
+    const exported = JSON.stringify(settings);
+    expect(normalizeSettings(JSON.parse(exported))).toMatchObject({
+      schemaVersion: 9, hotzones: settings.hotzones, monitorProfiles: settings.monitorProfiles
+    });
+    expect(settings.hotzones[0].actions).toEqual(source.hotzones[0].actions);
+    expect(settings.hotzones[0].enabled).toBe(false);
+    expect(settings.hotzones[0].actions.every(slot => slot.action.kind === "none")).toBe(true);
+    expect(Object.hasOwn(settings.hotzones[2], "geometry")).toBe(false);
+  });
+
+  it("uses normalized edgeSize for partial geometry on all monitors and never forces linked squares", () => {
+    const source = {
+      schemaVersion: 8, edgeSize: 999,
+      hotzones: [
+        { id: "top-left", geometry: { kind: "corner", width: 24, height: 96, linked: true } },
+        { id: "top-right", geometry: { kind: "corner" } },
+        { id: "bottom", geometry: { kind: "edge" } }
+      ],
+      monitorProfiles: [{ monitorId: "monitor:partial", hotzones: [
+        { id: "bottom-left", geometry: { kind: "corner", width: 21.6, height: 200, linked: false } },
+        { id: "right", geometry: { kind: "edge", lengthPercent: 10.6 } }
+      ] }]
+    } as unknown as Partial<AppSettings>;
+    const settings = normalizeSettings(source);
+    expect(settings.hotzones[0].geometry).toEqual({ kind: "corner", width: 24, height: 96, linked: true });
+    expect(settings.hotzones.find(zone => zone.id === "top-right")?.geometry).toEqual({ kind: "corner", width: 48, height: 48, linked: true });
+    expect(settings.hotzones.find(zone => zone.id === "bottom")?.geometry).toEqual({ kind: "edge", thickness: 48, lengthPercent: 40 });
+    expect(settings.monitorProfiles[0].hotzones.find(zone => zone.id === "bottom-left")?.geometry).toEqual({ kind: "corner", width: 22, height: 128, linked: false });
+    expect(settings.monitorProfiles[0].hotzones.find(zone => zone.id === "right")?.geometry).toEqual({ kind: "edge", thickness: 48, lengthPercent: 11 });
+  });
+
+  it("omits invalid and mismatched geometry without dropping actions", () => {
+    for (const geometry of [null, 0, "corner", [], {}, { kind: "edge", thickness: 24, lengthPercent: 100 }]) {
+      const hotzones = [{ ...defaultSettings.hotzones[0], enabled: true, geometry,
+        actions: [{ trigger: "left-click", action: { kind: "shortcut", value: "Ctrl+K" } }]
+      }];
+      const settings = normalizeSettings({ hotzones,
+        monitorProfiles: [{ monitorId: "monitor:invalid", hotzones }]
+      } as unknown as Partial<AppSettings>);
+      for (const zone of [settings.hotzones[0], settings.monitorProfiles[0].hotzones[0]]) {
+        expect(Object.hasOwn(zone, "geometry")).toBe(false);
+        expect(zone.enabled).toBe(true);
+        expect(zone.actions.find(slot => slot.trigger === "left-click")?.action).toEqual({ kind: "shortcut", value: "Ctrl+K" });
+      }
+    }
+  });
+
+  it("rejects future schemas without rewriting the geometry-bearing input", () => {
+    const future = structuredClone(defaultSettings);
+    future.schemaVersion = 10;
+    future.hotzones[0].geometry = { kind: "corner", width: 24, height: 48, linked: true };
+    const before = structuredClone(future);
+    expect(() => normalizeSettings(future)).toThrow("Unsupported settings schema");
+    expect(future).toEqual(before);
+  });
+});
+
+
+describe("0.6.5 window motion settings", () => {
+  it("preserves the old animation speed and supplies safe optional defaults", () => {
+    const settings = normalizeSettings({ schemaVersion: 9 });
+    expect(settings.edgeHide.animationDurationMs).toBe(160);
+    expect(settings.edgeHide.topTriggerDistance).toBe(48);
+    expect(settings.edgeHide.topHoverDelayMs).toBe(600);
+    expect(settings.windowDrag.updateHz).toBe(120);
+  });
+  it("normalizes custom values and preserves them through import/export", () => {
+    const settings = normalizeSettings({ ...defaultSettings,
+      edgeHide: { ...defaultSettings.edgeHide, animationDurationMs: 400, topTriggerDistance: 80, topHoverDelayMs: 1000 },
+      windowDrag: { ...defaultSettings.windowDrag, updateHz: 60 } });
+    const imported = normalizeSettings(JSON.parse(JSON.stringify(settings)));
+    expect(imported.edgeHide.animationDurationMs).toBe(400);
+    expect(imported.edgeHide.topTriggerDistance).toBe(80);
+    expect(imported.edgeHide.topHoverDelayMs).toBe(1000);
+    expect(imported.edgeHide.triggerDistance).toBe(defaultSettings.edgeHide.triggerDistance);
+    expect(imported.windowDrag.updateHz).toBe(60);
+  });
+  it("bounds extreme values and rejects nonnumeric inputs", () => {
+    const settings = normalizeSettings({ edgeHide: { ...defaultSettings.edgeHide, animationDurationMs: 9999, topTriggerDistance: 0, topHoverDelayMs: 1 }, windowDrag: { ...defaultSettings.windowDrag, updateHz: 9999 } });
+    expect(settings.edgeHide.animationDurationMs).toBe(800);
+    expect(settings.edgeHide.topTriggerDistance).toBe(8);
+    expect(settings.edgeHide.topHoverDelayMs).toBe(200);
+    expect(settings.windowDrag.updateHz).toBe(240);
+    const malformed = JSON.parse('{"edgeHide":{"animationDurationMs":"slow"},"windowDrag":{"updateHz":"fast"}}');
+    const invalid = normalizeSettings(malformed);
+    expect(invalid.edgeHide.animationDurationMs).toBe(160);
+    expect(invalid.windowDrag.updateHz).toBe(120);
+  });
 });

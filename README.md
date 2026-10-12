@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Convenient Window is a desktop utility for hot zones, window control, global mouse gestures, screenshots, and topmost-window control. Version 0.6.3 is the stable Windows x64 release baseline; macOS and Linux X11 platform boundaries remain in the codebase but are not release-verified.
+Convenient Window is a desktop utility for hot zones, window control, global mouse gestures, screenshots, and topmost-window control. Version 0.6.4 is the stable Windows x64 release baseline; macOS and Linux X11 platform boundaries remain in the codebase but are not release-verified.
 
 **Turn screen edges and mouse gestures into faster window controls.**
 
@@ -23,23 +23,33 @@ Download the Windows installer or portable archive from the [latest stable relea
 
 Release assets are currently unsigned. Windows may show an unknown-publisher or Microsoft Defender SmartScreen warning. Checksums and an artifact manifest are included with each release so the downloaded files can be verified.
 
-## 0.6.4 Development Candidate
+## 0.6.4 Stable Release
 
-The development source integrates PRs [#21](https://github.com/ximizhou/convenient_window_free/pull/21), [#22](https://github.com/ximizhou/convenient_window_free/pull/22), [#23](https://github.com/ximizhou/convenient_window_free/pull/23), [#24](https://github.com/ximizhou/convenient_window_free/pull/24), and [#25](https://github.com/ximizhou/convenient_window_free/pull/25) on the complete 0.6.3 baseline. This is a local candidate, not a published release; 0.6.3 stable assets remain immutable.
+The development source integrates PRs [#21](https://github.com/ximizhou/convenient_window_free/pull/21), [#22](https://github.com/ximizhou/convenient_window_free/pull/22), [#23](https://github.com/ximizhou/convenient_window_free/pull/23), [#24](https://github.com/ximizhou/convenient_window_free/pull/24), [#25](https://github.com/ximizhou/convenient_window_free/pull/25), and [#26](https://github.com/ximizhou/convenient_window_free/pull/26) on the complete 0.6.3 baseline. The [0.6.4 release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.4) was promoted to stable on October 11, 2026 without rebuilding or replacing its assets; 0.6.3 stable assets remain immutable. Development source is now 0.6.5; its first task improves window motion. Stable downloads remain 0.6.4.
 
 - Pins follow both their window position and stacking order without covering unrelated higher windows.
 - Pinned screenshots start at original pixel size. `ocr.pinOffset` defaults to true (16 px down/right); turning it off covers the captured area. Large or edge-adjacent images may extend beyond the screen instead of being automatically resized.
 - Number inputs preserve incomplete drafts until blur/Enter, and monitor-specific hot-zone edits wait for real display identities.
 - Early helper shutdown signals remain queued for the original engine subscription.
-- Windows administrator mode elevates only the helper for the current session; configured commands remain in the ordinary-permission host. Failed state queries display unknown rather than a cached permission label.
+- Windows administrator mode is selected under Settings (top-right gear) and elevates only the helper for the current session; configured commands remain in the ordinary-permission host. Failed state queries display unknown rather than a cached permission label.
+- The separate Windows **Request administrator access at login** preference is off by default. Enabling it also enables start at login, but saving it does not elevate the running helper. Settings and the tray share the startup control; Task Manager disabling retains the registered administrator argument for re-enabling, and disabling startup in the app removes only entries owned by the current executable.
 
-Administrator mode does not support protected processes. Scheduled elevated login/startup is not part of this candidate (the second phase of [issue #20](https://github.com/ximizhou/convenient_window_free/issues/20)). Host adapters require their own runtime acceptance. Do not run competing hosts on the fixed helper port `56873`. See [candidate notes](docs/release-notes/0.6.4.md), [manual tests](docs/testing.md#064-local-candidate-acceptance), and [local packaging](docs/release.md#develop-acceptance). Automated results and artifact identities must be recorded for the actual candidate; UAC, multi-monitor/DPI, and taskbar recovery still require real-machine checks.
+Only a desktop process launched with both `--autostart --request-admin` attempts helper elevation on its first helper start. Foreground launches and automatic helper recovery do not request UAC. Cancelling authorization falls back to an ordinary helper; an unconfirmed launch does not fall back or repeat UAC. The desktop interface and configured commands stay at ordinary permissions, and owned helpers use the desktop exit-cleanup boundary. No scheduled task is created. See the [first-stage login-request checklist](docs/testing.md#login-administrator-request-first-stage-manual-acceptance); real-user UAC, actual login, upgrade/uninstall and Windows 10 acceptance are not claimed.
+
+Administrator mode does not support protected processes. Host adapters require their own runtime acceptance. Do not run competing hosts on the fixed helper port `56873`. See [candidate notes](docs/release-notes/0.6.4.md), [manual tests](docs/testing.md#064-local-candidate-acceptance), and [local packaging](docs/release.md#develop-acceptance). Automated results and artifact identities must be recorded for the actual candidate; UAC, multi-monitor/DPI, and taskbar recovery still require real-machine checks.
+
+## 0.6.5 Window Motion (Development)
+
+Development settings add animation duration (default 160 ms; presets 160/260/400 and custom 80–800), an independent top-edge distance (48 px) and hold duration (600 ms), and a drag update-rate limit (default 120 Hz; presets 60/120/240, custom 30–240). Existing switches and side/bottom triggers retain their settings.
+
+Qualified side-edge blue lines stay visible during a paused drag. Near the top, the line grows from the center; release after it fills to tuck the window away. Early release leaves native Snap behavior. Drag processing merges unchanged positions and counts processing time toward the update budget. See [implementation](docs/architecture.md#window-motion-065) and [development acceptance](docs/testing.md#window-motion-development-acceptance-065). These changes are not yet a stable download or desktop installer.
 
 ## Features
 
 Development source adds an **Appearance** (slim wand-and-sparkle) entry and moves global settings to a circular top-right gear. Taskbar material is an off-by-default Windows 11 x64 technical prototype with transparent, acrylic and tinted modes plus opacity and border controls. Activation is direct; the Explorer risk note remains inside the panel. The illustrated preview is not proof of actual rendering; initial transparency has received positive local acceptance feedback, while material compatibility, icon clarity, and cross-environment recovery still require per-environment acceptance. The prototype was included in 0.6.3; it remains off by default and does not imply universal compatibility.
 
-- **Hot zones**: configure the four corners and four edges of each monitor independently, with hover, mouse-button, wheel, and edge-movement triggers.
+- **Zone geometry**: per-display corner width/height with a ratio lock, edge thickness and centered 10–100% length, live preview and per-zone reset. Existing settings keep their original ranges. Schema-v9 settings require the matching helper.
+- **Hot zones**: configure the four corners and four edges of each monitor independently, with hover, mouse-button, wheel, and edge-movement triggers. The default-on translucent hover hint can be disabled in Corner parameters without disabling actions or the settings preview.
 - **Window edge hiding**: move windows partly off-screen and restore them from a visible edge strip, with multi-window and multi-monitor support. The restore outline and hide/restore animation can be disabled independently without disabling edge restoration.
 - **Anywhere move and resize**: move or resize the active window with configurable modifier-and-mouse combinations.
 - **Topmost controls**: keep a window above others; a red on-window pin is shown by default and releases the window when clicked.

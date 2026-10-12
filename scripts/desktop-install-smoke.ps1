@@ -312,7 +312,7 @@ try {
   }
 
   Write-Output "NSIS install: exit=0; executable and complete helper payload verified"
-  Write-Output "installed runtime: helper ready, schema v8 persisted, graceful exit"
+  Write-Output "installed runtime: helper ready, schema v9 persisted, graceful exit"
   Write-Output "live uninstall: app and desktop-owned helper exited gracefully; port closed"
   Write-Output "uninstall non-interference: separately owned uTools helper survived and stopped by authenticated IPC"
   Write-Output "NSIS uninstall: exit=0; install directory, registry entry, and shortcuts removed"

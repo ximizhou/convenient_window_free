@@ -1,4 +1,5 @@
 import { migrateGestureName } from "./gesture-names";
+import { normalizeHotzoneGeometry } from "./hotzone-geometry";
 import type {
   AppSettings, GesturePoint, GestureTemplate, GestureTriggerButton, HotzoneAction,
   HotzoneId, HotzoneSetting, ModifierAction, ModifierKey, MouseButton, OcrLanguage,
@@ -7,7 +8,7 @@ import type {
 import { getOptionalHostBridge } from "./host-bridge";
 import { resampleGesture } from "./gesture-algorithm";
 
-export const SETTINGS_SCHEMA_VERSION = 8;
+export const SETTINGS_SCHEMA_VERSION = 9;
 export const MAX_GESTURE_TEMPLATES = 64;
 export const MAX_SETTINGS_STORAGE_BYTES = 900 * 1024;
 
@@ -51,6 +52,7 @@ export const defaultSettings: AppSettings = {
   },
   enabled: true,
   hotzonesEnabled: true,
+  showHotzoneHint: true,
   edgeSize: 8,
   hoverDelayMs: 350,
   pollIntervalMs: 33,
@@ -71,6 +73,9 @@ export const defaultSettings: AppSettings = {
   edgeHide: {
     enabled: false,
     animationEnabled: true,
+    animationDurationMs: 160,
+    topTriggerDistance: 48,
+    topHoverDelayMs: 600,
     showPreview: true,
     showRestoreHint: true,
     keepExpandedWhenForeground: false,
@@ -87,6 +92,7 @@ export const defaultSettings: AppSettings = {
   },
   windowDrag: {
     enabled: false,
+    updateHz: 120,
     moveModifiers: ["alt"],
     resizeModifiers: ["alt"],
     moveButton: "left",
@@ -143,6 +149,7 @@ export function normalizeSettings(stored: Partial<AppSettings> | null | undefine
   }
 
   const edgeHide = stored.edgeHide;
+  const edgeSize = integerInRange(stored.edgeSize, defaultSettings.edgeSize, 2, 48);
   const sourceSchemaVersion = stored.schemaVersion ?? 0;
   const hoverDelayMs = integerInRange(stored.hoverDelayMs, defaultSettings.hoverDelayMs, 0, 3000);
   const actionCooldownMs = integerInRange(
@@ -159,7 +166,8 @@ export function normalizeSettings(stored: Partial<AppSettings> | null | undefine
       : sourceSchemaVersion < 6
         ? legacyHotzonesEnabled(stored)
         : defaultSettings.hotzonesEnabled,
-    edgeSize: integerInRange(stored.edgeSize, defaultSettings.edgeSize, 2, 48),
+    showHotzoneHint: booleanValue(stored.showHotzoneHint, defaultSettings.showHotzoneHint),
+    edgeSize,
     hoverDelayMs,
     pollIntervalMs: integerInRange(stored.pollIntervalMs, defaultSettings.pollIntervalMs, 10, 250),
     actionCooldownMs,
@@ -167,6 +175,9 @@ export function normalizeSettings(stored: Partial<AppSettings> | null | undefine
     edgeHide: {
       enabled: booleanValue(edgeHide?.enabled, defaultSettings.edgeHide.enabled),
       animationEnabled: booleanValue(edgeHide?.animationEnabled, defaultSettings.edgeHide.animationEnabled),
+      animationDurationMs: integerInRange(edgeHide?.animationDurationMs, 160, 80, 800),
+      topTriggerDistance: integerInRange(edgeHide?.topTriggerDistance, 48, 8, 128),
+      topHoverDelayMs: integerInRange(edgeHide?.topHoverDelayMs, 600, 200, 2000),
       showPreview: booleanValue(edgeHide?.showPreview, defaultSettings.edgeHide.showPreview),
       showRestoreHint: booleanValue(
         edgeHide?.showRestoreHint,
@@ -221,13 +232,13 @@ export function normalizeSettings(stored: Partial<AppSettings> | null | undefine
     },
     ocr: normalizeOcr(stored.ocr),
     taskbarAppearance: normalizeTaskbarAppearance(stored.taskbarAppearance),
-    hotzones: normalizeHotzones(stored.hotzones, hoverDelayMs, actionCooldownMs),
+    hotzones: normalizeHotzones(stored.hotzones, hoverDelayMs, actionCooldownMs, edgeSize),
     monitorProfiles: Array.isArray(stored.monitorProfiles)
       ? stored.monitorProfiles
           .filter((profile) => typeof profile?.monitorId === "string" && profile.monitorId.trim())
           .map((profile) => ({
             monitorId: profile.monitorId.trim(),
-            hotzones: normalizeHotzones(profile.hotzones, hoverDelayMs, actionCooldownMs)
+            hotzones: normalizeHotzones(profile.hotzones, hoverDelayMs, actionCooldownMs, edgeSize)
           }))
       : []
   };
@@ -244,7 +255,8 @@ function legacyHotzonesEnabled(stored: Partial<AppSettings>): boolean {
 function normalizeHotzones(
   value: unknown,
   hoverDelayMs = defaultSettings.hoverDelayMs,
-  actionCooldownMs = defaultSettings.actionCooldownMs
+  actionCooldownMs = defaultSettings.actionCooldownMs,
+  edgeSize = defaultSettings.edgeSize
 ): HotzoneSetting[] {
   const savedList = Array.isArray(value) ? value : [];
   return defaultSettings.hotzones.map((fallback) => {
@@ -252,6 +264,7 @@ function normalizeHotzones(
       | (Partial<HotzoneSetting> & { trigger?: unknown; action?: unknown })
       | undefined;
     if (!saved) return cloneHotzone(fallback);
+    const geometry = normalizeHotzoneGeometry(saved.geometry, fallback.id, edgeSize);
     const legacyTrigger = saved.trigger === "wheel" ? "wheel-up" : saved.trigger;
     const rawActions = Array.isArray(saved.actions)
       ? saved.actions
@@ -261,6 +274,7 @@ function normalizeHotzones(
     return {
       id: fallback.id,
       enabled: booleanValue(saved.enabled, fallback.enabled),
+      ...(geometry ? { geometry } : {}),
       actions: triggerKinds.map((trigger) => {
         const raw = rawActions.find((item) => item?.trigger === trigger) as Partial<TriggerAction> | undefined;
         const action = normalizeAction(raw?.action);
@@ -409,6 +423,7 @@ function normalizeWindowDrag(value: unknown): AppSettings["windowDrag"] {
   const resizeButton = mouseButtons.includes(raw.resizeButton as MouseButton) ? raw.resizeButton as MouseButton : defaultSettings.windowDrag.resizeButton;
   return {
     enabled: booleanValue(raw.enabled, defaultSettings.windowDrag.enabled),
+    updateHz: integerInRange(raw.updateHz, 120, 30, 240),
     moveModifiers: modifierList(raw.moveModifiers, defaultSettings.windowDrag.moveModifiers),
     resizeModifiers: modifierList(raw.resizeModifiers, defaultSettings.windowDrag.resizeModifiers),
     moveButton,
@@ -618,6 +633,7 @@ function circleSample(): [number, number][] {
 function cloneHotzone(hotzone: AppSettings["hotzones"][number]): AppSettings["hotzones"][number] {
   return {
     ...hotzone,
+    ...(hotzone.geometry ? { geometry: { ...hotzone.geometry } } : {}),
     actions: hotzone.actions.map((item) => ({
       trigger: item.trigger,
       action: { ...item.action },

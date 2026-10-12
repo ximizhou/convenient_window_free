@@ -109,7 +109,7 @@ describe("window enhancement UI wiring", () => {
 
   it("animates one window through drag, collapse, hover and restore", () => {
     expect(source).toContain('ui("edgeHideTutorialBody")');
-    expect(i18n.zh.edgeHideTutorialBody).toBe("拖到屏幕外边缘并松开，窗口自动收起；移到露出区域即可恢复。");
+    expect(i18n.zh.edgeHideTutorialBody).toContain("顶部须停留至蓝线铺满");
     expect(source.match(/class="tutorial-edge-window"/g)).toHaveLength(1);
     expect(source).toContain('class="tutorial-cursor"');
     expect(styles).toContain("animation: tutorial-edge-window-cycle");
@@ -142,4 +142,63 @@ it("auto-saves the localized edge animation switch without changing delays", () 
   expect(source).toContain('aria-label={ui("edgeAnimation")}');
   expect(source).toContain('settings.edgeHide.collapseDelayMs');
   expect(source).toContain('settings.edgeHide.restoreDelayMs');
+});
+
+
+describe("per-area geometry UI boundaries", () => {
+  it("replaces the global size input without adding a feature tab", () => {
+    expect(source).toContain('import HotzoneGeometryEditor from "./HotzoneGeometryEditor.svelte"');
+    expect(source).toContain('onChange={setHotzoneGeometry}');
+    expect(source).toContain('onReset={resetHotzoneGeometry}');
+    expect(source).toContain('ready={displayReady}');
+    expect(source).toContain('delete zone.geometry');
+    expect(source).toContain('geometry: { ...zone.geometry }');
+    expect(source).not.toContain('value: settings.edgeSize, onChange:');
+    expect(source).toContain('isSupportedHelperSchema(data?.schemaVersion)');
+    expect(i18n.zh.geometryScope).toContain("不改变动作");
+    expect(i18n.en.geometryLinked).toBe("Keep the current aspect ratio");
+    expect(styles).toContain('.geometry-field input { display: block; width: 100%; min-width: 0;');
+    expect(monitorStage).toContain('pointer-events:none');
+    expect(monitorStage).toContain('hotzonePreviewRect(selectedZone, selectedDisplay.bounds, edgeSize, selectedGeometry)');
+  });
+});
+
+
+describe("drawer scroll layout contract", () => {
+  const bodyRules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selectors]) => selectors.trim().endsWith(".drawer-body"))
+    .map(([, selectors, declarations]) => ({
+      selector: selectors.trim(),
+      declarations: Object.fromEntries(declarations.split(";").filter(part => part.includes(":")).map(part => {
+        const separator = part.indexOf(":");
+        return [part.slice(0, separator).trim(), part.slice(separator + 1).trim()];
+      }))
+    }));
+
+  it("keeps long cards in normal block flow and does not hide horizontal overflow", () => {
+    const base = bodyRules.find(rule => rule.selector === ".drawer-body")?.declarations;
+    expect(base).toBeDefined();
+    expect(base?.display).toBe("block");
+    expect(base?.["min-height"]).toBe("0");
+    expect(base?.["overflow-y"]).toBe("auto");
+    expect(base?.["overflow-x"]).toBe("auto");
+    expect(base?.["scrollbar-gutter"]).toBe("stable");
+    for (const rule of bodyRules) {
+      expect(rule.declarations.display, rule.selector).not.toBe("flex");
+      for (const key of ["overflow", "overflow-x", "overflow-y"]) {
+        expect(rule.declarations[key] ?? "", rule.selector + " " + key).not.toMatch(/hidden|clip/);
+      }
+    }
+  });
+
+  it("retains the bottom scroll clearance in narrow and gesture drawer overrides", () => {
+    expect(bodyRules.length).toBeGreaterThanOrEqual(4);
+    for (const rule of bodyRules) {
+      // A later shorthand must not silently replace the base bottom clearance.
+      if (rule.declarations.padding) {
+        expect(rule.declarations.padding, rule.selector).toMatch(/calc\(28px \+ env\(safe-area-inset-bottom\)\)/);
+      }
+      expect(rule.declarations["padding-bottom"], rule.selector).toBeUndefined();
+    }
+  });
 });

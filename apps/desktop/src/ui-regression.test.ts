@@ -5,7 +5,7 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { build } from "vite";
 import { expect, it } from "vitest";
 
-it("discovers and persists topmost pin controls and pin offsets through the real App and host", async () => {
+it("preserves feature controls and exercises aligned runtime cards and settings permissions through the real App and host", async () => {
   const directory = mkdtempSync(nodePath.join(import.meta.dirname, ".ui-regression-test-"));
   try {
     const entry = nodePath.join(directory, "entry.ts");
@@ -21,6 +21,7 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       let receive, receiveStatus;
       let connectCalls = 0, stopCalls = 0, saves = 0, startCalls = 0;
       let failSaves = false;
+      let exportedJson = "";
       const sent = [];
       HelperClient.prototype.onMessage = function(handler) { receive = handler; return () => {}; };
       HelperClient.prototype.onStatus = function(handler) { receiveStatus = handler; return () => {}; };
@@ -29,6 +30,7 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       HelperClient.prototype.stop = function() { stopCalls++; receiveStatus('disconnected'); };
       HelperClient.prototype.sendConfig = function(settings) { sent.push(structuredClone(settings)); return true; };
       let stored = normalizeSettings(defaultSettings);
+      delete stored.showHotzoneHint;
       stored.enabled = true;
       stored.hotzonesEnabled = true;
       stored.mouseGestures.enabled = true;
@@ -37,24 +39,51 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       stored.edgeHide.animationEnabled = false;
       stored.ocr.pinOffset = false;
       stored.taskbarAppearance = { enabled: true, mode: 'acrylic', opacity: 73, tint: '#EAF1FC', showBorder: true };
-      const installState = () => ({ installed: true, development: false, version: '0.6.4', bytes: 0 });
+      let helperInstalled = true;
+      const installState = () => ({ installed: helperInstalled, development: false, version: '0.6.4', bytes: 0 });
       let elevationResult = { ok: true, elevated: true };
       const elevationRequests = [];
+      let startupState = { enabled: false };
+      let loginEnabled = false, startupChanged;
+      let finishStartup;
+      const startupRequests = [];
+      const startupReads = [], adminStartupReads = [];
+      let startupReadCalls = 0, adminStartupReadCalls = 0;
+      const deferred = () => {
+        let resolve;
+        const promise = new Promise(done => { resolve = done; });
+        return { promise, resolve };
+      };
       let setElevation = async elevated => { elevationRequests.push(elevated); return elevationResult; };
       configureHostBridge({
         kind: 'desktop', getInitialSettings: () => structuredClone(stored),
+        exportSettings: async value => { exportedJson = JSON.stringify(value, null, 2); return true; },
+        importSettings: async () => JSON.parse(exportedJson),
         getHelperToken: () => 'test-token', getHelperState: installState,
         getPrivilegeSupport: () => ({ supported: true }),
         getPrivilegeState: () => ({ supported: true, elevated: null }),
         startHelper: async () => { startCalls++; return { ok: true }; },
         setHelperElevation: elevated => setElevation(elevated),
+        getAdminStartup: async () => { adminStartupReadCalls++; return adminStartupReads.shift()?.promise ?? startupState; },
+        getStartup: async () => { startupReadCalls++; return startupReads.shift()?.promise ?? { enabled: loginEnabled }; },
+        setStartup: async enabled => { loginEnabled = enabled; if (!enabled) startupState = { enabled: false }; return { enabled }; },
+        onStartupChanged: async handler => { startupChanged = handler; return () => {}; },
+        setAdminStartup: enabled => { startupRequests.push(enabled); return new Promise(resolve => { finishStartup = resolve; }); },
         saveSettings: async value => { if (failSaves) throw new Error("settings-write-failure"); stored = structuredClone(value); saves++; }
       });
       const settle = async () => { for (let i = 0; i < 8; i++) { await Promise.resolve(); flushSync(); } };
       const open = index => { document.querySelectorAll('.mode-nav button')[index].click(); flushSync(); };
-      const ready = elevated => { receiveStatus('connected'); receive({ type: 'helper.ready', data: { protocolVersion: SUPPORTED_HELPER_PROTOCOL, version: '0.6.4', elevated } }); flushSync(); };
+      const openSettings = () => { document.querySelector('.settings-toggle').click(); flushSync(); };
+      const ready = elevated => { receiveStatus('connected'); receive({ type: 'helper.ready', data: { protocolVersion: SUPPORTED_HELPER_PROTOCOL, schemaVersion: 9, version: '0.6.4', elevated } }); flushSync(); };
       const pin = () => document.querySelector('.pin-offset-option button');
-      const screenshot = () => { open(3); document.querySelector('button.screenshot').click(); flushSync(); };
+      const screenshot = () => {
+        if (!document.querySelector('.gesture-catalog')) open(3);
+        assert.ok(!document.querySelector('.gesture-capabilities'), 'redundant gesture overview cards must not be rendered');
+        assert.ok(document.querySelector('.gesture-section-head button'), 'the library must keep its new-gesture entry');
+        const capture = document.querySelector('.gesture-library button.screenshot');
+        assert.ok(capture, 'screenshot selection must remain in the gesture library');
+        capture.click(); flushSync();
+      };
       let component = mount(App, { target: document.body });
       flushSync(); await settle();
       const topmostPin = () => {
@@ -65,6 +94,17 @@ it("discovers and persists topmost pin controls and pin offsets through the real
         assert.ok(input.closest('.topmost-pin-option'), 'the pin switch must be attached to the topmost action');
         return input;
       };
+      const hotzoneHint = () => {
+        const rows = document.querySelectorAll('.hotzone-hint-setting');
+        assert.equal(rows.length, 1, 'the hotzone parameters must expose exactly one hint setting');
+        const row = rows[0];
+        assert.ok(row.classList.contains('setting-title'), 'hint setting must use the existing setting-title style');
+        assert.ok(row.previousElementSibling.textContent.includes('Corner parameters') || row.previousElementSibling.textContent.includes('热区参数'), 'hint setting belongs under hotzone parameters');
+        assert.ok(row.nextElementSibling.classList.contains('hotzone-geometry'), 'the per-area size editor follows the hint setting');
+        const input = row.querySelector('.mini-switch input[type="checkbox"]');
+        assert.ok(input, 'hint setting must use the existing mini-switch');
+        return input;
+      };
       const noTopmostPin = () => assert.equal(document.querySelectorAll('input[aria-label="Enable topmost pin"]').length, 0, 'pin switch must stay hidden without a topmost action');
       const chooseAction = async (label) => {
         const picker = document.querySelector('.action-editor .picker-trigger');
@@ -72,7 +112,7 @@ it("discovers and persists topmost pin controls and pin offsets through the real
         picker.click(); flushSync();
         const option = [...document.querySelectorAll('.picker-menu button')].find(button => button.textContent.trim() === label);
         assert.ok(option, 'the requested action must be available');
-        option.click(); await settle();
+        option.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
       };
       open(2);
       assert.equal(document.querySelector('.window-tabs button').classList.contains('active'), true, 'Windows enhancement must initially show the edge tab');
@@ -82,6 +122,45 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       assert.equal(document.querySelector('.feature-settings-body').hasAttribute('inert'), true, 'disabled drag settings must actually be inert');
       noTopmostPin();
       open(1);
+      assert.equal(hotzoneHint().checked, true, 'missing/initial hint preference defaults on in the real App');
+      assert.equal(hotzoneHint().getAttribute('aria-label'), 'Show translucent hint area');
+      assert.equal(document.querySelector('.hotzone-hint-setting h2').textContent, 'Show translucent hint area');
+      assert.equal(document.querySelector('.hotzone-hint-setting p').textContent, 'Hides only the hover hint; corner actions still work');
+      const hotzonesBeforeHint = structuredClone(stored.hotzones);
+      const profilesBeforeHint = structuredClone(stored.monitorProfiles);
+      const edgeSizeBeforeHint = stored.edgeSize;
+      const savesBeforeHint = saves;
+      for (const showHotzoneHint of [false, true, false]) {
+        hotzoneHint().click(); await settle();
+        assert.equal(hotzoneHint().checked, showHotzoneHint);
+        assert.equal(stored.showHotzoneHint, showHotzoneHint, 'hint off/on must persist through the actual host');
+        assert.equal(stored.schemaVersion, 9, 'geometry settings use schema v9');
+        assert.equal(stored.hotzonesEnabled, true, 'hiding the hint must not disable corner actions');
+        assert.deepEqual(stored.hotzones, hotzonesBeforeHint, 'hint changes must preserve every trigger action');
+        assert.deepEqual(stored.monitorProfiles, profilesBeforeHint, 'hint changes must preserve per-display settings');
+        assert.equal(stored.edgeSize, edgeSizeBeforeHint, 'hint changes must not alter the hotzone size');
+      }
+      assert.equal(saves, savesBeforeHint + 3, 'each hint change must auto-save');
+      document.querySelector('.hotzone-master-intro input').click(); await settle();
+      assert.equal(stored.hotzonesEnabled, false);
+      assert.equal(document.querySelector('.feature-settings-body').hasAttribute('inert'), true, 'the existing corner master switch still disables settings');
+      assert.equal(hotzoneHint().checked, false);
+      assert.equal(stored.showHotzoneHint, false, 'disabling corners must retain the hint choice');
+      document.querySelector('.hotzone-master-intro input').click(); await settle();
+      assert.equal(stored.hotzonesEnabled, true);
+      assert.equal(hotzoneHint().checked, false, 're-enabling corners must not reset the hint choice');
+      document.querySelector('.settings-toggle').click(); flushSync();
+      document.querySelectorAll('.config-actions .quiet')[0].click(); await settle();
+      assert.equal(JSON.parse(exportedJson).showHotzoneHint, false, 'the actual App export must preserve the disabled hint');
+      assert.equal(JSON.parse(exportedJson).schemaVersion, 9);
+      open(1); hotzoneHint().click(); await settle();
+      assert.equal(stored.showHotzoneHint, true, 'prepare a different choice before importing the saved JSON');
+      document.querySelector('.settings-toggle').click(); flushSync();
+      document.querySelectorAll('.config-actions .quiet')[1].click(); await settle();
+      assert.equal(stored.showHotzoneHint, false, 'the actual App import must restore the exported disabled hint');
+      assert.equal(sent.at(-1).showHotzoneHint, false, 'the imported hint choice must reach the helper configuration');
+      open(1);
+      assert.equal(hotzoneHint().checked, false, 'the imported choice must also update the real control');
       noTopmostPin();
       await chooseAction('Toggle always on top');
       assert.equal(topmostPin().checked, true, 'the pin switch must default to enabled when topmost is selected');
@@ -105,6 +184,7 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       component = mount(App, { target: document.body }); flushSync(); await settle();
       open(1);
       assert.equal(topmostPin().checked, false, 'an explicit pin-off choice must survive remount when topmost remains selected');
+      assert.equal(hotzoneHint().checked, false, 'an explicit hint-off choice must survive App remount');
       assert.equal(stored.edgeHide.animationEnabled, false, 'the 0.6.3 animation preference must survive all new settings writes');
       assert.deepEqual(stored.taskbarAppearance, { enabled: true, mode: 'acrylic', opacity: 73, tint: '#EAF1FC', showBorder: true });
       screenshot();
@@ -122,13 +202,137 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       await unmount(component); document.body.replaceChildren();
       component = mount(App, { target: document.body }); flushSync(); await settle(); screenshot();
       assert.equal(pin().getAttribute('aria-pressed'), 'true', 'pin offset must survive remount');
+      document.querySelector('.gesture-library button:not(.screenshot)').click(); flushSync();
+      assert.ok(document.querySelector('.gesture-library button.active:not(.screenshot)'), 'built-in action gestures remain selectable from the library');
+      assert.ok(document.querySelector('.gesture-editor .action-editor'), 'built-in action controls remain reachable');
+      const gestureCountBeforeNew = stored.mouseGestures.gestures.length;
+      document.querySelector('.gesture-section-head button').click(); await settle();
+      assert.equal(stored.mouseGestures.gestures.length, gestureCountBeforeNew + 1, 'the remaining library new button must still create a custom gesture');
+      const createdGesture = stored.mouseGestures.gestures.at(-1);
+      assert.equal(createdGesture.builtin, false, 'new gestures remain custom, not built-in replacements');
+      assert.equal(createdGesture.mode, 'action', 'new gestures retain their action editor');
+      assert.ok(document.querySelector('.gesture-library button.active'), 'the created gesture remains selectable');
+      assert.ok(document.querySelector('.gesture-editor .action-editor'), 'the selected custom gesture keeps its action binding controls');
+      screenshot();
+      assert.equal(stored.mouseGestures.gestures.length, gestureCountBeforeNew + 1, 'selecting screenshot must not create or delete gestures');
       open(0); receiveStatus('connected'); flushSync();
-      const permission = () => document.querySelector('.permission-settings input[role="switch"]');
+      assert.equal(document.querySelector('.permission-settings'), null, 'runtime center must not contain startup or privilege settings');
+      openSettings();
+      assert.equal(document.querySelectorAll('.permission-settings input[role="switch"]').length, 3, 'settings must contain all three startup and privilege switches');
+      const login = () => document.querySelector('.login-toggle input');
+      assert.equal(login().checked, false);
+      login().click(); await settle();
+      assert.equal(login().checked, true, 'login switch reflects the persisted state');
+      loginEnabled = false;
+      startupChanged(); await settle();
+      assert.equal(login().checked, false, 'tray changes refresh the open settings panel');
+      const startup = () => document.querySelector('.permission-startup input');
+      assert.equal(startup().checked, false);
+      assert.ok(document.querySelector('#admin-startup-description').textContent.includes('UAC'), 'login authorization must be explained beside its switch');
+      const beforeStartupConnections = connectCalls;
+      startup().click(); await settle();
+      assert.deepEqual(startupRequests, [true]);
+      assert.equal(startup().disabled, true);
+      assert.equal(login().disabled, true, 'login startup cannot race administrator preference update');
+      assert.equal(startup().checked, false, 'preference update must not be optimistically enabled');
+      startupChanged('busy-tray-error'); await settle();
+      assert.ok(!document.querySelector('.permission-settings').textContent.includes('busy-tray-error'), 'tray errors during a UI write must not replace the pending write notice');
+      startup().dispatchEvent(new Event('change')); await settle();
+      assert.equal(startupRequests.length, 1, 'preference update cannot be requested twice while persistence is pending');
+      finishStartup({ enabled: false, error: 'access denied' }); await settle();
+      assert.equal(startup().checked, false);
+      assert.equal(startup().disabled, false);
+      startup().click(); await settle();
+      loginEnabled = true;
+      finishStartup({ enabled: true }); await settle();
+      assert.equal(startup().checked, true);
+      assert.equal(login().checked, true, 'administrator preference update refreshes ordinary startup');
+      assert.equal(connectCalls, beforeStartupConnections, 'login preference does not replace the current helper');
+      startup().click(); await settle();
+      assert.equal(startupRequests.at(-1), false);
+      finishStartup({ enabled: false }); await settle();
+      assert.equal(startup().checked, false);
+      startupState = { enabled: true };
+      startupChanged(); await settle();
+      login().click(); await settle();
+      assert.equal(login().checked, false);
+      assert.equal(startup().checked, false, 'disabling login refreshes the cleared administrator request');
+
+      // Use the real focus listener and switches, not copies of App's refresh functions.
+      const lateFocus = deferred();
+      startupReads.push(lateFocus);
+      window.dispatchEvent(new Event('focus')); await settle();
+      startup().click(); await settle();
+      loginEnabled = true; startupState = { enabled: true };
+      finishStartup({ enabled: true }); await settle();
+      assert.equal(login().checked, true);
+      assert.equal(startup().checked, true);
+      lateFocus.resolve({ enabled: false }); await settle();
+      assert.equal(login().checked, true, 'old focus query must not overwrite a completed administrator-startup write');
+      assert.equal(startup().checked, true);
+
+      const lateFocusBeforeDisable = deferred();
+      startupReads.push(lateFocusBeforeDisable);
+      window.dispatchEvent(new Event('focus')); await settle();
+      login().click(); await settle();
+      assert.equal(login().checked, false);
+      assert.equal(startup().checked, false);
+      lateFocusBeforeDisable.resolve({ enabled: true }); await settle();
+      assert.equal(login().checked, false, 'old focus query must not overwrite a completed ordinary-startup write');
+      assert.equal(startup().checked, false);
+
+      const olderLogin = deferred(), olderAdmin = deferred();
+      const newerLogin = deferred(), newerAdmin = deferred();
+      startupReads.push(olderLogin, newerLogin);
+      adminStartupReads.push(olderAdmin, newerAdmin);
+      window.dispatchEvent(new Event('focus')); await settle();
+      window.dispatchEvent(new Event('focus')); await settle();
+      newerLogin.resolve({ enabled: true }); await settle();
+      assert.equal(login().checked, false, 'a refresh must wait for both startup fields before committing either');
+      assert.equal(startup().checked, false);
+      loginEnabled = true; startupState = { enabled: true };
+      newerAdmin.resolve({ enabled: true }); await settle();
+      assert.equal(login().checked, true, 'the newest complete refresh must update the ordinary-startup switch');
+      assert.equal(startup().checked, true, 'the newest complete refresh must update the administrator-startup switch');
+      olderLogin.resolve({ enabled: false }); await settle();
+      assert.equal(login().checked, true);
+      olderAdmin.resolve({ enabled: false }); await settle();
+      assert.equal(login().checked, true, 'reverse-order focus responses must not replace the newest startup snapshot');
+      assert.equal(startup().checked, true);
+
+      const olderTrayLogin = deferred(), olderTrayAdmin = deferred();
+      const focusedLogin = deferred(), focusedAdmin = deferred();
+      startupReads.push(olderTrayLogin, focusedLogin);
+      adminStartupReads.push(olderTrayAdmin, focusedAdmin);
+      startupChanged('tray-startup-write-failure'); flushSync();
+      assert.ok(document.querySelector('.permission-settings').textContent.includes('tray-startup-write-failure'), 'tray errors must be visible without waiting for the startup query');
+      window.dispatchEvent(new Event('focus')); await settle();
+      focusedLogin.resolve({ enabled: true }); focusedAdmin.resolve({ enabled: true }); await settle();
+      assert.ok(document.querySelector('.permission-settings').textContent.includes('tray-startup-write-failure'), 'focus refresh must not discard the preceding tray error when it supersedes the tray query');
+      olderTrayLogin.resolve({ enabled: false }); olderTrayAdmin.resolve({ enabled: false }); await settle();
+      assert.equal(login().checked, true, 'late tray query must not replace the newer focus snapshot');
+      assert.equal(startup().checked, true);
+      assert.ok(document.querySelector('.permission-settings').textContent.includes('tray-startup-write-failure'), 'reverse-order tray and focus query results must retain the tray error');
+      startupChanged(); await settle();
+      assert.ok(!document.querySelector('.permission-settings').textContent.includes('tray-startup-write-failure'), 'a successful tray event clears the previous tray error');
+      const lateTrayError = deferred();
+      startupReads.push(lateTrayError);
+      startupChanged('obsolete-tray-error'); await settle();
+      login().click(); await settle();
+      lateTrayError.resolve({ enabled: true }); await settle();
+      assert.equal(login().checked, false);
+      assert.equal(startup().checked, false);
+      assert.ok(!document.querySelector('.permission-settings').textContent.includes('obsolete-tray-error'), 'an invalidated tray refresh must not resurrect its old error notice');
+      const permission = () => document.querySelector('.permission-settings input[aria-label="Administrator access"], .permission-settings input[aria-label="管理员权限"]');
       assert.ok(permission(), 'both real Apps must expose the supported helper permission control');
       assert.equal(permission().getAttribute('aria-label'), 'Administrator access');
       assert.equal(permission().disabled, true, 'a socket without a ready permission report is still unknown');
       assert.equal(permission().checked, false);
       assert.ok(document.querySelector('.permission-settings').textContent.includes('Permission state unknown'));
+      open(0);
+      assert.equal(document.querySelector('.runtime-actions .apply').dataset.action, 'stop', 'unknown permission must not turn an active helper into a start action');
+      assert.ok(document.querySelector('.runtime-permission-warning'), 'unknown remains visible without a permission setting in the runtime center');
+      openSettings();
       ready(true);
       assert.equal(permission().checked, true);
       assert.equal(permission().disabled, false);
@@ -147,16 +351,16 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       assert.equal(connectCalls, beforeRetainedFailure + 1, 'a failed switch with known surviving helper state must reconnect');
       ready(true);
       assert.equal(permission().checked, true, 'the reconnected helper ready state remains authoritative');
-      assert.equal(document.querySelector('.status-rail').classList.contains('error'), false, 'fresh ready clears the switch error');
+      assert.equal(Boolean(document.querySelector('.permission-settings [role="alert"]')), false, 'fresh ready clears the switch error');
       ready(false);
       receive({ type: 'runtime.error', data: { code: 'input_monitor_failed' } }); flushSync();
-      assert.equal(document.querySelector('.status-rail').classList.contains('error'), true);
+      assert.equal(Boolean(document.querySelector('.permission-settings [role="alert"]')), true);
       elevationResult = { ok: true, elevated: false, warning: 'adminCancelled' };
       const beforeCancelledRequest = connectCalls;
       permission().click(); await settle();
       assert.equal(elevationRequests.at(-1), true, 'ordinary mode requests elevation, never guesses from unknown');
       assert.equal(connectCalls, beforeCancelledRequest + 1);
-      assert.equal(document.querySelector('.status-rail').classList.contains('error'), false, 'a successful cancellation fallback must not retain an old helper error');
+      assert.equal(Boolean(document.querySelector('.permission-settings [role="alert"]')), false, 'a successful cancellation fallback must not retain an old helper error');
       assert.ok(document.querySelector('.permission-settings').textContent.toLowerCase().includes('cancel'));
       ready(false);
       assert.equal(permission().checked, false);
@@ -164,7 +368,7 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       open(4);
       assert.ok(document.querySelector('.drawer').textContent.includes('Taskbar effect applied'), 'new taskbar status must render after permission reconnection');
       assert.deepEqual(sent.at(-1).taskbarAppearance, { enabled: true, mode: 'acrylic', opacity: 73, tint: '#EAF1FC', showBorder: true });
-      open(0); ready(true);
+      openSettings(); ready(true);
       elevationResult = { ok: false, elevated: false, error: 'ordinary-start-failure' };
       permission().click(); await settle();
       assert.equal(permission().checked, false, 'a failed ordinary restart must never retain the old elevated=true UI');
@@ -185,10 +389,15 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       assert.equal(permission().disabled, true);
       assert.ok(document.querySelector('.permission-settings').textContent.includes('Permission state unknown'));
       assert.equal(document.querySelector('.master input').disabled, false, 'exception cleanup must release the switching state');
-      assert.ok(document.querySelector('.status-rail').textContent.includes('transport-switch-failure'));
+      assert.ok(document.querySelector('.permission-settings [role="alert"]').textContent.includes('transport-switch-failure'));
       await unmount(component); document.body.replaceChildren();
       localStorage.setItem('convenient-window-language', 'zh-CN');
-      component = mount(App, { target: document.body }); flushSync(); await settle(); open(0);
+      component = mount(App, { target: document.body }); flushSync(); await settle(); open(1);
+      assert.equal(hotzoneHint().checked, false, 'language changes must retain the saved hint preference');
+      assert.equal(hotzoneHint().getAttribute('aria-label'), '显示半透明提示区域');
+      assert.equal(document.querySelector('.hotzone-hint-setting h2').textContent, '显示半透明提示区域');
+      assert.equal(document.querySelector('.hotzone-hint-setting p').textContent, '关闭只隐藏悬停提示，触发角动作仍然生效');
+      openSettings();
       assert.equal(permission().getAttribute('aria-label'), '管理员权限');
       assert.ok(document.querySelector('.permission-settings').textContent.includes('权限状态未知'));
       ready(false);
@@ -196,10 +405,12 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       setElevation = elevated => { elevationRequests.push(elevated); return new Promise(resolve => { finishElevation = resolve; }); };
       permission().click(); await settle();
       assert.equal(document.querySelector('.master input').disabled, true, 'no lifecycle toggle is allowed while permission replacement is pending');
+      open(0);
       const offButton = [...document.querySelectorAll('.power-actions button')].find(button => button.textContent.includes('关闭功能'));
       assert.equal(offButton.disabled, true);
       const deleteButton = document.querySelector('.power-actions .danger');
       if (deleteButton) assert.equal(deleteButton.disabled, true, 'the host must not delete helper files during a pending elevation request');
+      openSettings();
       const pendingRequests = elevationRequests.length;
       permission().dispatchEvent(new Event('change')); await settle();
       assert.equal(elevationRequests.length, pendingRequests, 'permission replacement is not reentrant');
@@ -219,6 +430,101 @@ it("discovers and persists topmost pin controls and pin offsets through the real
       assert.equal(startCalls, beforeRecovery + 1, 'failed pre-switch persistence must preserve eligibility for ordinary connection recovery');
       ready(true);
       await unmount(component);
+      document.body.replaceChildren();
+      localStorage.setItem('convenient-window-language', 'en-US');
+      stored.enabled = true;
+      component = mount(App, { target: document.body }); flushSync(); await settle(); open(0);
+      assert.equal(document.querySelector('.power-summary').dataset.state, 'starting', 'an active connect reports starting');
+      const runtimeDetails = () => document.querySelector('.runtime-details:not(.install-details)');
+      assert.equal(runtimeDetails().open, false, 'technical details start collapsed');
+      assert.equal(document.querySelectorAll('.power-facts > .runtime-card').length, 2, 'the two grey cards are retained');
+      assert.equal(document.querySelectorAll('.power-facts p').length, 2, 'each card has one short description');
+      assert.equal(document.querySelector('.permission-settings'), null, 'permission controls only belong in Settings');
+      assert.equal(document.querySelectorAll('.runtime-actions button').length, 2, 'one lifecycle action sits beside one connection test');
+      assert.ok(document.querySelector('.runtime-actions > .connection-test'), 'connection testing remains a sibling action');
+      assert.equal(document.querySelector('.runtime-actions .apply').dataset.action, 'stop');
+      assert.equal(document.querySelector('.power-summary p'), null, 'healthy operation needs no explanatory paragraph');
+      ready(false);
+      receive({ type: 'helper.ready', data: { protocolVersion: SUPPORTED_HELPER_PROTOCOL, schemaVersion: 9, version: '0.6.4', elevated: false,
+        platform: { system: 'windows', architecture: 'x86_64', session: 'Win32', capabilities: { globalInput: true, ocr: false } } } }); flushSync();
+      assert.equal(document.querySelector('.power-summary').dataset.state, 'running');
+      assert.ok(document.querySelector('.power-orb').classList.contains('on'));
+      openSettings();
+      assert.equal(permission().checked, false);
+      assert.equal(document.querySelector('.permission-state'), null, 'known permission uses only the switch state');
+      open(0);
+      assert.ok(runtimeDetails().querySelector('.runtime-platform').textContent.includes('x86_64'), 'platform information belongs inside details');
+      runtimeDetails().querySelector('summary').click(); flushSync();
+      assert.equal(runtimeDetails().open, true, 'the native disclosure remains operable');
+      runtimeDetails().querySelector('summary').click(); flushSync();
+      receive({ type: 'runtime.error', data: { code: 'input_monitor_failed' } }); flushSync();
+      assert.equal(runtimeDetails().open, false);
+      assert.equal(document.querySelector('.power-summary').dataset.state, 'error');
+      assert.equal(document.querySelector('.runtime-actions .apply').dataset.action, 'stop', 'error does not imply the enabled helper should start again');
+      const alert = document.querySelector('.runtime-notice[role="alert"]');
+      assert.ok(alert && alert.textContent.trim(), 'critical errors remain visible with details closed');
+      assert.equal(alert.closest('details'), null, 'critical error must never be folded');
+      assert.equal(document.querySelector('.power-orb').classList.contains('on'), false, 'a connected socket cannot make an error green');
+
+      ready(true);
+      openSettings();
+      assert.equal(permission().checked, true);
+      assert.equal(document.querySelector('.permission-state'), null, 'known permission uses only the switch state');
+      open(0);
+      receiveStatus('disconnected'); flushSync();
+      assert.equal(document.querySelector('.power-summary').dataset.state, 'error', 'a disconnect with a recovery error must not claim to be starting');
+      assert.ok(document.querySelectorAll('.power-facts .runtime-card')[1].textContent.includes('Disconnected'), 'the connection state remains explicit even with an error');
+      assert.ok(document.querySelector('.runtime-permission-warning').textContent.includes('Permission unknown'), 'disconnect clears known elevation');
+      assert.ok(document.querySelector('.runtime-notice[role="alert"]'), 'the disconnect reason remains outside the disclosure');
+      receiveStatus('connecting'); flushSync();
+      assert.equal(document.querySelector('.power-summary').dataset.state, 'error', 'reconnecting does not silently clear a pending error');
+      ready(false);
+      assert.equal(document.querySelectorAll('.drawer input[role="switch"]').length, 0, 'permission settings are absent from the runtime center');
+      assert.equal(document.querySelector('.login-toggle'), null);
+      assert.equal(document.querySelector('.permission-startup'), null);
+      const off = [...document.querySelectorAll('.runtime-actions button')].find(button => button.textContent.trim() === 'Close');
+      assert.ok(off && !off.disabled, 'stop remains a primary visible action');
+      off.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
+      assert.equal(stored.enabled, false, 'stop must still use the existing host persistence path');
+      assert.equal(stored.showHotzoneHint, false, 'turning off all features must retain the hint choice');
+      assert.equal(document.querySelector('.power-summary').dataset.state, 'off');
+      assert.equal(document.querySelector('.runtime-actions .apply').dataset.action, 'start');
+      assert.equal(document.querySelectorAll('.runtime-actions button').length, 2, 'the redundant disabled stop action is not rendered');
+      assert.equal(document.querySelector('.power-orb').classList.contains('on'), false);
+      const on = [...document.querySelectorAll('.runtime-actions button')].find(button => button.textContent.trim() === 'Open');
+      assert.ok(on && !on.disabled, 'start remains available after stopping');
+      on.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
+      assert.equal(stored.enabled, true);
+      ready(false);
+      const unmountedLogin = deferred(), unmountedAdmin = deferred();
+      startupReads.push(unmountedLogin); adminStartupReads.push(unmountedAdmin);
+      window.dispatchEvent(new Event('focus')); await settle();
+      const retiredStartupChanged = startupChanged;
+      await unmount(component); document.body.replaceChildren();
+      const readsAfterUnmount = [startupReadCalls, adminStartupReadCalls];
+      retiredStartupChanged('late-unmounted-error');
+      unmountedLogin.resolve({ enabled: true }); unmountedAdmin.resolve({ enabled: true }); await settle();
+      assert.deepEqual([startupReadCalls, adminStartupReadCalls], readsAfterUnmount, 'unmount invalidates pending refreshes and ignores a queued old subscription callback');
+      for (const language of ['en-US', 'zh-CN']) {
+        stored.enabled = false;
+        localStorage.setItem('convenient-window-language', language);
+        helperInstalled = false;
+        component = mount(App, { target: document.body }); flushSync(); await settle(); open(1);
+        assert.equal(hotzoneHint().checked, false, 'remounting with all features off must retain the hint choice');
+        assert.equal(stored.enabled, false);
+        assert.equal(hotzoneHint().getAttribute('aria-label'), language === 'en-US' ? 'Show translucent hint area' : '显示半透明提示区域');
+        open(0);
+        assert.equal(document.querySelector('.power-summary').dataset.state, 'missing');
+        assert.equal(document.querySelector('.power-orb').classList.contains('on'), false);
+        assert.ok(document.querySelector('.helper-install-card'), 'missing files must expose recovery guidance');
+        assert.equal(document.querySelector('.runtime-actions .apply').dataset.action, 'start');
+        assert.equal(document.querySelector('.runtime-actions .apply').disabled, true, 'cannot start missing files');
+        assert.equal(runtimeDetails().open, false);
+        assert.equal(document.querySelector('.power-summary h2').textContent.trim(), language === 'en-US' ? 'Helper not installed' : '助手未安装');
+
+        await unmount(component); document.body.replaceChildren();
+      }
+      helperInstalled = true;
       console.log('App UI host regression passed');
       document.body.replaceChildren();
       const samples = [];

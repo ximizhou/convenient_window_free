@@ -23,3 +23,22 @@ describe("prepareSettingsUpdate", () => {
     expect(prepared.normalized.pollIntervalMs).toBe(10);
   });
 });
+
+it("isolates normalized geometry from the active editor while preserving per-monitor dimensions", () => {
+  const settings = structuredClone(defaultSettings);
+  settings.hotzones[0].geometry = { kind: "corner", width: 24, height: 48, linked: true };
+  settings.hotzones[1].geometry = { kind: "edge", thickness: 16, lengthPercent: 80 };
+  settings.monitorProfiles = [{ monitorId: "monitor:sync", hotzones: structuredClone(settings.hotzones) }];
+  const before = structuredClone(settings);
+  const prepared = prepareSettingsUpdate(settings);
+  expect(prepared.normalized.hotzones).toEqual(before.hotzones);
+  expect(prepared.normalized.monitorProfiles).toEqual(before.monitorProfiles);
+  expect(prepared.editable).toEqual(before);
+  expect(prepared.normalized.hotzones[0].geometry).not.toBe(settings.hotzones[0].geometry);
+  expect(prepared.normalized.monitorProfiles[0].hotzones[1].geometry).not.toBe(settings.monitorProfiles[0].hotzones[1].geometry);
+  const corner = prepared.normalized.hotzones[0].geometry!;
+  if (corner.kind === "corner") corner.width = 64;
+  expect(settings).toEqual(before);
+  expect(prepared.editable).toEqual(before);
+  expect(prepared.normalized.monitorProfiles[0].hotzones[0].geometry).toEqual(before.hotzones[0].geometry);
+});

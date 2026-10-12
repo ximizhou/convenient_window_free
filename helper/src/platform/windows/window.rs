@@ -11,11 +11,12 @@ use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, FindWindowW, GetAncestor, GetClassNameW, GetForegroundWindow, GetWindow,
-    GetWindowLongPtrW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
-    IsWindowArranged, IsWindowVisible, IsZoomed, SetWindowPos, ShowWindow, WindowFromPoint,
-    GA_ROOT, GWL_EXSTYLE, GW_OWNER, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SW_RESTORE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    FindWindowExW, FindWindowW, GetAncestor, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
+    GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
+    IsIconic, IsWindow, IsWindowArranged, IsWindowVisible, IsZoomed, SetWindowPos, ShowWindow,
+    WindowFromPoint, GA_ROOT, GUITHREADINFO, GUI_INMOVESIZE, GWL_EXSTYLE, GW_OWNER, HWND_NOTOPMOST,
+    HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+    SW_RESTORE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
 };
 
 use crate::platform::{Point, Rect as AppRect, WindowHandle, WindowInfo};
@@ -190,6 +191,32 @@ pub fn set_window_rect(handle: WindowHandle, rect: AppRect) -> Result<()> {
             rect.height().max(1),
             SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
         )?;
+    }
+    Ok(())
+}
+
+pub fn native_window_move_size_active(handle: WindowHandle) -> bool {
+    let mut info = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+    let hwnd = HWND(handle.0 as *mut core::ffi::c_void);
+    let thread_id = unsafe { GetWindowThreadProcessId(hwnd, None) };
+    thread_id != 0
+        && unsafe { GetGUIThreadInfo(thread_id, &mut info).is_ok() }
+        && info.flags.contains(GUI_INMOVESIZE)
+        && info.hwndMoveSize == hwnd
+}
+
+pub fn prepare_top_edge_drop(handle: WindowHandle) -> Result<()> {
+    let hwnd = HWND(handle.0 as *mut core::ffi::c_void);
+    if !unsafe { IsWindow(hwnd).as_bool() } {
+        bail!("Window no longer exists");
+    }
+    if unsafe { IsZoomed(hwnd).as_bool() || IsWindowArranged(hwnd).as_bool() } {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
     }
     Ok(())
 }

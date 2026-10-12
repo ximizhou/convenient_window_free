@@ -92,6 +92,21 @@ pub struct EdgeHideController {
     restore_queue: VecDeque<EdgeHideCommand>,
     relocation_retry_after: HashMap<WindowHandle, Instant>,
     context_menu_guard: Option<WindowHandle>,
+    drag_intent: Option<DragIntent>,
+    released_top_intent: Option<DragIntent>,
+    released_side_intent: Option<DragIntent>,
+}
+
+#[derive(Clone, Debug)]
+struct DragIntent {
+    handle: WindowHandle,
+    edge: Edge,
+    monitor_id: String,
+    rect: Rect,
+    anchor_rect: Rect,
+    since: Instant,
+    ready: bool,
+    released_at: Option<Instant>,
 }
 
 impl EdgeHideController {
@@ -101,7 +116,215 @@ impl EdgeHideController {
             restore_queue: VecDeque::new(),
             relocation_retry_after: HashMap::new(),
             context_menu_guard: None,
+            drag_intent: None,
+            released_top_intent: None,
+            released_side_intent: None,
         }
+    }
+
+    /// Keep feedback for the complete move session, including stationary samples.
+    /// Top-edge intent is earned while holding the window, never after an early release.
+    pub fn update_drag_preview(
+        &mut self,
+        now: Instant,
+        config: &EdgeHideConfig,
+        monitors: &[Monitor],
+        window: Option<&WindowInfo>,
+        dragging: bool,
+    ) -> Option<Rect> {
+        if !config.enabled {
+            self.drag_intent = None;
+            self.released_top_intent = None;
+            self.released_side_intent = None;
+            return None;
+        }
+        if !dragging {
+            if let Some(mut intent) = self.drag_intent.take() {
+                intent.released_at = Some(now);
+                self.released_top_intent =
+                    (intent.edge == Edge::Top && intent.ready).then_some(intent.clone());
+                self.released_side_intent =
+                    (intent.edge != Edge::Top && intent.ready).then_some(intent);
+            }
+            return None;
+        }
+        self.released_top_intent = None;
+        self.released_side_intent = None;
+        let Some(window) = window.filter(|window| {
+            self.context_menu_guard != Some(window.handle) && is_candidate_window(window, config)
+        }) else {
+            self.drag_intent = None;
+            return None;
+        };
+        // Small input/Win32 rounding differences should not toggle a qualified edge.
+        let previous = self
+            .drag_intent
+            .as_ref()
+            .filter(|intent| intent.handle == window.handle);
+        let candidate = previous
+            .and_then(|intent| {
+                let monitor = monitor_for_rect(window.rect, monitors)?;
+                (monitor.id() == intent.monitor_id
+                    && edges_for_monitor(config, monitor).contains(&intent.edge)
+                    && edge_triggered(window.rect, monitor.work_area, intent.edge, config, 3)
+                    && is_edge_exposed_for_rect(monitor, intent.edge, window.rect, monitors))
+                .then_some((intent.edge, monitor))
+            })
+            .or_else(|| detect_window_edge(window.rect, monitors, config));
+        let Some((edge, monitor)) = candidate else {
+            self.drag_intent = None;
+            return None;
+        };
+        let since = self
+            .drag_intent
+            .as_ref()
+            .filter(|intent| {
+                intent.handle == window.handle
+                    && intent.edge == edge
+                    && intent.monitor_id == monitor.id()
+                    && (edge != Edge::Top
+                        || ((intent.anchor_rect.left - window.rect.left).abs() <= 8
+                            && (intent.anchor_rect.top - window.rect.top).abs() <= 8))
+            })
+            .map(|intent| intent.since)
+            .unwrap_or(now);
+        let dwell = Duration::from_millis(config.top_hover_delay_ms);
+        let progress = if edge == Edge::Top && !dwell.is_zero() {
+            (now.saturating_duration_since(since).as_secs_f64() / dwell.as_secs_f64()).min(1.0)
+        } else {
+            1.0
+        };
+        self.drag_intent = Some(DragIntent {
+            handle: window.handle,
+            edge,
+            monitor_id: monitor.id(),
+            rect: window.rect,
+            anchor_rect: self
+                .drag_intent
+                .as_ref()
+                .filter(|intent| intent.since == since)
+                .map(|intent| intent.anchor_rect)
+                .unwrap_or(window.rect),
+            since,
+            ready: progress >= 1.0,
+            released_at: None,
+        });
+        if !config.show_preview {
+            return None;
+        }
+        let mut preview =
+            edge_preview_rect(window.rect, monitor.work_area, edge, config.strip_size);
+        if edge == Edge::Top {
+            let width = preview.width();
+            let visible = ((width as f64 * progress).round() as i32).max(4).min(width);
+            let center = preview.left + width / 2;
+            preview.left = center - visible / 2;
+            preview.right = preview.left + visible;
+        }
+        Some(preview)
+    }
+
+    pub fn cancel_drag_preview(&mut self) {
+        self.drag_intent = None;
+        self.released_top_intent = None;
+        self.released_side_intent = None;
+    }
+
+    /// Only an earned top-edge intent can replace the native Snap after release.
+    pub fn released_top_handle(&self) -> Option<WindowHandle> {
+        self.released_top_intent
+            .as_ref()
+            .map(|intent| intent.handle)
+    }
+
+    pub fn take_top_drop(
+        &mut self,
+        now: Instant,
+        config: &EdgeHideConfig,
+        monitors: &[Monitor],
+        window: Option<&WindowInfo>,
+        native_move_active: bool,
+    ) -> Option<EdgeHideCommand> {
+        let intent = self.released_top_intent.as_ref()?;
+        if !config.enabled
+            || intent
+                .released_at
+                .is_some_and(|at| now.saturating_duration_since(at) > Duration::from_millis(500))
+        {
+            self.released_top_intent = None;
+            return None;
+        }
+        let Some(window) = window.filter(|window| window.handle == intent.handle) else {
+            self.released_top_intent = None;
+            return None;
+        };
+        if native_move_active {
+            return None;
+        }
+        let intent = self.released_top_intent.take()?;
+        let monitor = monitors
+            .iter()
+            .find(|monitor| monitor.id() == intent.monitor_id)?;
+        let mut candidate = window.clone();
+        candidate.rect = intent.rect;
+        candidate.maximized = false;
+        candidate.arranged = false;
+        if !is_candidate_window(&candidate, config)
+            || !edges_for_monitor(config, monitor).contains(&Edge::Top)
+            || !is_edge_exposed_for_rect(monitor, Edge::Top, intent.rect, monitors)
+            || (!window.maximized
+                && !window.arranged
+                && !rects_roughly_equal(window.rect, intent.rect))
+        {
+            return None;
+        }
+        let original_topmost = match self.states.get(&intent.handle) {
+            Some(
+                EdgeHideState::Pending {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Collapsing {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Collapsed {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Expanding {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Expanded {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Relocating {
+                    original_topmost, ..
+                }
+                | EdgeHideState::CleaningUp {
+                    original_topmost, ..
+                },
+            ) => *original_topmost,
+            None => window.topmost,
+        };
+        let restore_rect = restore_rect_for(intent.rect, monitor.work_area);
+        let hidden_rect = hidden_rect_for(
+            restore_rect,
+            monitor.work_area,
+            Edge::Top,
+            config.strip_size,
+        );
+        self.states.insert(
+            intent.handle,
+            EdgeHideState::Collapsing {
+                edge: Edge::Top,
+                restore_rect,
+                hidden_rect,
+                original_topmost,
+                was_foreground: true,
+            },
+        );
+        Some(EdgeHideCommand::Collapse {
+            handle: intent.handle,
+            rect: hidden_rect,
+        })
     }
 
     /// Returns strip hints only for collapsed windows that still occupy their hidden rect.
@@ -145,31 +368,6 @@ impl EdgeHideController {
                 (strip.width() > 0 && strip.height() > 0).then_some(strip)
             })
             .collect()
-    }
-
-    /// Returns the edge segment that would receive the window if the pointer were released now.
-    pub fn collapse_preview(
-        &self,
-        config: &EdgeHideConfig,
-        monitors: &[Monitor],
-        window: &WindowInfo,
-        rect: Rect,
-    ) -> Option<Rect> {
-        if !config.enabled
-            || !config.show_preview
-            || self.context_menu_guard == Some(window.handle)
-            || !is_candidate_window_at(window, rect, config)
-        {
-            return None;
-        }
-
-        let (edge, monitor) = detect_window_edge(rect, monitors, config)?;
-        Some(edge_preview_rect(
-            rect,
-            monitor.work_area,
-            edge,
-            config.strip_size,
-        ))
     }
 
     pub fn prune_invalid_windows(&mut self, mut window_exists: impl FnMut(WindowHandle) -> bool) {
@@ -640,6 +838,14 @@ impl EdgeHideController {
         input: EdgeHideInput,
         mut window_state: impl FnMut(WindowHandle, Rect) -> EdgeHideLiveState,
     ) -> Option<EdgeHideCommand> {
+        if self.released_side_intent.as_ref().is_some_and(|intent| {
+            intent.released_at.is_some_and(|at| {
+                now.saturating_duration_since(at)
+                    > Duration::from_millis(config.collapse_delay_ms.saturating_add(500))
+            })
+        }) {
+            self.released_side_intent = None;
+        }
         self.relocation_retry_after
             .retain(|_, retry_after| now < *retry_after);
         if let Some(command) = self.restore_queue.pop_front() {
@@ -744,7 +950,26 @@ impl EdgeHideController {
             return None;
         }
 
-        let Some((edge, monitor)) = detect_window_edge(window.rect, monitors, config) else {
+        let release_edge = self
+            .released_side_intent
+            .as_ref()
+            .filter(|intent| {
+                intent.handle == window.handle && rects_roughly_equal(intent.rect, window.rect)
+            })
+            .and_then(|intent| {
+                monitors
+                    .iter()
+                    .find(|monitor| {
+                        monitor.id() == intent.monitor_id
+                            && edges_for_monitor(config, monitor).contains(&intent.edge)
+                            && is_edge_exposed_for_rect(monitor, intent.edge, window.rect, monitors)
+                    })
+                    .map(|monitor| (intent.edge, monitor))
+            });
+        let Some((edge, monitor)) = release_edge
+            .or_else(|| detect_window_edge(window.rect, monitors, config))
+            .filter(|(edge, _)| *edge != Edge::Top)
+        else {
             if matches!(
                 self.states.get(&window.handle),
                 Some(EdgeHideState::Pending { .. })
@@ -896,7 +1121,9 @@ impl EdgeHideController {
                     restore_rect,
                     hidden_rect,
                     original_topmost,
-                    false,
+                    restore_rect
+                        .inflate(config.trigger_distance.max(1))
+                        .contains(cursor),
                 )
             } else {
                 let (handle, edge, restore_rect, hidden_rect, original_topmost) = target?;
@@ -963,7 +1190,13 @@ impl EdgeHideController {
         // the capture surface. Keep the edge-hidden window expanded until a normal
         // foreground window is observed again.
         let foreground_is_overlay = foreground.is_some_and(|window| {
-            window.transient || is_fullscreen_surface(window.rect, monitors, window.maximized)
+            // Clicking the desktop is a normal leave action. Its shell surface
+            // covers the monitor, but is not a temporary capture/game overlay.
+            let desktop = window.class_name.eq_ignore_ascii_case("Progman")
+                || window.class_name.eq_ignore_ascii_case("WorkerW");
+            !desktop
+                && (window.transient
+                    || is_fullscreen_surface(window.rect, monitors, window.maximized))
         });
 
         let target = self.states.iter_mut().find_map(|(handle, state)| {
@@ -1341,6 +1574,7 @@ impl EdgeHideController {
     }
 
     fn disable(&mut self) -> Option<EdgeHideCommand> {
+        self.cancel_drag_preview();
         self.context_menu_guard = None;
         if self.restore_queue.is_empty() {
             self.queue_restore_all();
@@ -1419,34 +1653,35 @@ fn detect_window_edge<'a>(
     config: &EdgeHideConfig,
 ) -> Option<(Edge, &'a Monitor)> {
     let monitor = monitor_for_rect(rect, monitors)?;
-    let area = monitor.work_area;
-    let distance = config.trigger_distance.max(1);
-
     for edge in edges_for_monitor(config, monitor) {
-        let near = match edge {
-            Edge::Left => {
-                (config.distance_trigger_enabled && (rect.left - area.left).abs() <= distance)
-                    || ratio_triggered(rect, area, Edge::Left, config)
-            }
-            Edge::Top => {
-                (config.distance_trigger_enabled && (rect.top - area.top).abs() <= distance)
-                    || ratio_triggered(rect, area, Edge::Top, config)
-            }
-            Edge::Right => {
-                (config.distance_trigger_enabled && (rect.right - area.right).abs() <= distance)
-                    || ratio_triggered(rect, area, Edge::Right, config)
-            }
-            Edge::Bottom => {
-                (config.distance_trigger_enabled && (rect.bottom - area.bottom).abs() <= distance)
-                    || ratio_triggered(rect, area, Edge::Bottom, config)
-            }
-        };
+        let near = edge_triggered(rect, monitor.work_area, *edge, config, 0);
         if near && is_edge_exposed_for_rect(monitor, *edge, rect, monitors) {
             return Some((*edge, monitor));
         }
     }
 
     None
+}
+
+fn edge_triggered(
+    rect: Rect,
+    area: Rect,
+    edge: Edge,
+    config: &EdgeHideConfig,
+    tolerance: i32,
+) -> bool {
+    if edge == Edge::Top {
+        return (rect.top - area.top).abs() <= config.top_trigger_distance + tolerance;
+    }
+    let distance = config.trigger_distance.max(1) + tolerance;
+    let offset = match edge {
+        Edge::Left => rect.left - area.left,
+        Edge::Right => rect.right - area.right,
+        Edge::Bottom => rect.bottom - area.bottom,
+        Edge::Top => unreachable!(),
+    };
+    (config.distance_trigger_enabled && offset.abs() <= distance)
+        || ratio_triggered(rect, area, edge, config, i32::from(tolerance > 0))
 }
 
 fn edges_for_monitor<'a>(config: &'a EdgeHideConfig, monitor: &Monitor) -> &'a [Edge] {
@@ -1594,7 +1829,13 @@ fn outside_amount(rect: Rect, area: Rect, edge: Edge) -> i32 {
     }
 }
 
-fn ratio_triggered(rect: Rect, area: Rect, edge: Edge, config: &EdgeHideConfig) -> bool {
+fn ratio_triggered(
+    rect: Rect,
+    area: Rect,
+    edge: Edge,
+    config: &EdgeHideConfig,
+    tolerance: i32,
+) -> bool {
     if !config.ratio_trigger_enabled {
         return false;
     }
@@ -1605,7 +1846,8 @@ fn ratio_triggered(rect: Rect, area: Rect, edge: Edge, config: &EdgeHideConfig) 
         Edge::Top | Edge::Bottom => rect.height(),
     }
     .max(1) as i64;
-    outside > 0 && outside * 100 >= dimension * config.trigger_ratio.clamp(1, 100) as i64
+    outside > 0
+        && outside * 100 >= dimension * (config.trigger_ratio - tolerance).clamp(1, 100) as i64
 }
 
 fn rects_roughly_equal(a: Rect, b: Rect) -> bool {
@@ -1838,10 +2080,452 @@ mod tests {
     }
 
     #[test]
+    fn desktop_click_then_hover_restore_still_recollapses_at_every_animation_speed() {
+        let monitors = [monitor()];
+        for ms in [80, 160, 260, 400, 800] {
+            for class_name in ["Progman", "WorkerW"] {
+                let config = EdgeHideConfig {
+                    enabled: true,
+                    animation_duration_ms: ms,
+                    restore_delay_ms: 100,
+                    strip_size: 8,
+                    ..Default::default()
+                };
+                let mut controller = collapsed_controller_on_left_monitor();
+                let mut desktop = window_with_handle(WindowHandle(99), monitors[0].bounds);
+                desktop.process_name = "explorer.exe".into();
+                desktop.class_name = class_name.into();
+                desktop.title = "Program Manager".into();
+                let start = Instant::now();
+                let outside = Point { x: 1200, y: 900 };
+                assert!(controller
+                    .tick(start, &config, outside, &monitors, Some(&desktop))
+                    .is_none());
+                let restore = controller
+                    .tick(
+                        start + Duration::from_millis(1),
+                        &config,
+                        Point { x: 2, y: 200 },
+                        &monitors,
+                        Some(&desktop),
+                    )
+                    .unwrap();
+                let EdgeHideCommand::Restore { rect, .. } = restore else {
+                    panic!("expected restore");
+                };
+                let finished = start + Duration::from_millis(ms + 1);
+                controller.command_succeeded(restore, EdgeHideLiveState::Visible(rect), finished);
+                assert!(controller
+                    .tick(finished, &config, outside, &monitors, Some(&desktop))
+                    .is_none());
+                assert!(
+                    matches!(
+                        controller.tick(
+                            finished + Duration::from_millis(100),
+                            &config,
+                            outside,
+                            &monitors,
+                            Some(&desktop)
+                        ),
+                        Some(EdgeHideCommand::Collapse { .. })
+                    ),
+                    "desktop foreground must not suppress auto-hide at {ms}ms ({class_name})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn activation_restore_with_pointer_already_inside_arms_auto_hide_before_slow_animation() {
+        let monitors = [monitor()];
+        let config = EdgeHideConfig {
+            enabled: true,
+            animation_duration_ms: 800,
+            restore_delay_ms: 100,
+            strip_size: 8,
+            ..Default::default()
+        };
+        let mut controller = collapsed_controller_on_left_monitor();
+        let mut target = window_with_handle(
+            WindowHandle(42),
+            Rect {
+                left: -592,
+                top: 120,
+                right: 8,
+                bottom: 700,
+            },
+        );
+        let start = Instant::now();
+        let restore = controller
+            .tick(
+                start,
+                &config,
+                Point { x: 2, y: 200 },
+                &monitors,
+                Some(&target),
+            )
+            .unwrap();
+        let EdgeHideCommand::Restore { rect, .. } = restore else {
+            panic!("expected restore");
+        };
+        controller.command_succeeded(
+            restore,
+            EdgeHideLiveState::Visible(rect),
+            start + Duration::from_millis(800),
+        );
+        target.rect = rect;
+        let outside = Point { x: 1200, y: 900 };
+        controller.tick(
+            start + Duration::from_millis(801),
+            &config,
+            outside,
+            &monitors,
+            Some(&target),
+        );
+        assert!(matches!(controller.tick(start + Duration::from_millis(901), &config,
+            outside, &monitors, Some(&target)), Some(EdgeHideCommand::Collapse { .. })),
+            "entering the strip before an activation restore must arm auto-hide even if the pointer leaves during the animation");
+    }
+
+    #[test]
+    fn top_hover_progress_grows_and_commits_only_after_the_line_is_full() {
+        let mut config = EdgeHideConfig::default();
+        config.enabled = true;
+        let monitors = [monitor()];
+        let now = Instant::now();
+        let target = window(Rect {
+            left: 400,
+            top: 24,
+            right: 1000,
+            bottom: 424,
+        });
+        let mut controller = EdgeHideController::new();
+        let begin = controller
+            .update_drag_preview(now, &config, &monitors, Some(&target), true)
+            .unwrap();
+        let middle = controller
+            .update_drag_preview(
+                now + Duration::from_millis(300),
+                &config,
+                &monitors,
+                Some(&target),
+                true,
+            )
+            .unwrap();
+        let end = controller
+            .update_drag_preview(
+                now + Duration::from_millis(600),
+                &config,
+                &monitors,
+                Some(&target),
+                true,
+            )
+            .unwrap();
+        assert_eq!(begin.width(), 4);
+        assert_eq!(middle.width(), 300);
+        assert_eq!(end.width(), 600);
+        controller.update_drag_preview(
+            now + Duration::from_millis(610),
+            &config,
+            &monitors,
+            None,
+            false,
+        );
+        assert!(controller
+            .take_top_drop(
+                now + Duration::from_millis(620),
+                &config,
+                &monitors,
+                Some(&target),
+                true
+            )
+            .is_none());
+        assert!(matches!(
+            controller.take_top_drop(
+                now + Duration::from_millis(630),
+                &config,
+                &monitors,
+                Some(&target),
+                false
+            ),
+            Some(EdgeHideCommand::Collapse { .. })
+        ));
+        assert!(controller
+            .take_top_drop(
+                now + Duration::from_millis(640),
+                &config,
+                &monitors,
+                Some(&target),
+                false
+            )
+            .is_none());
+    }
+
+    #[test]
+    fn early_top_release_or_leaving_the_band_never_overrides_system_snap() {
+        let mut config = EdgeHideConfig::default();
+        config.enabled = true;
+        let monitors = [monitor()];
+        let now = Instant::now();
+        let target = window(Rect {
+            left: 400,
+            top: 24,
+            right: 1000,
+            bottom: 424,
+        });
+        let mut controller = EdgeHideController::new();
+        controller.update_drag_preview(now, &config, &monitors, Some(&target), true);
+        controller.update_drag_preview(
+            now + Duration::from_millis(200),
+            &config,
+            &monitors,
+            None,
+            false,
+        );
+        let mut snapped = target.clone();
+        snapped.maximized = true;
+        snapped.arranged = true;
+        assert!(controller
+            .take_top_drop(
+                now + Duration::from_millis(220),
+                &config,
+                &monitors,
+                Some(&snapped),
+                false
+            )
+            .is_none());
+        controller.update_drag_preview(now, &config, &monitors, Some(&target), true);
+        controller.update_drag_preview(
+            now + Duration::from_millis(610),
+            &config,
+            &monitors,
+            Some(&target),
+            true,
+        );
+        let center = window(Rect {
+            left: 400,
+            top: 200,
+            right: 1000,
+            bottom: 600,
+        });
+        assert!(controller
+            .update_drag_preview(
+                now + Duration::from_millis(620),
+                &config,
+                &monitors,
+                Some(&center),
+                true
+            )
+            .is_none());
+        controller.update_drag_preview(
+            now + Duration::from_millis(630),
+            &config,
+            &monitors,
+            None,
+            false,
+        );
+        assert!(controller
+            .take_top_drop(
+                now + Duration::from_millis(640),
+                &config,
+                &monitors,
+                Some(&target),
+                false
+            )
+            .is_none());
+    }
+
+    #[test]
+    fn earned_top_intent_can_replace_only_its_own_just_released_maximized_window() {
+        let mut config = EdgeHideConfig::default();
+        config.enabled = true;
+        let monitors = [monitor()];
+        let now = Instant::now();
+        let target = window(Rect {
+            left: 400,
+            top: 12,
+            right: 1000,
+            bottom: 412,
+        });
+        let mut controller = EdgeHideController::new();
+        controller.update_drag_preview(now, &config, &monitors, Some(&target), true);
+        controller.update_drag_preview(
+            now + Duration::from_millis(610),
+            &config,
+            &monitors,
+            Some(&target),
+            true,
+        );
+        controller.update_drag_preview(
+            now + Duration::from_millis(620),
+            &config,
+            &monitors,
+            None,
+            false,
+        );
+        let mut snapped = target.clone();
+        snapped.maximized = true;
+        snapped.arranged = true;
+        snapped.rect = monitors[0].work_area;
+        let command = controller
+            .take_top_drop(
+                now + Duration::from_millis(630),
+                &config,
+                &monitors,
+                Some(&snapped),
+                false,
+            )
+            .unwrap();
+        let EdgeHideCommand::Collapse { rect, .. } = command else {
+            panic!("expected collapse");
+        };
+        assert_eq!(rect.width(), target.rect.width());
+        assert_eq!(rect.height(), target.rect.height());
+    }
+
+    #[test]
+    fn qualified_side_hint_survives_rounding_jitter_but_clears_when_moved_away() {
+        let mut config = EdgeHideConfig::default();
+        config.enabled = true;
+        config.ratio_trigger_enabled = false;
+        let monitors = [monitor()];
+        let now = Instant::now();
+        let mut target = window(Rect {
+            left: 15,
+            top: 120,
+            right: 615,
+            bottom: 620,
+        });
+        let mut controller = EdgeHideController::new();
+        assert!(controller
+            .update_drag_preview(now, &config, &monitors, Some(&target), true)
+            .is_some());
+        for i in 0..100 {
+            target.rect.left = 15 + i % 4;
+            target.rect.right = target.rect.left + 600;
+            assert!(controller
+                .update_drag_preview(now, &config, &monitors, Some(&target), true)
+                .is_some());
+        }
+        target.rect.left = 100;
+        target.rect.right = 700;
+        assert!(controller
+            .update_drag_preview(now, &config, &monitors, Some(&target), true)
+            .is_none());
+    }
+
+    #[test]
+    fn moving_along_the_top_restarts_dwell_but_small_jitter_keeps_progress() {
+        let mut config = EdgeHideConfig::default();
+        config.enabled = true;
+        let monitors = [monitor()];
+        let now = Instant::now();
+        let mut target = window(Rect {
+            left: 400,
+            top: 24,
+            right: 1000,
+            bottom: 424,
+        });
+        let mut controller = EdgeHideController::new();
+        controller.update_drag_preview(now, &config, &monitors, Some(&target), true);
+        target.rect.left += 3;
+        target.rect.right += 3;
+        assert!(
+            controller
+                .update_drag_preview(
+                    now + Duration::from_millis(300),
+                    &config,
+                    &monitors,
+                    Some(&target),
+                    true
+                )
+                .unwrap()
+                .width()
+                >= 300
+        );
+        target.rect.left += 30;
+        target.rect.right += 30;
+        assert_eq!(
+            controller
+                .update_drag_preview(
+                    now + Duration::from_millis(400),
+                    &config,
+                    &monitors,
+                    Some(&target),
+                    true
+                )
+                .unwrap()
+                .width(),
+            4
+        );
+    }
+
+    #[test]
+    fn qualified_side_release_uses_the_same_jitter_tolerance_as_its_blue_line() {
+        let mut config = EdgeHideConfig::default();
+        config.enabled = true;
+        config.ratio_trigger_enabled = false;
+        let monitors = [monitor()];
+        let now = Instant::now();
+        let mut target = window(Rect {
+            left: 15,
+            top: 120,
+            right: 615,
+            bottom: 620,
+        });
+        let mut controller = EdgeHideController::new();
+        controller.update_drag_preview(now, &config, &monitors, Some(&target), true);
+        target.rect.left = 18;
+        target.rect.right = 618;
+        controller.update_drag_preview(now, &config, &monitors, Some(&target), true);
+        controller.update_drag_preview(now, &config, &monitors, None, false);
+        let cursor = Point { x: 300, y: 200 };
+        assert!(controller
+            .tick(now, &config, cursor, &monitors, Some(&target))
+            .is_none());
+        assert!(matches!(
+            controller.tick(
+                now + Duration::from_millis(config.collapse_delay_ms),
+                &config,
+                cursor,
+                &monitors,
+                Some(&target)
+            ),
+            Some(EdgeHideCommand::Collapse { .. })
+        ));
+    }
+
+    #[test]
+    fn top_distance_does_not_expand_side_trigger_distance() {
+        let mut config = EdgeHideConfig::default();
+        config.top_trigger_distance = 96;
+        config.trigger_distance = 8;
+        config.ratio_trigger_enabled = false;
+        let monitors = [monitor()];
+        let side = Rect {
+            left: 50,
+            top: 150,
+            right: 650,
+            bottom: 550,
+        };
+        assert!(detect_window_edge(side, &monitors, &config).is_none());
+        let top = Rect {
+            left: 400,
+            top: 70,
+            right: 1000,
+            bottom: 470,
+        };
+        assert_eq!(
+            detect_window_edge(top, &monitors, &config).map(|(edge, _)| edge),
+            Some(Edge::Top)
+        );
+    }
+
+    #[test]
     fn collapse_preview_uses_the_eventual_visible_strip_length() {
         let mut config = EdgeHideConfig::default();
         config.enabled = true;
-        let controller = EdgeHideController::new();
+        let mut controller = EdgeHideController::new();
         let monitors = [monitor()];
         let target = window(Rect {
             left: 0,
@@ -1851,7 +2535,7 @@ mod tests {
         });
 
         assert_eq!(
-            controller.collapse_preview(&config, &monitors, &target, target.rect),
+            controller.update_drag_preview(Instant::now(), &config, &monitors, Some(&target), true),
             Some(Rect {
                 left: 0,
                 top: 120,
@@ -1908,7 +2592,7 @@ mod tests {
             })
         );
         assert_eq!(
-            controller.collapse_preview(&config, &monitors, &moved, moved.rect),
+            controller.update_drag_preview(Instant::now(), &config, &monitors, Some(&moved), true),
             Some(Rect {
                 left: 1916,
                 top: 120,
@@ -1932,7 +2616,7 @@ mod tests {
             })
         );
         assert_eq!(
-            controller.collapse_preview(&config, &monitors, &moved, moved.rect),
+            controller.update_drag_preview(Instant::now(), &config, &monitors, Some(&moved), true),
             Some(Rect {
                 left: 1916,
                 top: 120,
@@ -1946,7 +2630,7 @@ mod tests {
     fn collapse_preview_switch_defaults_on_and_hides_when_disabled() {
         let mut config = EdgeHideConfig::default();
         config.enabled = true;
-        let controller = EdgeHideController::new();
+        let mut controller = EdgeHideController::new();
         let monitors = [monitor()];
         let target = window(Rect {
             left: 300,
@@ -1957,7 +2641,7 @@ mod tests {
 
         assert!(config.show_preview);
         assert_eq!(
-            controller.collapse_preview(&config, &monitors, &target, target.rect),
+            controller.update_drag_preview(Instant::now(), &config, &monitors, Some(&target), true),
             Some(Rect {
                 left: 300,
                 top: 1036,
@@ -1968,7 +2652,7 @@ mod tests {
 
         config.show_preview = false;
         assert_eq!(
-            controller.collapse_preview(&config, &monitors, &target, target.rect),
+            controller.update_drag_preview(Instant::now(), &config, &monitors, Some(&target), true),
             None
         );
     }

@@ -15,6 +15,14 @@ use crate::platform::{Point, Rect, WindowHandle};
 use anyhow::{bail, Result};
 use std::sync::{Mutex, OnceLock};
 
+pub fn native_window_move_size_active(_handle: WindowHandle) -> bool {
+    false
+}
+
+pub fn prepare_top_edge_drop(_handle: WindowHandle) -> Result<()> {
+    Ok(())
+}
+
 pub use input::{
     active_gesture_points, cancel_window_drag_capture, configure_gesture_capture,
     configure_window_drag_capture, input_state, install_mouse_hook, mouse_hook_is_healthy,

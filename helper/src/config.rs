@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const SCHEMA_VERSION: u32 = 8;
+pub const SCHEMA_VERSION: u32 = 9;
 
 const MAX_GESTURE_TEMPLATES: usize = 64;
 
@@ -16,6 +16,9 @@ pub struct AppConfig {
     pub enabled: bool,
     #[serde(default = "default_true")]
     pub hotzones_enabled: bool,
+    /// Only controls the hover hint, not hotzone detection or actions.
+    #[serde(default = "default_true")]
+    pub show_hotzone_hint: bool,
     #[serde(default = "default_edge_size")]
     pub edge_size: i32,
     #[serde(default = "default_hover_delay_ms")]
@@ -51,6 +54,7 @@ impl Default for AppConfig {
             gesture_labels: Default::default(),
             enabled: true,
             hotzones_enabled: true,
+            show_hotzone_hint: true,
             edge_size: 8,
             hover_delay_ms: 350,
             poll_interval_ms: 33,
@@ -145,6 +149,9 @@ impl AppConfig {
         }
 
         self.edge_hide.strip_size = self.edge_hide.strip_size.clamp(4, 64);
+        self.edge_hide.animation_duration_ms = self.edge_hide.animation_duration_ms.clamp(80, 800);
+        self.edge_hide.top_trigger_distance = self.edge_hide.top_trigger_distance.clamp(8, 128);
+        self.edge_hide.top_hover_delay_ms = self.edge_hide.top_hover_delay_ms.clamp(200, 2000);
         self.edge_hide.trigger_distance = self.edge_hide.trigger_distance.clamp(4, 96);
         self.edge_hide.trigger_ratio = self.edge_hide.trigger_ratio.clamp(1, 100);
         self.edge_hide.collapse_delay_ms = self.edge_hide.collapse_delay_ms.clamp(0, 5000);
@@ -160,6 +167,7 @@ impl AppConfig {
         self.window_drag.resize_modifiers =
             normalized_drag_modifiers(self.window_drag.resize_modifiers);
         self.window_drag.paused_apps = normalized_string_list(self.window_drag.paused_apps);
+        self.window_drag.update_hz = self.window_drag.update_hz.clamp(30, 240);
         if source_schema_version < 5 {
             migrate_circle_topmost_action(&mut self.mouse_gestures.gestures);
         }
@@ -230,13 +238,66 @@ pub struct HotzoneSetting {
     #[serde(default)]
     pub actions: Vec<TriggerAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geometry: Option<HotzoneGeometry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger: Option<TriggerKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<HotzoneAction>,
 }
 
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum HotzoneGeometry {
+    Corner {
+        width: i32,
+        height: i32,
+        #[serde(default = "default_true")]
+        linked: bool,
+    },
+    Edge {
+        thickness: i32,
+        #[serde(rename = "lengthPercent")]
+        length_percent: i32,
+    },
+}
+
+impl HotzoneGeometry {
+    pub fn normalized(self, id: HotzoneId) -> Option<Self> {
+        let corner = matches!(
+            id,
+            HotzoneId::TopLeft
+                | HotzoneId::TopRight
+                | HotzoneId::BottomLeft
+                | HotzoneId::BottomRight
+        );
+        match self {
+            Self::Corner {
+                width,
+                height,
+                linked,
+            } if corner => Some(Self::Corner {
+                width: width.clamp(2, 128),
+                height: height.clamp(2, 128),
+                linked,
+            }),
+            Self::Edge {
+                thickness,
+                length_percent,
+            } if !corner => Some(Self::Edge {
+                thickness: thickness.clamp(2, 48),
+                length_percent: length_percent.clamp(10, 100),
+            }),
+            _ => None,
+        }
+    }
+}
+
 impl HotzoneSetting {
     fn normalize_actions(&mut self) {
+        self.geometry = self
+            .geometry
+            .take()
+            .and_then(|shape| shape.normalized(self.id));
         if self.actions.is_empty() {
             if let (Some(trigger), Some(action)) = (self.trigger, self.action.clone()) {
                 self.actions.push(TriggerAction {
@@ -569,6 +630,8 @@ impl Default for ActionKind {
 pub struct WindowDragConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default = "default_drag_update_hz")]
+    pub update_hz: u64,
     #[serde(default = "default_drag_modifiers")]
     pub move_modifiers: Vec<ModifierKey>,
     #[serde(default = "default_drag_modifiers")]
@@ -587,6 +650,7 @@ impl Default for WindowDragConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            update_hz: default_drag_update_hz(),
             move_modifiers: default_drag_modifiers(),
             resize_modifiers: default_drag_modifiers(),
             move_button: MouseButton::Left,
@@ -655,6 +719,12 @@ impl Default for OcrConfig {
 pub struct EdgeHideConfig {
     #[serde(default = "default_true")]
     pub animation_enabled: bool,
+    #[serde(default = "default_animation_duration_ms")]
+    pub animation_duration_ms: u64,
+    #[serde(default = "default_top_trigger_distance")]
+    pub top_trigger_distance: i32,
+    #[serde(default = "default_top_hover_delay_ms")]
+    pub top_hover_delay_ms: u64,
     #[serde(default)]
     pub enabled: bool,
     #[serde(default = "default_true")]
@@ -689,6 +759,9 @@ impl Default for EdgeHideConfig {
     fn default() -> Self {
         Self {
             animation_enabled: true,
+            animation_duration_ms: default_animation_duration_ms(),
+            top_trigger_distance: default_top_trigger_distance(),
+            top_hover_delay_ms: default_top_hover_delay_ms(),
             enabled: false,
             show_preview: true,
             show_restore_hint: true,
@@ -756,6 +829,22 @@ fn default_hover_delay_ms() -> u64 {
     350
 }
 
+fn default_animation_duration_ms() -> u64 {
+    160
+}
+
+fn default_top_trigger_distance() -> i32 {
+    48
+}
+
+fn default_top_hover_delay_ms() -> u64 {
+    600
+}
+
+fn default_drag_update_hz() -> u64 {
+    120
+}
+
 fn default_poll_interval_ms() -> u64 {
     33
 }
@@ -805,6 +894,7 @@ fn default_hotzones() -> Vec<HotzoneSetting> {
             id,
             enabled: false,
             actions: Vec::new(),
+            geometry: None,
             trigger: None,
             action: None,
         })
@@ -1075,6 +1165,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn motion_options_keep_the_original_animation_default_and_clamp_custom_values() {
+        let defaults = AppConfig::default();
+        assert_eq!(defaults.edge_hide.animation_duration_ms, 160);
+        assert_eq!(defaults.edge_hide.top_trigger_distance, 48);
+        assert_eq!(defaults.edge_hide.top_hover_delay_ms, 600);
+        assert_eq!(defaults.window_drag.update_hz, 120);
+        let old: AppConfig =
+            serde_json::from_str(r#"{"schemaVersion":9,"edgeHide":{"animationEnabled":false}}"#)
+                .unwrap();
+        assert!(!old.edge_hide.animation_enabled);
+        assert_eq!(old.edge_hide.animation_duration_ms, 160);
+        let mut config = defaults;
+        config.edge_hide.animation_duration_ms = 9999;
+        config.edge_hide.top_trigger_distance = 0;
+        config.edge_hide.top_hover_delay_ms = 1;
+        config.window_drag.update_hz = 9999;
+        let normalized = config.normalized();
+        assert_eq!(normalized.edge_hide.animation_duration_ms, 800);
+        assert_eq!(normalized.edge_hide.top_trigger_distance, 8);
+        assert_eq!(normalized.edge_hide.top_hover_delay_ms, 200);
+        assert_eq!(normalized.window_drag.update_hz, 240);
+        let roundtrip: AppConfig =
+            serde_json::from_value(serde_json::to_value(normalized).unwrap()).unwrap();
+        assert_eq!(roundtrip.window_drag.update_hz, 240);
+    }
+
+    #[test]
     fn edge_hide_animation_defaults_on_and_preserves_disabled_on_roundtrip() {
         let default: AppConfig = serde_json::from_str("{}").unwrap();
         assert!(default.edge_hide.animation_enabled);
@@ -1089,12 +1206,12 @@ mod tests {
     }
 
     #[test]
-    fn shared_schema_eight_migration_preserves_user_data_and_is_idempotent() {
+    fn shared_schema_nine_migration_preserves_user_data_and_is_idempotent() {
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../tests/fixtures/i18n-migration.json")).unwrap();
         let config: AppConfig = serde_json::from_value(fixture["input"].clone()).unwrap();
         let migrated = config.normalized();
-        assert_eq!(migrated.schema_version, 8);
+        assert_eq!(migrated.schema_version, 9);
         for (id, name) in fixture["expectedNames"].as_object().unwrap() {
             let gesture = migrated
                 .mouse_gestures
@@ -1154,6 +1271,9 @@ mod tests {
         let actual = serde_json::json!({
             "schemaVersion": config.schema_version,
             "hotzonesEnabled": config.hotzones_enabled,
+            "showHotzoneHint": config.show_hotzone_hint,
+            "cornerGeometry": config.hotzones.iter().find(|zone| zone.id == HotzoneId::TopLeft).unwrap().geometry,
+            "edgeGeometry": config.hotzones.iter().find(|zone| zone.id == HotzoneId::Bottom).unwrap().geometry,
             "edgeSize": config.edge_size,
             "hoverDelayMs": config.hover_delay_ms,
             "pollIntervalMs": config.poll_interval_ms,
@@ -1207,11 +1327,80 @@ mod tests {
         assert_eq!(config.window_drag.resize_modifiers, vec![ModifierKey::Alt]);
     }
     #[test]
+    fn hotzone_hint_choice_survives_normalization_and_serialization() {
+        for enabled in [true, false] {
+            let config: AppConfig = serde_json::from_value(serde_json::json!({
+                "schemaVersion": 8,
+                "showHotzoneHint": enabled
+            }))
+            .unwrap();
+            let config = config.normalized();
+            assert_eq!(config.show_hotzone_hint, enabled);
+            assert_eq!(config.schema_version, 9);
+            let saved = serde_json::to_value(&config).unwrap();
+            assert_eq!(saved["showHotzoneHint"], enabled);
+            let reloaded: AppConfig = serde_json::from_value(saved).unwrap();
+            assert_eq!(reloaded.normalized().show_hotzone_hint, enabled);
+        }
+    }
+
+    #[test]
+    fn schema_eight_shapes_are_preserved_without_materializing_overrides() {
+        let config: AppConfig = serde_json::from_value(serde_json::json!({ "schemaVersion": 8, "edgeSize": 24,
+            "showHotzoneHint": false, "hotzonesEnabled": true,
+            "hotzones": [{"id":"bottom", "actions":[{"trigger":"wheel-up","action":{"kind":"volume-adjust","value":"0.02"}}]}]
+        })).unwrap();
+        let config = config.normalized();
+        assert_eq!(config.schema_version, 9);
+        assert_eq!(config.edge_size, 24);
+        assert!(!config.show_hotzone_hint);
+        assert!(config.hotzones.iter().all(|zone| zone.geometry.is_none()));
+        assert!(config
+            .hotzones
+            .iter()
+            .find(|zone| zone.id == HotzoneId::Bottom)
+            .unwrap()
+            .has_action());
+    }
+
+    #[test]
+    fn per_monitor_geometry_round_trips_without_enabling_actions() {
+        let config: AppConfig = serde_json::from_value(serde_json::json!({"schemaVersion":9,
+            "monitorProfiles":[
+                {"monitorId":"first","hotzones":[{"id":"bottom","geometry":{"kind":"edge","thickness":16,"lengthPercent":100}}]},
+                {"monitorId":"second","hotzones":[{"id":"bottom","geometry":{"kind":"edge","thickness":4,"lengthPercent":20}}]}
+            ]
+        })).unwrap();
+        let config = config.normalized();
+        let saved = serde_json::to_value(&config).unwrap();
+        let roundtrip: AppConfig = serde_json::from_value(saved.clone()).unwrap();
+        assert_eq!(serde_json::to_value(roundtrip.normalized()).unwrap(), saved);
+        assert_eq!(
+            config.monitor_profiles[0]
+                .hotzones
+                .iter()
+                .find(|zone| zone.id == HotzoneId::Bottom)
+                .unwrap()
+                .geometry,
+            Some(HotzoneGeometry::Edge {
+                thickness: 16,
+                length_percent: 100
+            })
+        );
+        assert!(config
+            .monitor_profiles
+            .iter()
+            .flat_map(|profile| &profile.hotzones)
+            .all(|zone| !zone.has_action()));
+    }
+
+    #[test]
     fn config_deserializes_with_defaults() {
         let config: AppConfig = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
 
         assert!(config.enabled);
         assert!(config.hotzones_enabled);
+        assert!(config.show_hotzone_hint);
         assert_eq!(config.edge_size, 8);
         assert_eq!(config.hotzones.len(), 8);
         assert_eq!(config.edge_hide.strip_size, 16);

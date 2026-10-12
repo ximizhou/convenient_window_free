@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { SettingsApplyController, SettingsPersistence } from "./settings-persistence";
+import { defaultSettings, normalizeSettings } from "./settings-store";
+import type { AppSettings } from "./types";
 
 function deferred(): { promise: Promise<void>; resolve(): void; reject(error: unknown): void } {
   let resolve!: () => void;
@@ -97,4 +99,33 @@ describe("SettingsApplyController", () => {
     controller.dispose();
     vi.useRealTimers();
   });
+});
+
+it("saves and applies the same schema 9 geometry snapshot after persistence, not before", async () => {
+  const settings = normalizeSettings(defaultSettings);
+  settings.hotzones[0].geometry = { kind: "corner", width: 24, height: 48, linked: true };
+  settings.hotzones[1].geometry = { kind: "edge", thickness: 16, lengthPercent: 100 };
+  settings.monitorProfiles = [{ monitorId: "monitor:persistence", hotzones: structuredClone(settings.hotzones) }];
+  const durable = deferred();
+  let serialized = "";
+  const write = vi.fn(async (value: AppSettings) => {
+    await durable.promise;
+    serialized = JSON.stringify(value);
+  });
+  const apply = vi.fn((value: AppSettings) => {
+    expect(value).toEqual(JSON.parse(serialized));
+    return true;
+  });
+  const controller = new SettingsApplyController<AppSettings>(write, apply, 260);
+  const result = controller.applyNow(settings);
+  expect(apply).not.toHaveBeenCalled();
+  durable.resolve();
+  await expect(result).resolves.toMatchObject({ latest: true, ok: true, sent: true });
+  expect(write).toHaveBeenCalledWith(settings);
+  expect(apply).toHaveBeenCalledTimes(1);
+  expect(apply).toHaveBeenCalledWith(settings);
+  expect(normalizeSettings(JSON.parse(serialized))).toMatchObject({
+    schemaVersion: 9, hotzones: settings.hotzones, monitorProfiles: settings.monitorProfiles
+  });
+  controller.dispose();
 });

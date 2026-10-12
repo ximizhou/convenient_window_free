@@ -26,16 +26,16 @@ impl ElevatedProcess {
         self.process.try_wait()
     }
     pub fn kill(&self) -> Result<(), String> {
-        if self.try_wait()?.is_some() {
+        if matches!(self.try_wait(), Ok(Some(_))) {
             return Ok(());
         }
         unsafe {
-            SetEvent(self.stop.raw()).map_err(|error| error.to_string())?;
+            let signal = SetEvent(self.stop.raw());
             if WaitForSingleObject(self.process.raw(), 5000) != WAIT_OBJECT_0 {
-                return Err(
+                return Err(signal.err().map(|e| e.to_string()).unwrap_or_else(|| {
                     "Administrator helper did not stop; close the desktop app before retrying"
-                        .into(),
-                );
+                        .into()
+                }));
             }
         }
         Ok(())
@@ -68,6 +68,33 @@ pub fn launch(
     data_dir: &Path,
     owner_birth: u64,
 ) -> Result<ElevatedProcess, String> {
+    let stop_name = format!(
+        "Local\\ConvenientWindow.HelperStop.{}",
+        uuid::Uuid::new_v4()
+    );
+    let stop_wide = wide(OsStr::new(&stop_name));
+    let stop = unsafe { CreateEventW(None, true, false, ptr(&stop_wide)) }
+        .map(ProcessHandle::new)
+        .map_err(|error| error.to_string())?;
+    let parameters = format!(
+        "--data-dir {} --desktop-owner {} {} --desktop-stop-event {}",
+        quote_argument(&data_dir.to_string_lossy()),
+        std::process::id(),
+        owner_birth,
+        quote_argument(&stop_name)
+    );
+    match run_as_admin(executable, &parameters) {
+        Ok(process) => Ok(ElevatedProcess { process, stop }),
+        Err(error) => {
+            // The shell may have launched a process without returning its handle.
+            // Request shutdown, but never treat this as proof that it exited.
+            let _ = unsafe { SetEvent(stop.raw()) };
+            Err(error)
+        }
+    }
+}
+
+pub fn run_as_admin(executable: &Path, parameters: &str) -> Result<ProcessHandle, String> {
     // ShellExecute may invoke COM shell extensions on this worker thread.
     struct Apartment;
     impl Drop for Apartment {
@@ -81,23 +108,8 @@ pub fn launch(
         .ok()
         .map_err(|error| error.to_string())?;
     let _apartment = Apartment;
-    let stop_name = format!(
-        "Local\\ConvenientWindow.HelperStop.{}",
-        uuid::Uuid::new_v4()
-    );
-    let stop_wide = wide(OsStr::new(&stop_name));
-    let stop = unsafe { CreateEventW(None, true, false, ptr(&stop_wide)) }
-        .map(ProcessHandle::new)
-        .map_err(|error| error.to_string())?;
     let file = wide(executable.as_os_str());
-    let parameters = format!(
-        "--data-dir {} --desktop-owner {} {} --desktop-stop-event {}",
-        quote_argument(&data_dir.to_string_lossy()),
-        std::process::id(),
-        owner_birth,
-        quote_argument(&stop_name)
-    );
-    let parameters = wide(OsStr::new(&parameters));
+    let parameters = wide(OsStr::new(parameters));
     let directory = wide(
         executable
             .parent()
@@ -116,12 +128,9 @@ pub fn launch(
     };
     unsafe { ShellExecuteExW(&mut info) }.map_err(launch_error)?;
     if info.hProcess.is_invalid() {
-        return Err("Admin helper process handle is unavailable".into());
+        return Err("adminLaunchUnconfirmed".into());
     }
-    Ok(ElevatedProcess {
-        process: ProcessHandle::new(info.hProcess),
-        stop,
-    })
+    Ok(ProcessHandle::new(info.hProcess))
 }
 
 fn launch_error(error: windows::core::Error) -> String {

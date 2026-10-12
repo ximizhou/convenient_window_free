@@ -45,3 +45,20 @@ function touchesOutside(display: DisplayInfo, other: DisplayInfo, edge: Edge): b
         && other.bounds.top <= display.bounds.bottom + adjacencyTolerance;
   }
 }
+
+
+// runtime.status includes the same small display list repeatedly. Keep its identity
+// stable so previews do not rerender when only foreground/action status changed.
+export function sameDisplaySnapshot(left: DisplayInfo[], right: DisplayInfo[]): boolean {
+  return left.length === right.length && left.every((display, index) => {
+    const other = right[index];
+    return display.id === other.id && display.legacyId === other.legacyId
+      && display.primary === other.primary && sameRect(display.bounds, other.bounds)
+      && sameRect(display.workArea, other.workArea);
+  });
+}
+
+function sameRect(left: DisplayInfo["bounds"], right: DisplayInfo["bounds"]): boolean {
+  return left.left === right.left && left.top === right.top
+    && left.right === right.right && left.bottom === right.bottom;
+}

@@ -2,30 +2,32 @@
   import TaskbarAppearance from "./TaskbarAppearance.svelte";
   import { gestureDisplayName } from "./gesture-names";
   import { runtimeErrorKey } from "./runtime-error";
-  import { onMount } from "svelte";
-  import { fly } from "svelte/transition";
-  import { HelperClient, isSupportedHelperProtocol, SUPPORTED_HELPER_PROTOCOL } from "./helper-client";
+  import { onMount, tick } from "svelte";
+  import { fade, fly } from "svelte/transition";
+  import { HelperClient, isSupportedHelperProtocol, isSupportedHelperSchema, SUPPORTED_HELPER_PROTOCOL, SUPPORTED_HELPER_SCHEMA } from "./helper-client";
   import { needsHelperUpgrade } from "./helper-version";
   import { HelperRecoveryGuard } from "./helper-recovery";
   import ActionPicker from "./ActionPicker.svelte";
   import MonitorStage from "./MonitorStage.svelte";
+  import HotzoneGeometryEditor from "./HotzoneGeometryEditor.svelte";
   import GestureCanvas from "./GestureCanvas.svelte";
   import ModifierRecorder from "./ModifierRecorder.svelte";
   import ShortcutRecorder from "./ShortcutRecorder.svelte";
   import { gestureSimilarity, resampleGesture } from "./gesture-algorithm";
+  import { sameDisplaySnapshot } from "./monitor-topology";
   import { migrateMonitorProfileIds } from "./monitor-profile-migration";
   import { addModifierVariant, MAX_MODIFIER_VARIANTS } from "./modifier-variants";
   import { prepareSettingsUpdate } from "./settings-sync";
   import { numberSetting } from "./number-setting";
   import { SettingsApplyController } from "./settings-persistence";
-  import { getHostBridge } from "./host-bridge";
+  import { getHostBridge, type AdminStartupState } from "./host-bridge";
   import { defaultSettings, loadSettings, MAX_GESTURE_TEMPLATES, normalizeSettings, saveSettings } from "./settings-store";
   import { LANGUAGE_KEY, normalizeLanguage, resolveInitialLanguage, translator } from "./i18n";
   import { en, format, zh } from "./i18n";
   import type { Language, UiKey } from "./i18n";
   import type {
     ActionKind, AppSettings, DisplayInfo, Edge, HelperPlatformInfo, HelperStatus, HotzoneAction,
-    GesturePoint, GestureTemplate, HotzoneId, HotzoneSetting, ModifierKey,
+    GesturePoint, GestureTemplate, HotzoneGeometry, HotzoneId, HotzoneSetting, ModifierKey,
     OcrLanguage, TaskbarAppearanceSettings, TaskbarAppearanceStatus, TriggerAction, TriggerKind
   } from "./types";
 
@@ -97,7 +99,6 @@
     { label: "自定义快捷键", labelEn: "Custom shortcut", group: "高级", groupEn: "Advanced", kind: "shortcut" },
     { label: "运行命令", labelEn: "Run command", group: "高级", groupEn: "Advanced", kind: "open-command" }
   ];
-  const maxCustomGestures = MAX_GESTURE_TEMPLATES - defaultSettings.mouseGestures.gestures.length;
   const CONFIG_APPLY_DEBOUNCE_MS = 260;
   const HELPER_STABILITY_MS = 60_000;
   const capabilityLabels: Record<keyof HelperPlatformInfo["capabilities"], [string, string]> = {
@@ -129,6 +130,74 @@
   let helperElevated: boolean | null = null;
   let switchingPrivilege = false;
   let privilegeNotice = "";
+  let adminStartup: AdminStartupState = { enabled: null };
+  let changingAdminStartup = false;
+  let startupNotice = "";
+  let startup: { enabled: boolean | null; error?: string } = { enabled: null };
+  let changingStartup = false;
+  let startupRefreshVersion = 0;
+  let startupRefreshDisposed = false;
+
+  async function refreshAdminStartup(): Promise<void> {
+    if (startupRefreshDisposed || changingAdminStartup || changingStartup) return;
+    const version = ++startupRefreshVersion;
+    const [nextStartup, nextAdminStartup] = await Promise.all([
+      host.getStartup ? host.getStartup() : startup,
+      administratorModeSupported && host.getAdminStartup ? host.getAdminStartup() : adminStartup
+    ]);
+    // Publish one complete snapshot only if no later refresh, write, or unmount superseded it.
+    if (startupRefreshDisposed || version !== startupRefreshVersion || changingAdminStartup || changingStartup) return;
+    startup = nextStartup;
+    adminStartup = nextAdminStartup;
+  }
+
+  async function setStartup(enabled: boolean): Promise<void> {
+    if (!host.setStartup || changingStartup || changingAdminStartup) return;
+    ++startupRefreshVersion;
+    changingStartup = true;
+    startupNotice = "";
+    try {
+      startup = await host.setStartup(enabled);
+      startupNotice = startup.error ?? "";
+      if (administratorModeSupported && host.getAdminStartup) adminStartup = await host.getAdminStartup();
+    } finally { changingStartup = false; }
+  }
+
+  async function setAdminStartup(enabled: boolean): Promise<void> {
+    if (!host.setAdminStartup || changingAdminStartup || changingStartup) return;
+    ++startupRefreshVersion;
+    changingAdminStartup = true;
+    startupNotice = "";
+    try {
+      adminStartup = await host.setAdminStartup(enabled);
+      startupNotice = adminStartup.error ?? "";
+      if (host.getStartup) startup = await host.getStartup();
+    } finally { changingAdminStartup = false; }
+  }
+
+  onMount(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void refreshAdminStartup();
+    void host.onStartupChanged?.((error?: string) => {
+      if (disposed || changingAdminStartup || changingStartup) return;
+      // Native error events can be followed immediately by focus. Keep their notice
+      // independent of refresh ordering; a newer query must not silently discard it.
+      startupNotice = error ?? "";
+      void refreshAdminStartup();
+    }).then(stop => {
+      if (disposed) stop(); else unlisten = stop;
+    }).catch(() => {});
+    const onFocus = () => { void refreshAdminStartup(); };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      disposed = true;
+      startupRefreshDisposed = true;
+      ++startupRefreshVersion;
+      unlisten?.();
+      window.removeEventListener("focus", onFocus);
+    };
+  });
   let helperPlatform: HelperPlatformInfo | null = null;
   let displays: DisplayInfo[] = [fallbackDisplay];
   let displayReady = false;
@@ -176,6 +245,7 @@
   let gestureConflict = "";
   let foregroundApp = "";
   let runtimeSummary = "";
+  $: runtimeSummary = displayReady ? `${displays.length}${statusText("displaysDetected", english)}` : "";
   let lastAction = "";
   let lastMessage: UiStatusKey | string = "waiting";
   let helperError = "";
@@ -260,9 +330,22 @@
   };
   function statusText(status: UiStatusKey | string, useEnglish = english): string {
     const key = statusKeys[status as UiStatusKey] ?? (Object.hasOwn(zh, status) ? status as UiKey : undefined);
-    return key ? (useEnglish ? en : zh)[key] : status;
+    return key ? format((useEnglish ? en : zh)[key], { schema: SUPPORTED_HELPER_SCHEMA }) : status;
   }
   $: renderedLastMessage = statusText(lastMessage, english);
+  // Lifecycle intent follows the saved switch/socket, not an error or unknown permission label.
+  $: runtimePowerActive = settings.enabled || helperStatus !== "disconnected";
+  let runtimeLabelKey: UiKey = "runtimeOff";
+  // Distinguish a disconnected helper from an active start; never paint an error green.
+  $: runtimeState = !helperInstallState.installed ? "missing" : helperError ? "error"
+    : stopping ? "stopping" : switchingPrivilege ? "switching"
+    : settings.enabled && helperStatus === "connected" ? "running"
+    : settings.enabled && (starting || recoveringHelper || helperStatus === "connecting") ? "starting"
+    : settings.enabled ? "disconnected" : "off";
+  $: runtimeLabelKey = runtimeState === "missing" ? "runtimeMissing" : runtimeState === "error" ? "runtimeError"
+    : runtimeState === "stopping" ? "runtimeStopping" : runtimeState === "switching" ? "runtimeSwitching"
+    : runtimeState === "running" ? "runtimeRunning" : runtimeState === "starting" ? "runtimeStarting"
+    : runtimeState === "disconnected" ? "runtimeDisconnected" : "runtimeOff";
 
   onMount(() => {
     initTheme();
@@ -280,7 +363,6 @@
       if (status === "disconnected") {
         helperElevated = null;
         displayReady = false;
-        runtimeSummary = "";
         helperPlatform = null;
         taskbarStatus = null;
         const wasReady = helperWasReady;
@@ -296,7 +378,7 @@
     });
     const offMessage = helper.onMessage((message) => {
       if (message.type === "helper.ready") {
-        const data = message.data as { version?: unknown; protocolVersion?: unknown; ocrLanguages?: unknown; platform?: HelperPlatformInfo; elevated?: unknown } | null;
+        const data = message.data as { version?: unknown; protocolVersion?: unknown; schemaVersion?: unknown; ocrLanguages?: unknown; platform?: HelperPlatformInfo; elevated?: unknown } | null;
         helperPlatform = helper.platformInfo ?? (data?.platform ?? null);
         availableOcrLanguages = Array.isArray(data?.ocrLanguages)
           ? data.ocrLanguages.filter((language): language is OcrLanguage => language === "auto" || language === "zh-Hans" || language === "en")
@@ -305,6 +387,12 @@
           lastMessage = format(ui("statusHelperProtocol"), { min: SUPPORTED_HELPER_PROTOCOL, max: SUPPORTED_HELPER_PROTOCOL });
           helperError = lastMessage;
           helperRecoveryFailed = true;
+          helper.stop();
+        } else if (!isSupportedHelperSchema(data?.schemaVersion)) {
+          lastMessage = "statusHelperSchema";
+          helperError = "statusHelperSchema";
+          helperRecoveryFailed = true;
+          displayReady = false;
           helper.stop();
         } else if (needsHelperUpgrade(expectedHelperVersion, data?.version)) {
           requestHelperUpgrade(data?.version);
@@ -323,18 +411,20 @@
         }
       } else if (message.type === "runtime.status") {
         const data = message.data as { displays?: DisplayInfo[]; foreground?: string; message?: string };
-        if (Array.isArray(data.displays) && data.displays.length) {
+        if (!helperRecoveryFailed && Array.isArray(data.displays) && data.displays.length) {
+          const topologyChanged = !displayReady || !sameDisplaySnapshot(displays, data.displays);
           displayReady = true;
-          displays = data.displays;
-          const selectedDisplay = displays.find((display) =>
-            display.id === selectedDisplayId || display.legacyId === selectedDisplayId
-          );
-          if (selectedDisplay) selectedDisplayId = selectedDisplay.id;
-          if (migrateMonitorProfileIds(settings, displays)) persist("displaysMigrated");
-          if (!displays.some((display) => display.id === selectedDisplayId)) {
-            selectedDisplayId = displays.find((display) => display.primary)?.id ?? displays[0].id;
+          if (topologyChanged) {
+            displays = data.displays;
+            const selectedDisplay = displays.find((display) =>
+              display.id === selectedDisplayId || display.legacyId === selectedDisplayId
+            );
+            if (selectedDisplay) selectedDisplayId = selectedDisplay.id;
+            if (migrateMonitorProfileIds(settings, displays)) persist("displaysMigrated");
+            if (!displays.some((display) => display.id === selectedDisplayId)) {
+              selectedDisplayId = displays.find((display) => display.primary)?.id ?? displays[0].id;
+            }
           }
-          runtimeSummary = `${displays.length}${statusText("displaysDetected")}`;
         }
         if (data.foreground) foregroundApp = data.foreground;
         const status = message.data as { code?: string; params?: { title?: string; topmost?: boolean } };
@@ -450,6 +540,24 @@
     }
     currentDisplayHotzones = profile.hotzones;
     return profile.hotzones;
+  }
+
+  function setHotzoneGeometry(geometry: HotzoneGeometry): void {
+    if (!displayReady || !displays.some((display) => display.id === selectedDisplayId)) return;
+    const zone = ensureProfile().find((item) => item.id === selectedZone);
+    if (!zone) return;
+    zone.geometry = { ...geometry };
+    settings = { ...settings };
+    persist();
+  }
+
+  function resetHotzoneGeometry(): void {
+    if (!displayReady || !displays.some((display) => display.id === selectedDisplayId)) return;
+    const zone = ensureProfile().find((item) => item.id === selectedZone);
+    if (!zone) return;
+    delete zone.geometry;
+    settings = { ...settings };
+    persist();
   }
 
   function currentZone(): HotzoneSetting {
@@ -836,16 +944,6 @@
     gestureShortcutError = "";
   }
 
-  function selectFirstActionGesture(): void {
-    const gesture = settings.mouseGestures.gestures.find((item) => item.mode === "action");
-    if (gesture) selectGesture(gesture.id);
-  }
-
-  function selectScreenshotGesture(): void {
-    const gesture = settings.mouseGestures.gestures.find((item) => item.mode === "region-screenshot");
-    if (gesture) selectGesture(gesture.id);
-  }
-
   function recordGesture(sample: GesturePoint[]): void {
     const gesture = currentGesture();
     const normalized = resampleGesture(sample);
@@ -1018,6 +1116,7 @@
 
   async function startHelper(): Promise<boolean> {
     const result = await host.startHelper();
+    privilegeNotice = result.warning ?? "";
     lastMessage = result.ok
       ? result.alreadyRunning ? "helperStarting" : "helperStartedConnecting"
       : result.error ?? "helperStartFailed";
@@ -1064,20 +1163,34 @@
     lastMessage = "helperStopping";
   }
   async function setPowerEnabled(enabled: boolean): Promise<void> {
-    if (switchingPrivilege) return;
-    settings.enabled = enabled;
+    if (switchingPrivilege || starting || stopping || upgradingHelper) return;
+    const previousEnabled = settings.enabled;
+    settings = { ...settings, enabled };
+    if (enabled) {
+      starting = true;
+      lastMessage = "helperStarting";
+    } else {
+      stopping = true;
+      lastMessage = "helperStopping";
+    }
+    // Flush the immediate busy state before storage/native work. Persist before launch;
+    // preserve recovery eligibility if saving fails, and never permit duplicate starts.
+    await tick();
     if (!(await applyNow())) {
-      settings.enabled = !enabled;
+      settings = { ...settings, enabled: previousEnabled };
+      starting = false;
+      stopping = false;
       return;
     }
     if (enabled) {
       resetHelperRecovery();
-      starting = true;
-      const started = await startHelper();
-      starting = false;
-      if (!started) {
-        settings.enabled = false;
-        await savePreparedSettings(normalizeSettings(settings));
+      try {
+        if (!(await startHelper())) {
+          settings = { ...settings, enabled: false };
+          await savePreparedSettings(normalizeSettings(settings));
+        }
+      } finally {
+        starting = false;
       }
     } else {
       stopHelper();
@@ -1160,7 +1273,7 @@
       lastMessage = format(ui("diagnosticsFailed"), { error: error instanceof Error ? error.message : String(error) });
     }
   }
-  function cloneHotzones(zones: HotzoneSetting[]): HotzoneSetting[] { return zones.map((zone) => ({ ...zone, actions: zone.actions.map((item) => ({ trigger: item.trigger, action: { ...item.action }, modifierActions: (item.modifierActions ?? []).map((variant) => ({ modifiers: [...variant.modifiers], action: { ...variant.action } })), cooldownMs: item.cooldownMs, hoverDelayMs: item.hoverDelayMs })) })); }
+  function cloneHotzones(zones: HotzoneSetting[]): HotzoneSetting[] { return zones.map((zone) => ({ ...zone, ...(zone.geometry ? { geometry: { ...zone.geometry } } : {}), actions: zone.actions.map((item) => ({ trigger: item.trigger, action: { ...item.action }, modifierActions: (item.modifierActions ?? []).map((variant) => ({ modifiers: [...variant.modifiers], action: { ...variant.action } })), cooldownMs: item.cooldownMs, hoverDelayMs: item.hoverDelayMs })) })); }
   function hasSecureBridge(): boolean { return host.kind === "desktop"; }
 </script>
 
@@ -1203,6 +1316,7 @@
         edgeHideEdges={currentDisplayEdgeHideEdges}
         hotzonesEnabled={settings.hotzonesEnabled}
         hotzones={currentDisplayHotzones}
+        edgeSize={settings.edgeSize}
         onSelectDisplay={selectDisplay}
         onSelectZone={selectZone}
         onToggleEdge={toggleEdge}
@@ -1225,7 +1339,7 @@
         </header>
 
         {#key mode}
-          <div class="drawer-body" in:fly={{ y: 10, duration: 170 }}>
+          <div class="drawer-body" in:fade={{ duration: 170 }}>
             {#if mode === "hotzones"}
               <div class="feature-intro hotzone-master-intro">
                 <div class="feature-copy-stack">
@@ -1237,7 +1351,7 @@
               </div>
               <div class="feature-settings-head"><span>{ui("hotzoneSettings")}</span><strong>{settings.hotzonesEnabled ? ui("unifiedOn") : ui("keepConfig")}</strong></div>
               <div class="feature-settings-body" class:off={!settings.hotzonesEnabled} inert={!settings.hotzonesEnabled}>
-                {#if !displayReady}<p class="empty" role="status">{ui("waitingForDisplays")}</p>{/if}
+                <p class:visible={!displayReady} class="empty hotzone-connection-note" class:error={Boolean(helperError)} role={helperError ? "alert" : "status"}>{helperError ? statusText(helperError, english) : ui("waitingForDisplays")}</p>
                 <div class="monitor-hotzone-settings" inert={!displayReady}>
                 <div class="trigger-tabs">
                   {#each triggerGroups as group}
@@ -1281,7 +1395,18 @@
                 <div class:single={activeTrigger !== "hover"} class="timing">{#if activeTrigger === "hover"}<label><span>{ui("hoverDelay")}</span><div><input use:numberSetting={{ key: `${displayReady}:${selectedDisplayId}:${selectedZone}:${activeTrigger}`, value: currentTriggerSlot().hoverDelayMs ?? settings.hoverDelayMs, onChange: (value) => setTriggerTiming("hoverDelayMs", value) }} min="0" max="3000" type="number" /><em>ms</em></div></label>{/if}<label><span>{ui("cooldown")}</span><div><input use:numberSetting={{ key: `${displayReady}:${selectedDisplayId}:${selectedZone}:${activeTrigger}`, value: currentTriggerSlot().cooldownMs ?? settings.actionCooldownMs, onChange: (value) => setTriggerTiming("cooldownMs", value) }} min="10" max="5000" type="number" /><em>ms</em></div></label></div>
                 </div>
                 <div class="subhead" style="margin-top:18px"><div><h2>{ui("hotzoneParameters")}</h2><p>{ui("hotzoneParametersDescription")}</p></div></div>
-                <div class="form-grid"><label><span>{ui("edgeSize")}</span><div><input use:numberSetting={{ value: settings.edgeSize, onChange: (value) => { settings.edgeSize = value; persist(); } }} min="2" max="48" type="number" /><em>px</em></div></label></div>
+                <div class="setting-title hotzone-hint-setting"><div><h2>{ui("showHotzoneHint")}</h2><p>{ui("hotzoneHintDescription")}</p></div><label class="mini-switch"><input aria-label={ui("showHotzoneHint")} bind:checked={settings.showHotzoneHint} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                <HotzoneGeometryEditor
+                  zone={currentDisplayHotzones.find((zone) => zone.id === selectedZone) ?? currentDisplayHotzones[0]}
+                  display={displayReady ? displays.find((display) => display.id === selectedDisplayId) : undefined}
+                  monitorId={selectedDisplayId}
+                  edgeSize={settings.edgeSize}
+                  ready={displayReady}
+                  {language}
+                  onChange={setHotzoneGeometry}
+                  onReset={resetHotzoneGeometry}
+                  onSelectZone={selectZone}
+                />
                 <div class="list-section"><div class="subhead"><div><h2>{ui("pausedApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("hotzones")} type="button">+ {ui("addApp")}</button></div><div class="app-list">{#each settings.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("hotzones", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noPausedApps")}</p>{/each}</div></div>
               </div>
             {:else if mode === "edge-hide"}
@@ -1293,23 +1418,37 @@
                 </div>
                 <div class="feature-settings-head"><span>{ui("edgeSettings")}</span><strong>{settings.edgeHide.enabled ? ui("unifiedOn") : ui("edgeEnabled")}</strong></div>
                 <div class="feature-settings-body" class:off={!settings.edgeHide.enabled} inert={!settings.edgeHide.enabled}>
-                <div class="setting-title edge-animation-setting"><div><h2>{ui("edgeAnimation")}</h2><p>{ui("edgeAnimationDetail")}</p></div><label class="mini-switch"><input aria-label={ui("edgeAnimation")} bind:checked={settings.edgeHide.animationEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                <section class="window-options">
                 <div class="setting-title edge-preview-setting"><div><h2>{ui("snapHint")}</h2><p>{ui("snapHintDescription")}</p></div><label class="mini-switch"><input aria-label={ui("snapHint")} bind:checked={settings.edgeHide.showPreview} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                 <div class="setting-title edge-restore-hint-setting"><div><h2>{ui("expansionOutline")}</h2><p>{ui("expansionOutlineDescription")}</p></div><label class="mini-switch"><input aria-label={ui("expansionOutline")} bind:checked={settings.edgeHide.showRestoreHint} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                 <div class="setting-title edge-foreground-setting"><div><h2>{ui("keepExpandedWhenForeground")}</h2><p>{ui("keepExpandedWhenForegroundDescription")}</p></div><label class="mini-switch"><input aria-label={ui("keepExpandedWhenForeground")} bind:checked={settings.edgeHide.keepExpandedWhenForeground} on:change={() => persist()} type="checkbox" /><span></span></label></div>
-                <div class="edge-trigger-heading"><h2>{ui("collapseTriggers")}</h2><p>{ui("collapseTriggersHint")}</p></div>
+                <div class="setting-title edge-animation-setting"><div><h2>{ui("edgeAnimation")}</h2><p>{ui("edgeAnimationDetail")}</p></div><label class="mini-switch"><input aria-label={ui("edgeAnimation")} bind:checked={settings.edgeHide.animationEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                </section>
+                <div class="edge-trigger-heading"><h2>{ui("collapseTriggers")}</h2><p>{ui("sideTriggerHint")}</p></div>
                 <div class="edge-trigger-methods">
-                  <section class:off={!settings.edgeHide.distanceTriggerEnabled} class="edge-trigger-method">
-                    <div class="setting-title"><div><h3>{ui("nearEdge")}</h3><p>{ui("nearEdgeDescription")}</p></div><label class="mini-switch"><input aria-label={ui("enableNearEdge")} bind:checked={settings.edgeHide.distanceTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
-                    <label class="trigger-value"><span>{ui("edgeDistance")}</span><div><input use:numberSetting={{ value: settings.edgeHide.triggerDistance, onChange: (value) => { settings.edgeHide.triggerDistance = value; persist(); } }} disabled={!settings.edgeHide.distanceTriggerEnabled} min="4" max="96" type="number" /><em>px</em></div></label>
-                  </section>
-                  <section class:off={!settings.edgeHide.ratioTriggerEnabled} class="edge-trigger-method">
-                    <div class="setting-title"><div><h3>{ui("moveOutRatio")}</h3><p>{ui("moveOutRatioDescription")}</p></div><label class="mini-switch"><input aria-label={ui("enableMoveOutRatio")} bind:checked={settings.edgeHide.ratioTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
-                    <label class="trigger-value"><span>{ui("windowRatio")}</span><div><input use:numberSetting={{ value: settings.edgeHide.triggerRatio, onChange: (value) => { settings.edgeHide.triggerRatio = value; persist(); } }} disabled={!settings.edgeHide.ratioTriggerEnabled} min="1" max="100" type="number" /><em>%</em></div></label>
-                  </section>
+                <section class:off={!settings.edgeHide.distanceTriggerEnabled} class="edge-trigger-method">
+                <div class="setting-title"><div><h3>{ui("nearEdge")}</h3><p>{ui("nearEdgeDescription")}</p></div><label class="mini-switch"><input aria-label={ui("enableNearEdge")} bind:checked={settings.edgeHide.distanceTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                </section>
+                <section class:off={!settings.edgeHide.ratioTriggerEnabled} class="edge-trigger-method">
+                <div class="setting-title"><div><h3>{ui("moveOutRatio")}</h3><p>{ui("moveOutRatioDescription")}</p></div><label class="mini-switch"><input aria-label={ui("enableMoveOutRatio")} bind:checked={settings.edgeHide.ratioTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                </section>
                 </div>
-                <div class="form-grid"><label><span>{ui("stripSize")}</span><div><input use:numberSetting={{ value: settings.edgeHide.stripSize, onChange: (value) => { settings.edgeHide.stripSize = value; persist(); } }} min="4" max="64" type="number" /><em>px</em></div></label><label><span>{ui("collapseDelay")}</span><div><input use:numberSetting={{ value: settings.edgeHide.collapseDelayMs, onChange: (value) => { settings.edgeHide.collapseDelayMs = value; persist(); } }} min="0" max="5000" type="number" /><em>ms</em></div></label><label><span>{ui("restoreDelay")}</span><div><input use:numberSetting={{ value: settings.edgeHide.restoreDelayMs, onChange: (value) => { settings.edgeHide.restoreDelayMs = value; persist(); } }} min="0" max="5000" type="number" /><em>ms</em></div></label></div>
                 <div class="list-section"><div class="subhead"><div><h2>{ui("excludedApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("edge")} type="button">+ {ui("addApp")}</button></div><div class="app-list">{#each settings.edgeHide.excludedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("edge", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noExcludedApps")}</p>{/each}</div></div>
+                <section class="window-tuning edge-tuning" aria-label={ui("windowTuning")}>
+                <div class="tuning-heading"><h2>{ui("windowTuning")}</h2><p>{ui("windowTuningHint")}</p></div>
+                <section class="tuning-section edge-motion-settings"><div class="tuning-heading"><h3>{ui("animationSpeed")}</h3><p>{ui("edgeAnimationDurationHint")}</p></div>
+                <div class="motion-presets"><button class:active={settings.edgeHide.animationDurationMs === 160} aria-pressed={settings.edgeHide.animationDurationMs === 160} disabled={!settings.edgeHide.animationEnabled} on:click={() => { settings.edgeHide.animationDurationMs = 160; persist(); }} type="button"><strong>{ui("animationCurrent")}</strong><small>160 ms</small></button><button class:active={settings.edgeHide.animationDurationMs === 260} aria-pressed={settings.edgeHide.animationDurationMs === 260} disabled={!settings.edgeHide.animationEnabled} on:click={() => { settings.edgeHide.animationDurationMs = 260; persist(); }} type="button"><strong>{ui("animationGentle")}</strong><small>260 ms</small></button><button class:active={settings.edgeHide.animationDurationMs === 400} aria-pressed={settings.edgeHide.animationDurationMs === 400} disabled={!settings.edgeHide.animationEnabled} on:click={() => { settings.edgeHide.animationDurationMs = 400; persist(); }} type="button"><strong>{ui("animationSlow")}</strong><small>400 ms</small></button></div>
+                <div class="form-grid single"><label><span>{ui("customDuration")}</span><div><input aria-label={ui("edgeAnimationDuration")} use:numberSetting={{ value: settings.edgeHide.animationDurationMs, onChange: (value) => { settings.edgeHide.animationDurationMs = value; persist(); } }} disabled={!settings.edgeHide.animationEnabled} min="80" max="800" type="number" /><em>ms</em></div></label></div>
+                </section>
+                <div class="tuning-section top-edge-intent"><div class="tuning-heading"><div><h3>{ui("topEdgeIntent")}</h3><p>{ui("topEdgeIntentHint")}</p></div></div><div class="form-grid"><label><span>{ui("topEdgeDistance")}</span><div><input aria-label={ui("topEdgeDistance")} use:numberSetting={{ value: settings.edgeHide.topTriggerDistance, onChange: (value) => { settings.edgeHide.topTriggerDistance = value; persist(); } }} min="8" max="128" type="number" /><em>px</em></div></label><label><span>{ui("topEdgeDwell")}</span><div><input aria-label={ui("topEdgeDwell")} use:numberSetting={{ value: settings.edgeHide.topHoverDelayMs, onChange: (value) => { settings.edgeHide.topHoverDelayMs = value; persist(); } }} min="200" max="2000" type="number" /><em>ms</em></div></label></div></div>
+                <section class="tuning-section side-edge-tuning"><div class="tuning-heading"><h3>{ui("sideEdgeTuning")}</h3><p>{ui("sideTriggerHint")}</p></div><div class="form-grid">
+                <label ><span>{ui("edgeDistance")}</span><div><input use:numberSetting={{ value: settings.edgeHide.triggerDistance, onChange: (value) => { settings.edgeHide.triggerDistance = value; persist(); } }} disabled={!settings.edgeHide.distanceTriggerEnabled} min="4" max="96" type="number" /><em>px</em></div></label>
+                <label ><span>{ui("windowRatio")}</span><div><input use:numberSetting={{ value: settings.edgeHide.triggerRatio, onChange: (value) => { settings.edgeHide.triggerRatio = value; persist(); } }} disabled={!settings.edgeHide.ratioTriggerEnabled} min="1" max="100" type="number" /><em>%</em></div></label>
+                </div></section>
+                <section class="tuning-section restore-tuning"><div class="tuning-heading"><h3>{ui("restoreTuning")}</h3></div>
+                <div class="form-grid"><label><span>{ui("stripSize")}</span><div><input use:numberSetting={{ value: settings.edgeHide.stripSize, onChange: (value) => { settings.edgeHide.stripSize = value; persist(); } }} min="4" max="64" type="number" /><em>px</em></div></label><label><span>{ui("collapseDelay")}</span><div><input use:numberSetting={{ value: settings.edgeHide.collapseDelayMs, onChange: (value) => { settings.edgeHide.collapseDelayMs = value; persist(); } }} min="0" max="5000" type="number" /><em>ms</em></div></label><label><span>{ui("restoreDelay")}</span><div><input use:numberSetting={{ value: settings.edgeHide.restoreDelayMs, onChange: (value) => { settings.edgeHide.restoreDelayMs = value; persist(); } }} min="0" max="5000" type="number" /><em>ms</em></div></label></div>
+                </section>
+                </section>
                 </div>
               {:else}
                 <div class="feature-intro drag-master-intro">
@@ -1324,18 +1463,17 @@
                 </div>
                 {#if windowDragBindingConflict}<p class="gesture-warning">{ui("moveResizeConflict")}</p>{/if}
                 <div class="list-section drag-paused-apps"><div class="subhead"><div><h2>{ui("pausedDragApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("drag")} type="button">+ {ui("addCurrentApp")}</button></div><div class="app-list">{#each settings.windowDrag.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("drag", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noPausedDragApps")}</p>{/each}</div></div>
+                <section class="window-tuning drag-update-settings" aria-label={ui("dragUpdateRate")}>
+                <div class="tuning-heading"><h2>{ui("dragUpdateRate")}</h2><p>{ui("dragUpdateRateHint")}</p></div>
+                <div class="motion-presets">{#each [60, 120, 240] as hz}<button class:active={settings.windowDrag.updateHz === hz} aria-pressed={settings.windowDrag.updateHz === hz} on:click={() => { settings.windowDrag.updateHz = hz; persist(); }} type="button"><strong>{ui(hz === 60 ? "dragRateEconomy" : hz === 120 ? "dragRateBalanced" : "dragRateSmooth")}</strong><small>{hz} Hz</small></button>{/each}</div>
+                <div class="form-grid single"><label><span>{ui("customUpdateRate")}</span><div><input aria-label={ui("dragUpdateRate")} use:numberSetting={{ value: settings.windowDrag.updateHz, onChange: (value) => { settings.windowDrag.updateHz = value; persist(); } }} min="30" max="240" type="number" /><em>Hz</em></div></label></div>
+                </section>
                 </div>
               {/if}
             {:else if mode === "gestures"}
               <div class="gesture-intro">
                 <div><span>{ui("gestureTitle")}</span><h2>{ui("gestureHeading")}</h2><p>{ui("gestureDescription")}</p></div>
                 <label class="mini-switch"><input aria-label={ui("enableGesture")} bind:checked={settings.mouseGestures.enabled} on:change={() => persist()} type="checkbox" /><span></span></label>
-              </div>
-
-              <div class="gesture-capabilities" aria-label={ui("gestureOverview")}>
-                <button class:active={activeGesture.mode === "action" && activeGesture.builtin} on:click={selectFirstActionGesture} type="button"><i class="capability-mark action-mark">↗</i><span><b>{ui("actionGestures")}</b><small>{ui("actionGesturesDescription")}</small></span><em>{settings.mouseGestures.gestures.filter((item) => item.mode === "action" && item.builtin).length}{ui("gestureBuiltinCount")}</em></button>
-                <button class:active={activeGesture.mode === "action" && !activeGesture.builtin} on:click={createGesture} type="button"><i class="capability-mark custom-mark">＋</i><span><b>{ui("customGesture")}</b><small>{ui("recordPatternHint")}</small></span><em>{settings.mouseGestures.gestures.filter((item) => !item.builtin).length} / {maxCustomGestures}</em></button>
-                <button class:screenshot-active={activeGesture.mode === "region-screenshot"} on:click={selectScreenshotGesture} type="button"><i class="capability-mark screenshot-mark"></i><span><b>{ui("regionScreenshot")}</b><small>{ui("regionScreenshotHint")}</small></span><em>{ui("provided")}</em></button>
               </div>
 
               <div class="gesture-workbench">
@@ -1418,40 +1556,73 @@
               {#if !helperInstallState.installed}
                 <section class="helper-install-card">
                   <div class="helper-install-copy">
-                    <span class="eyebrow">{ui("helperInstallIncomplete")}</span>
                     <h2>{ui("helperFilesMissing")}</h2>
                     <p>{ui("helperNotRunnable")}</p>
                   </div>
                 </section>
               {/if}
-              <div class="power-summary"><div class="power-orb" class:on={settings.enabled && helperStatus === "connected"}><span></span></div><h2>{settings.enabled ? helperStatus === "connected" ? ui("runtimeRunning") : ui("runtimeStarting") : ui("runtimeOff")}</h2><p>{settings.enabled ? helperStatus === "connected" ? format(ui("runtimeRunningDetail"), { summary: runtimeSummary }) : ui("runtimeStartingDetail") : ui("runtimeOffDetail")}</p></div>
-              <div class="power-facts desktop-power-facts">
-                <div><span>{ui("masterState")}</span><strong class:on={settings.enabled}>{settings.enabled ? ui("masterOn") : ui("masterOffState")}</strong><p>{ui("masterStateDetail")}</p></div>
-                <div><span>{ui("helperSection")}</span><strong class:on={helperStatus === "connected"}>{helperStatus === "connected" ? ui("connected") : helperStatus === "connecting" ? ui("connecting") : ui("disconnected")}</strong><p>{ui("helperRole")}</p>{#if helperPlatform}<small class="platform-capabilities">{helperPlatform.system} · {helperPlatform.architecture}{helperPlatform.session ? ` · ${helperPlatform.session}` : ""} · {unavailableCapabilityText(helperPlatform)}</small>{/if}</div>
+              <div class="power-summary" data-state={runtimeState}>
+                <div class="power-orb" class:on={runtimeState === "running"} class:warning={runtimeState === "missing" || runtimeState === "disconnected"} class:error={runtimeState === "error"} aria-hidden="true"><span></span></div>
+                <h2 aria-live="polite">{ui(runtimeLabelKey)}</h2>
               </div>
-              {#if administratorModeSupported}
-                <div class="permission-settings">
-                  <label class="permission-toggle" title={ui("adminModeDetail")}>
-                    <span>{ui("adminMode")}</span>
-                    {#if switchingPrivilege}<small role="status">{ui("adminSwitching")}</small>{:else if helperElevated === null}<small role="status">{ui("adminStateUnknown")}</small>{/if}
-                    <span class="mini-switch">
-                      <input type="checkbox" role="switch" aria-label={ui("adminMode")} checked={helperElevated === true} disabled={helperElevated === null || switchingPrivilege || starting || stopping || upgradingHelper || recoveringHelper || !settings.enabled || helperStatus !== "connected"} on:change={(event) => { event.currentTarget.checked = helperElevated === true; void switchHelperPrivilege(); }} />
-                      <span aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  {#if privilegeNotice}<p role="status">{statusText(privilegeNotice)}</p>{/if}
+              <dl class="power-facts" aria-label={ui("currentState")}>
+                <div class="runtime-card"><dt>{ui("masterState")}</dt><dd><strong class:on={settings.enabled}>{settings.enabled ? ui("masterOn") : ui("masterOffState")}</strong><p>{ui("runtimeRulesBrief")}</p></dd></div>
+                <div class="runtime-card"><dt>{ui("helperSection")}</dt><dd><strong class:on={helperStatus === "connected"} class:warning={!helperInstallState.installed || (settings.enabled && helperStatus === "disconnected")}>{!helperInstallState.installed ? ui("runtimeHelperNotInstalled") : helperStatus === "connected" ? ui("connected") : helperStatus === "connecting" ? ui("connecting") : ui("disconnected")}</strong><p>{ui("runtimeHelperBrief")}</p></dd></div>
+              </dl>
+              {#if administratorModeSupported && helperElevated === null && settings.enabled}<p class="runtime-notice warning runtime-permission-warning" role="status">{ui("runtimePermissionUnknownHint")}</p>{/if}
+              {#if privilegeNotice}<p class="runtime-notice" role="status">{statusText(privilegeNotice, english)}</p>{/if}
+              {#if helperError}<div class="runtime-notice error" role="alert">{statusText(helperError, english)}</div>{:else if runtimeState === "disconnected"}<p class="runtime-notice warning" role="status">{ui("runtimeReconnectHint")}</p>{/if}
+              <div class="power-actions runtime-actions"><button class="apply" data-action={runtimePowerActive ? "stop" : "start"} disabled={switchingPrivilege || starting || stopping || (!runtimePowerActive && !helperInstallState.installed)} on:click={() => setPowerEnabled(!runtimePowerActive)} type="button">{runtimePowerActive ? ui("closeFeature") : ui("openFeature")}</button><button aria-live="polite" class:failed={connectionTestState === "failed"} class:success={connectionTestState === "success"} class:testing={connectionTestState === "testing"} class="quiet connection-test" disabled={helperStatus !== "connected" || connectionTestState === "testing"} on:click={runConnectionTest} type="button"><i aria-hidden="true"></i><span>{connectionTestState === "testing" ? ui("connectionTesting") : connectionTestState === "success" ? ui("connectionOk") : connectionTestState === "failed" ? ui("connectionFailed") : ui("connectionTest")}</span></button></div>
+              <details class="runtime-details">
+                <summary>{ui("runtimeDetails")}</summary>
+                <div class="runtime-details-body">
+                  {#if helperPlatform}<div class="runtime-platform"><span>{ui("runtimePlatform")}</span><p>{helperPlatform.system} · {helperPlatform.architecture}{helperPlatform.session ? ` · ${helperPlatform.session}` : ""}</p><p>{unavailableCapabilityText(helperPlatform)}</p></div>{/if}
+                  <div class="helper-meta"><span>{format(ui("helperVersion"), { version: helperInstallState.version })}</span><button on:click={() => openHelperPage("repository")} type="button">{ui("publicDownload")}</button><code>{helperInstallState.installDir ?? ui("helperInstallDirUnknown")}</code></div>
+                  <div class:error={Boolean(helperError)} class="status-rail"><div><span>{ui("recentAction")}</span><strong>{lastAction || statusText("noAction")}</strong></div><div><span>{ui("currentState")}</span><strong aria-live="polite">{statusText(helperError, english) || renderedLastMessage}</strong></div></div>
+                  <button class="quiet" on:click={copyDiagnostics} type="button">{ui("diagnostics")}</button>
                 </div>
-              {/if}
-              <div class="power-actions"><button class="apply" disabled={!helperInstallState.installed || settings.enabled || starting || stopping || switchingPrivilege} on:click={() => setPowerEnabled(true)} type="button">{ui("openFeature")}</button><button class="quiet" disabled={switchingPrivilege || starting || stopping || (!settings.enabled && helperStatus === "disconnected")} on:click={() => setPowerEnabled(false)} type="button">{ui("closeFeature")}</button><button aria-live="polite" class:failed={connectionTestState === "failed"} class:success={connectionTestState === "success"} class:testing={connectionTestState === "testing"} class="quiet connection-test" disabled={helperStatus !== "connected" || connectionTestState === "testing"} on:click={runConnectionTest} type="button"><i aria-hidden="true"></i><span>{connectionTestState === "testing" ? ui("connectionTesting") : connectionTestState === "success" ? ui("connectionOk") : connectionTestState === "failed" ? ui("connectionFailed") : ui("connectionTest")}</span></button><button class="quiet" on:click={copyDiagnostics} type="button">{ui("diagnostics")}</button></div>
-              <div class="helper-meta"><span>{format(ui("helperVersion"), { version: helperInstallState.version })}</span><button on:click={() => openHelperPage("repository")} type="button">{ui("publicDownload")}</button><code>{helperInstallState.installDir ?? ui("helperInstallDirUnknown")}</code></div>
-              <div class:error={Boolean(helperError)} class="status-rail"><div><span>{ui("recentAction")}</span><strong>{lastAction || statusText("noAction")}</strong></div><div><span>{ui("currentState")}</span><strong aria-live="polite">{statusText(helperError, english) || renderedLastMessage}</strong></div></div>
+              </details>
             {:else if mode === "beautification"}
               <TaskbarAppearance {english} appearance={settings.taskbarAppearance} connected={helperStatus === "connected"} masterEnabled={settings.enabled} status={taskbarStatus} onChange={updateTaskbarAppearance} />
             {:else}
-              <div class="setting-title"><div><h2>{ui("moreGlobal")}</h2><p>{ui("moreDescription")}</p></div></div>
-              <div class="language-setting"><div><h2>{ui("language")}</h2><p>{ui("languageDescription")}</p></div><select aria-label={ui("language")} bind:value={language} on:change={setLanguage}><option value="zh-CN">{ui("chinese")}</option><option value="en-US">{ui("english")}</option></select></div>
-              <div class="timing single"><label><span>{ui("pollInterval")}</span><div><input use:numberSetting={{ value: settings.pollIntervalMs, onChange: (value) => { settings.pollIntervalMs = value; persist(); } }} min="10" max="250" type="number" /><em>ms</em></div></label></div>
-              <div class="config-section"><h2>{ui("config")}</h2><div class="config-actions"><button class="quiet" on:click={exportSettings} type="button">{ui("export")}</button><button class="quiet" on:click={importSettings} type="button">{ui("import")}</button><button class="danger" on:click={resetSettings} type="button">{ui("reset")}</button></div></div>
+              <div class="global-settings">
+                <div class="language-setting"><h2>{ui("language")}</h2><select aria-label={ui("language")} bind:value={language} on:change={setLanguage}><option value="zh-CN">{ui("chinese")}</option><option value="en-US">{ui("english")}</option></select></div>
+                <section class="permission-settings" aria-label={ui("runtimePermission")}>
+                  {#if host.getStartup}
+                    <label class="permission-toggle login-toggle">
+                      <span>{ui("trayAutostart")}</span>
+                      <span class="mini-switch">
+                        <input type="checkbox" role="switch" aria-label={ui("trayAutostart")} checked={startup.enabled === true} disabled={startup.enabled === null || changingStartup || changingAdminStartup} on:change={(event) => { event.currentTarget.checked = startup.enabled === true; void setStartup(!startup.enabled); }} />
+                        <span aria-hidden="true"></span>
+                      </span>
+                    </label>
+                  {/if}
+                  <div class="permission-heading"><h2>{ui("adminMode")}</h2>
+                    {#if administratorModeSupported}
+                      <label class="permission-toggle" title={ui("adminModeDetail")}>{#if switchingPrivilege || helperElevated === null}<span class="permission-state" class:warning={helperElevated === null} aria-live="polite">{switchingPrivilege ? ui("adminSwitching") : ui("adminStateUnknown")}</span>{/if}<span class="mini-switch"><input type="checkbox" role="switch" aria-label={ui("adminMode")} aria-describedby="helper-permission-description" checked={helperElevated === true} disabled={helperElevated === null || switchingPrivilege || starting || stopping || upgradingHelper || recoveringHelper || !settings.enabled || helperStatus !== "connected"} on:change={(event) => { event.currentTarget.checked = helperElevated === true; void switchHelperPrivilege(); }} /><span aria-hidden="true"></span></span></label>
+                    {:else}<span class="permission-state">{ui("runtimeUnavailable")}</span>{/if}
+                  </div>
+                  <p id="helper-permission-description">{ui("adminModeDetail")}</p>
+                  {#if administratorModeSupported}
+                    <div class="permission-startup">
+                      <label class="permission-toggle" title={ui("adminStartupDetail")}>
+                        <span>{ui("adminStartup")}</span>
+                        {#if changingAdminStartup}<small>{ui("adminSwitching")}</small>{/if}
+                        <span class="mini-switch">
+                          <input type="checkbox" role="switch" aria-label={ui("adminStartup")} aria-describedby="admin-startup-description" checked={adminStartup.enabled === true} disabled={adminStartup.enabled === null || changingAdminStartup || changingStartup} on:change={(event) => { event.currentTarget.checked = adminStartup.enabled === true; void setAdminStartup(!adminStartup.enabled); }} />
+                          <span></span>
+                        </span>
+                      </label>
+                    </div>
+                    <p id="admin-startup-description">{ui("adminStartupDetail")}</p>
+                  {/if}
+                  {#if startupNotice || startup.error || adminStartup.error}<p role="status">{statusText(startupNotice || startup.error || adminStartup.error || "")}</p>{/if}
+                  {#if privilegeNotice}<p class="runtime-notice" role="status">{statusText(privilegeNotice, english)}</p>{/if}
+                  {#if helperError}<div class="runtime-notice error" role="alert">{statusText(helperError, english)}</div>{/if}
+                </section>
+                <div class="timing single"><label><span>{ui("pollInterval")}</span><div><input use:numberSetting={{ value: settings.pollIntervalMs, onChange: (value) => { settings.pollIntervalMs = value; persist(); } }} min="10" max="250" type="number" /><em>ms</em></div></label></div>
+                <div class="config-section"><h2>{ui("config")}</h2><div class="config-actions"><button class="quiet" on:click={exportSettings} type="button">{ui("export")}</button><button class="quiet" on:click={importSettings} type="button">{ui("import")}</button><button class="danger" on:click={resetSettings} type="button">{ui("reset")}</button></div></div>
+              </div>
             {/if}
           </div>
         {/key}

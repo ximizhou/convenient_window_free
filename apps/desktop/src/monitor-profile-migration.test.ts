@@ -43,3 +43,20 @@ describe("monitor profile migration", () => {
     expect(settings.monitorProfiles.map((profile) => profile.monitorId)).toEqual(["monitor:device-a"]);
   });
 });
+
+it("retains configured geometry and actions when a monitor profile gets its stable id", () => {
+  const settings = normalizeSettings(defaultSettings);
+  const zones = structuredClone(settings.hotzones);
+  zones[0].geometry = { kind: "corner", width: 24, height: 48, linked: true };
+  zones[1].geometry = { kind: "edge", thickness: 16, lengthPercent: 100 };
+  zones[0].actions[0].action = { kind: "shortcut", value: "Ctrl+K" };
+  settings.monitorProfiles = [{ monitorId: "display:-1920:-1080:0:0", hotzones: zones }];
+  const before = structuredClone(zones);
+  expect(migrateMonitorProfileIds(settings, [{
+    id: "monitor:geometry", legacyId: "display:-1920:-1080:0:0", primary: false,
+    bounds: { left: -1920, top: -1080, right: 0, bottom: 0 },
+    workArea: { left: -1920, top: -1080, right: 0, bottom: 0 }
+  }])).toBe(true);
+  expect(settings.monitorProfiles[0]).toEqual({ monitorId: "monitor:geometry", hotzones: before });
+  expect(normalizeSettings(JSON.parse(JSON.stringify(settings))).monitorProfiles).toEqual(settings.monitorProfiles);
+});

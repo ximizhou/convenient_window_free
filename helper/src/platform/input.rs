@@ -339,6 +339,7 @@ fn handle_drag_event(state: &mut InputStore, button: MouseButton, down: bool) ->
         if !down && *captured_button == button {
             capture.current = state.cursor;
             capture.finished = true;
+            crate::platform::window_drag_started_notification().notify_one();
             return true;
         }
         return true;
@@ -369,6 +370,7 @@ fn handle_drag_event(state: &mut InputStore, button: MouseButton, down: bool) ->
         },
         button,
     ));
+    crate::platform::window_drag_started_notification().notify_one();
     true
 }
 

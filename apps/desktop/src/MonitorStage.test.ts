@@ -203,3 +203,33 @@ describe("MonitorStage hotzone highlight", () => {
     expect(html).toContain("等待后台助手提供显示器信息");
   });
 });
+
+
+describe("MonitorStage proportional geometry footprint", () => {
+  const props = {
+    displays: [{ ...display, bounds: { left: -2560, top: -200, right: 0, bottom: 1240 } }],
+    selectedDisplayId: display.id, mode: "hotzones" as const, selectedZone: "right" as const,
+    hotzonesEnabled: true, hotzones: [], edgeHideEdges: [], edgeSize: 12,
+    onSelectDisplay: () => undefined, onSelectZone: () => undefined, onToggleEdge: () => undefined
+  };
+
+  it("uses absolute negative-coordinate bounds and keeps the full edge below all eight selectors", () => {
+    const html = render(MonitorStage, { props: { ...props, hotzones: [{ id: "right", enabled: true, actions: [], geometry: { kind: "edge", thickness: 32, lengthPercent: 100 } }] } }).body;
+    expect(html).toContain('data-rect="-32,-200,0,1240"');
+    expect(html).toContain('width:1.25%;height:100%');
+    expect((html.match(/class="zone zone-/g) ?? []).length).toBe(8);
+  });
+
+  it("scales rectangular corners independently rather than showing a fixed square", () => {
+    const html = render(MonitorStage, { props: { ...props, selectedZone: "bottom-left", hotzones: [{ id: "bottom-left", enabled: true, actions: [], geometry: { kind: "corner", width: 128, height: 72, linked: false } }] } }).body;
+    expect(html).toContain('data-rect="-2560,1168,-2432,1240"');
+    expect(html).toContain('left:0%;top:95%;width:5%;height:5%');
+  });
+
+  it("falls back to legacy size and 40% without adding geometry, and hides placeholder footprints", () => {
+    const html = render(MonitorStage, { props }).body;
+    expect(html).toContain('data-rect="-12,232,0,808"');
+    const preview = render(MonitorStage, { props: { ...props, displayReady: false } }).body;
+    expect(preview).not.toContain('data-rect=');
+  });
+});

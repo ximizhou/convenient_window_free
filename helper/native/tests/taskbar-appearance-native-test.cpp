@@ -87,10 +87,21 @@ int wmain(int argc,wchar_t** argv) {
     const bool stale=mode==L"stale";
     const bool incompatible=mode==L"incompatible";
     const bool conflict=mode==L"conflict";
+    assert(TaskbarModulePolicy::IsClassicWindows10Build(10,18362));
+    assert(TaskbarModulePolicy::IsClassicWindows10Build(10,22000));
+    assert(!TaskbarModulePolicy::IsClassicWindows10Build(10,22621));
+    assert(TaskbarModulePolicy::ClassicAccentStateForMode(0)==2);
+    assert(TaskbarModulePolicy::ClassicAccentStateForMode(1)==4);
+    assert(TaskbarModulePolicy::ClassicAccentStateForMode(2)==1);
+    assert(TaskbarModulePolicy::ClassicGradientColor(0xAABBCC,100)==0xFFCCBBAA);
+    assert(TaskbarModulePolicy::ClassicGradientColor(0xAABBCC,0)==0x00CCBBAA);
     assert(TaskbarModulePolicy::ShouldClearStaleMarker(reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(0x1234)),current,false));
     assert(!TaskbarModulePolicy::ShouldClearStaleMarker(reinterpret_cast<HANDLE>(resident),current,true));
     assert(TaskbarModulePolicy::IsLegacyV2Name(L"taskbar-0123456789abcdef.dll"));
     assert(!TaskbarModulePolicy::IsLegacyV2Name(L"taskbar-xxxxxxxxxxxxxxxx.dll"));
+    assert(TaskbarModulePolicy::ClassicEntryBelongsToResident(42,42));
+    assert(!TaskbarModulePolicy::ClassicEntryBelongsToResident(41,42));
+    assert(!TaskbarModulePolicy::ClassicEntryBelongsToResident(0,42));
     HWND window=CreateWindowExW(0,L"STATIC",L"taskbar-regression",0,0,0,1,1,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
     assert(window);
     const auto marker=stale?reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(0x1234)):reinterpret_cast<HANDLE>(resident);
@@ -100,9 +111,18 @@ int wmain(int argc,wchar_t** argv) {
     // A real window property and v2 mapping drive the production hook. Disabled
     // intent isolates this test from Explorer and XAML rendering.
     *wire={0x43575432,GetCurrentProcessId(),0,{1,S_OK,0,GetCurrentProcessId()},{0,0,0,1},2,0};
+    using MarkClassicDirty=void(__cdecl*)(UINT,HWND);
+    auto markClassicDirty=reinterpret_cast<MarkClassicDirty>(GetProcAddress(current,"CWTaskbarMarkClassicDirty"));assert(markClassicDirty);
+    // Calling the dirty export on a non-taskbar window must be harmless and
+    // must not inject into Explorer or perform any composition update.
+    markClassicDirty(WM_THEMECHANGED,window);
     CWPSTRUCT message{0,GetCurrentProcessId(),RegisterWindowMessageW(L"ConvenientWindow.Taskbar.Attach.v2"),window};
     using Hook=LRESULT(CALLBACK*)(int,WPARAM,LPARAM);
     auto hook=reinterpret_cast<Hook>(GetProcAddress(current,"TaskbarHook"));assert(hook);
+    assert(TaskbarModulePolicy::ShouldForwardClassicDirty(resident,current,true,true));
+    assert(!TaskbarModulePolicy::ShouldForwardClassicDirty(resident,current,true,false));
+    assert(!TaskbarModulePolicy::ShouldForwardClassicDirty(resident,current,false,true));
+    assert(!TaskbarModulePolicy::ShouldForwardClassicDirty(current,current,true,true));
     PROCESS_INFORMATION child{};HANDLE childMapping{};Wire* childWire{};
     if(conflict) {
         wchar_t exe[32768]{};assert(GetModuleFileNameW(nullptr,exe,32768));

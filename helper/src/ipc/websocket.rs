@@ -297,7 +297,7 @@ fn parse_config_update(data: Value) -> Result<(AppConfig, Option<u64>, bool), Ru
     {
         return Err(RuntimeError::new(
             ErrorCode::UnsupportedSchema,
-            "Expected protocol 7 and settings schema 8",
+            "Expected protocol 7 and settings schema 9",
         ));
     }
     let revision = data.get("revision").and_then(Value::as_u64);
@@ -357,10 +357,11 @@ mod tests {
     fn incompatible_config_is_rejected_before_normalization() {
         for data in [
             serde_json::json!({"schemaVersion": 7}),
-            serde_json::json!({"config": {"schemaVersion": 8}}),
-            serde_json::json!({"protocolVersion": 6, "config": {"schemaVersion": 8}}),
+            serde_json::json!({"config": {"schemaVersion": 9}}),
+            serde_json::json!({"protocolVersion": 6, "config": {"schemaVersion": 9}}),
             serde_json::json!({"protocolVersion": 7, "config": {"schemaVersion": 7}}),
-            serde_json::json!({"protocolVersion": 7, "config": {"schemaVersion": 9}}),
+            serde_json::json!({"protocolVersion": 7, "config": {"schemaVersion": 8}}),
+            serde_json::json!({"protocolVersion": 7, "config": {"schemaVersion": 10}}),
         ] {
             assert_eq!(
                 parse_config_update(data).unwrap_err().code,
@@ -373,7 +374,7 @@ mod tests {
     fn translated_labels_are_bounded_and_never_persisted() {
         let (config, _, _) = parse_config_update(serde_json::json!({
             "protocolVersion": 7,
-            "config": {"schemaVersion": 8},
+            "config": {"schemaVersion": 9},
             "gestureLabels": {"gesture-up": " Up · Copy\n", "unknown": "ignored"}
         }))
         .unwrap();
@@ -401,7 +402,7 @@ mod tests {
         let (config, revision, adjusted) = parse_config_update(serde_json::json!({
             "protocolVersion": 7,
             "revision": 7,
-            "config": { "schemaVersion": 8, "enabled": true, "edgeSize": 999 }
+            "config": { "schemaVersion": 9, "enabled": true, "edgeSize": 999 }
         }))
         .unwrap();
 

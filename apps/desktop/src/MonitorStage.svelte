@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DisplayInfo, Edge, HotzoneId, HotzoneSetting } from "./types";
   import { unavailableEdges } from "./monitor-topology";
+  import { hotzonePreviewRect } from "./hotzone-geometry";
 
   export let displays: DisplayInfo[];
   export let selectedDisplayId: string;
@@ -10,6 +11,7 @@
   export let hotzonesEnabled: boolean;
   export let edgeHideEnabled = false;
   export let hotzones: HotzoneSetting[];
+  export let edgeSize = 8;
   export let edgeHideEdges: Edge[];
   export let displayReady = true;
   export let onSelectDisplay: (id: string) => void;
@@ -43,6 +45,25 @@
       : 0;
     return [zone, count];
   })) as Record<HotzoneId, number>;
+
+  $: selectedDisplay = displays.find((display) => display.id === selectedDisplayId);
+  $: selectedGeometry = hotzones.find((zone) => zone.id === selectedZone)?.geometry;
+  $: footprint = selectedDisplay && displayReady
+    ? hotzonePreviewRect(selectedZone, selectedDisplay.bounds, edgeSize, selectedGeometry) : null;
+  $: footprintStyle = selectedDisplay && footprint ? (() => {
+    const bounds = selectedDisplay.bounds;
+    const width = Math.max(1, bounds.right - bounds.left);
+    const height = Math.max(1, bounds.bottom - bounds.top);
+    return `left:${(footprint.left - bounds.left) / width * 100}%;top:${(footprint.top - bounds.top) / height * 100}%;width:${(footprint.right - footprint.left) / width * 100}%;height:${(footprint.bottom - footprint.top) / height * 100}%`;
+  })() : "";
+
+  function cancelNumberDraft(): void {
+    const focused = document.activeElement;
+    if (focused instanceof HTMLInputElement && focused.type === "number"
+      && (focused.closest(".hotzone-geometry") || focused.closest(".monitor-hotzone-settings"))) {
+      focused.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    }
+  }
 
   function inactiveIndex(id: string): number {
     return displays.filter((display) => display.id !== selectedDisplayId).findIndex((display) => display.id === id);
@@ -96,6 +117,7 @@
       <button
         aria-label={`${english ? "Select display" : "选择显示器"} S${index + 1}`}
         class="screen"
+        on:pointerdown={cancelNumberDraft}
         on:click={() => onSelectDisplay(display.id)}
         type="button"
       >
@@ -105,12 +127,18 @@
       </button>
 
       {#if display.id === selectedDisplayId && mode === "hotzones"}
+        {#if footprint}
+          <div class="hotzone-footprint-layer" aria-hidden="true">
+            <span class="hotzone-footprint" data-zone={selectedZone} data-monitor-id={display.id} data-rect={`${footprint.left},${footprint.top},${footprint.right},${footprint.bottom}`} style={footprintStyle}></span>
+          </div>
+        {/if}
         {#each zones as zone}
           <button
             aria-label={zoneLabel(zone)}
             class:active={selectedZone === zone}
             class:configured={hotzonesEnabled && hotzones.some((item) => item.id === zone && item.actions.some(slotConfigured))}
             class={`zone zone-${zone}`}
+            on:pointerdown={cancelNumberDraft}
             on:click={() => onSelectZone(zone)}
             type="button"
           >
@@ -173,6 +201,8 @@
   .focus-path .arrow{stroke-dasharray:none}
   .swap-note{position:absolute;left:23%;top:13%;font:11px/1.2 "Segoe UI Variable","Microsoft YaHei",sans-serif;color:var(--accent-soft);z-index:2}
   .stage-caption{position:absolute;left:0;right:0;bottom:5%;margin:0;text-align:center;color:var(--faint);font:12px/1.2 "Segoe UI Variable","Microsoft YaHei",sans-serif;letter-spacing:.04em}
+  .hotzone-footprint-layer{position:absolute;inset:1px 1px calc(17% + 1px);z-index:2;pointer-events:none;overflow:hidden;border-radius:9px}
+  .hotzone-footprint{position:absolute;display:block;pointer-events:none;background:color-mix(in srgb,var(--accent) 50%,transparent);outline:1px solid var(--accent-soft);outline-offset:0}
   .zone{position:absolute;z-index:30;padding:0;border:1px solid var(--line-strong);border-radius:6px;background:var(--zone-bg);color:var(--muted);box-shadow:0 2px 8px rgba(0,0,0,.12);transition:transform .15s,background-color .15s,color .15s,border-color .15s,box-shadow .18s}
   .zone::before{content:"";position:absolute;inset:-5px;border:1px dashed transparent;border-radius:9px;opacity:0;pointer-events:none;transition:opacity .18s,border-color .18s}
   .zone.configured:not(.active)::before{opacity:1;border-width:1.5px;border-color:var(--zone-configured)}

@@ -7,7 +7,7 @@ import { runtimeErrorKeys, runtimeErrorText } from "./runtime-error";
 import { zh, en, translator } from "./i18n";
 import type { AppSettings } from "./types";
 
-describe("schema 8 and protocol 7 localization contract", () => {
+describe("schema 9 and protocol 7 localization contract", () => {
   it("keeps overlay names short and follows reassigned actions", () => {
     const gesture = structuredClone(defaultSettings.mouseGestures.gestures[1]);
     expect(gestureOverlayName(gesture, translator("zh-CN"))).toBe("粘贴");
@@ -23,7 +23,7 @@ describe("schema 8 and protocol 7 localization contract", () => {
   });
   it("migrates the shared legacy fixture without changing user actions, samples or names", () => {
     const migrated = normalizeSettings(fixture.input as Partial<AppSettings>);
-    expect(migrated.schemaVersion).toBe(8);
+    expect(migrated.schemaVersion).toBe(9);
     for (const [id, name] of Object.entries(fixture.expectedNames)) {
       const gesture = migrated.mouseGestures.gestures.find(item => item.id === id)!;
       expect(gesture.name ?? null).toBe(name);
@@ -42,6 +42,7 @@ describe("schema 8 and protocol 7 localization contract", () => {
 
   it("uses the ID for default names and retains explicit schema 8 overrides", () => {
     const stored = structuredClone(defaultSettings);
+    stored.schemaVersion = 8;
     const builtin = stored.mouseGestures.gestures[0];
     expect(builtin.name).toBeUndefined();
     expect(gestureDisplayName(builtin, translator("en-US"))).toBe("Up · Copy");
@@ -54,7 +55,7 @@ describe("schema 8 and protocol 7 localization contract", () => {
   });
 
   it("rejects future configuration instead of silently downgrading it", () => {
-    expect(() => normalizeSettings({ schemaVersion: 9 })).toThrow("Unsupported settings schema");
+    expect(() => normalizeSettings({ schemaVersion: 10 })).toThrow("Unsupported settings schema");
   });
 
   it("translates every wire error and never displays diagnostic prose", () => {

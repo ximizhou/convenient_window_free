@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings } from "./settings-store";
-import { HelperClient, isSupportedHelperProtocol, SUPPORTED_HELPER_PROTOCOL } from "./helper-client";
+import { HelperClient, isSupportedHelperProtocol, isSupportedHelperSchema, SUPPORTED_HELPER_PROTOCOL, SUPPORTED_HELPER_SCHEMA } from "./helper-client";
 
 class MockWebSocket extends EventTarget {
   static instances: MockWebSocket[] = [];
@@ -44,6 +44,62 @@ describe("HelperClient", () => {
     expect(isSupportedHelperProtocol(4)).toBe(false);
   });
 
+  it("requires the exact schema 9 number", () => {
+    expect(SUPPORTED_HELPER_SCHEMA).toBe(9);
+    expect(isSupportedHelperSchema(9)).toBe(true);
+    for (const value of [8, 10, 9.1, "9", null, undefined, false, {}, NaN, Infinity]) {
+      expect(isSupportedHelperSchema(value)).toBe(false);
+    }
+  });
+
+  it.each([undefined, null, 8, 10, "9", false, {}, NaN].map(value => [value]))(
+    "keeps geometry queued for schema %j until a compatible new helper connects", (schemaVersion) => {
+      const client = new HelperClient();
+      const settings = structuredClone(defaultSettings);
+      settings.hotzones[0].geometry = { kind: "corner", width: 24, height: 48, linked: true };
+      settings.hotzones[1].geometry = { kind: "edge", thickness: 16, lengthPercent: 100 };
+      settings.monitorProfiles = [{ monitorId: "monitor:geometry", hotzones: structuredClone(settings.hotzones) }];
+      const before = structuredClone(settings);
+      expect(client.sendConfig(settings)).toBe(false);
+      client.connect();
+      const oldSocket = MockWebSocket.instances[0];
+      oldSocket.dispatchEvent(new Event("open"));
+      oldSocket.receive("helper.ready", { protocolVersion: 7, schemaVersion });
+      expect(client.sendConfig(settings)).toBe(false);
+      expect(oldSocket.sent).toHaveLength(0);
+      expect(settings).toEqual(before);
+
+      oldSocket.close();
+      vi.advanceTimersByTime(1500);
+      const newSocket = MockWebSocket.instances[1];
+      newSocket.dispatchEvent(new Event("open"));
+      expect(newSocket.sent).toHaveLength(0);
+      newSocket.receive("helper.ready", { protocolVersion: 7, schemaVersion: 9 });
+      expect(newSocket.sent).toHaveLength(1);
+      expect(JSON.parse(newSocket.sent[0])).toMatchObject({ type: "config.update", data: {
+        protocolVersion: 7, revision: 2, config: before
+      } });
+      expect(settings).toEqual(before);
+    }
+  );
+
+  it("revokes config readiness on an incompatible or incomplete later handshake", () => {
+    const client = new HelperClient();
+    client.sendConfig(defaultSettings);
+    client.connect();
+    const socket = MockWebSocket.instances[0];
+    socket.receive("helper.ready", { protocolVersion: 7, schemaVersion: 9 });
+    expect(socket.sent).toHaveLength(1);
+    for (const data of [null, {}, { protocolVersion: 7 }, { schemaVersion: 9 }, { protocolVersion: 6, schemaVersion: 9 }]) {
+      socket.receive("helper.ready", data);
+      expect(client.sendConfig(defaultSettings)).toBe(false);
+    }
+    expect(socket.sent).toHaveLength(1);
+    socket.receive("helper.ready", { protocolVersion: 7, schemaVersion: 9 });
+    expect(socket.sent).toHaveLength(2);
+    expect(JSON.parse(socket.sent[1]).data.revision).toBe(6);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     MockWebSocket.instances = [];
@@ -62,15 +118,14 @@ describe("HelperClient", () => {
     client.connect();
     const socket = MockWebSocket.instances[0];
     for (const protocolVersion of [5, 6, 8, "7", null]) {
-      socket.receive("helper.ready", { protocolVersion });
+      socket.receive("helper.ready", { protocolVersion, schemaVersion: 9 });
       expect(socket.sent).toHaveLength(0);
     }
-    socket.receive("helper.ready", { protocolVersion: 7 });
+    socket.receive("helper.ready", { protocolVersion: 7, schemaVersion: 9 });
     const envelope = JSON.parse(socket.sent[0]).data;
     expect(envelope.protocolVersion).toBe(7);
-    expect(envelope.config.schemaVersion).toBe(8);
+    expect(envelope.config.schemaVersion).toBe(9);
     expect(envelope.gestureLabels["gesture-up"]).toBe("Copy");
-    expect(envelope.config.gestureFeedback).toBeUndefined();
     expect(envelope.config.mouseGestures.gestures[0].name).toBeUndefined();
     language = "zh-CN";
     client.sendConfig(defaultSettings);
@@ -120,6 +175,7 @@ describe("HelperClient", () => {
     client.connect();
     MockWebSocket.instances[0].receive("helper.ready", {
       protocolVersion: 7,
+      schemaVersion: 9,
       platform: {
         system: "linux", architecture: "x86_64", session: "x11",
         capabilities: {
@@ -141,7 +197,7 @@ describe("HelperClient", () => {
     client.connect();
     MockWebSocket.instances[0].dispatchEvent(new Event("open"));
     expect(MockWebSocket.instances[0].sent).toHaveLength(0);
-    MockWebSocket.instances[0].receive("helper.ready", { protocolVersion: 7 });
+    MockWebSocket.instances[0].receive("helper.ready", { protocolVersion: 7, schemaVersion: 9 });
     expect(JSON.parse(MockWebSocket.instances[0].sent[0])).toMatchObject({
       type: "config.update",
       data: { revision: 1, config: { enabled: true } }
@@ -150,7 +206,7 @@ describe("HelperClient", () => {
     MockWebSocket.instances[0].close();
     vi.advanceTimersByTime(1500);
     MockWebSocket.instances[1].dispatchEvent(new Event("open"));
-    MockWebSocket.instances[1].receive("helper.ready", { protocolVersion: 7 });
+    MockWebSocket.instances[1].receive("helper.ready", { protocolVersion: 7, schemaVersion: 9 });
     expect(JSON.parse(MockWebSocket.instances[1].sent[0])).toMatchObject({
       type: "config.update",
       data: { revision: 1, config: { enabled: true } }
@@ -160,7 +216,7 @@ describe("HelperClient", () => {
   it("increments config revisions and identifies only the latest acknowledgement", () => {
     const client = new HelperClient();
     client.connect();
-    MockWebSocket.instances[0].receive("helper.ready", { protocolVersion: 7 });
+    MockWebSocket.instances[0].receive("helper.ready", { protocolVersion: 7, schemaVersion: 9 });
     client.sendConfig({ enabled: true } as Parameters<typeof client.sendConfig>[0]);
     client.sendConfig({ enabled: false } as Parameters<typeof client.sendConfig>[0]);
 
@@ -234,7 +290,7 @@ describe("HelperClient", () => {
     client.connect();
     const restarted = MockWebSocket.instances[1];
     restarted.dispatchEvent(new Event("open"));
-    restarted.receive("helper.ready", { protocolVersion: 7 });
+    restarted.receive("helper.ready", { protocolVersion: 7, schemaVersion: 9 });
 
     expect(JSON.parse(restarted.sent[0])).toMatchObject({
       type: "config.update",
@@ -260,7 +316,7 @@ describe("HelperClient", () => {
     const socket = MockWebSocket.instances[0];
     socket.dispatchEvent(new Event("open"));
 
-    socket.receive("helper.ready", { protocolVersion: 4 });
+    socket.receive("helper.ready", { protocolVersion: 4, schemaVersion: 9 });
 
     expect(socket.sent).toHaveLength(0);
   });

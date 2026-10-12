@@ -453,6 +453,7 @@ fn handle_window_drag_message_with_target(
         if event == Some((*button, false)) {
             capture.current = point;
             capture.finished = true;
+            crate::platform::window_drag_started_notification().notify_one();
             return true;
         }
         return false;
@@ -501,6 +502,7 @@ fn begin_window_drag_capture(
         },
         button,
     ));
+    crate::platform::window_drag_started_notification().notify_one();
     true
 }
 

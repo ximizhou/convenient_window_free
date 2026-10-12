@@ -745,6 +745,42 @@ mod tests {
     }
 
     #[test]
+    fn hotzone_hint_hides_and_reuses_its_window_without_hiding_other_hints() {
+        use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+        let rect = Rect {
+            left: 0,
+            top: 0,
+            right: 10,
+            bottom: 10,
+        };
+        let mut hotzone = HintManager::new(62, HOTZONE_HINT_COLOR, None);
+        let mut edge = HintManager::new(210, EDGE_HIDE_PREVIEW_COLOR, None);
+        hotzone.update(None);
+        assert!(
+            hotzone.window.is_none(),
+            "disabled hints must not create a window"
+        );
+        hotzone.update(Some(rect));
+        edge.update(Some(rect));
+        let hwnd = HWND(hotzone.window.as_ref().unwrap().hwnd as *mut core::ffi::c_void);
+        let edge_hwnd = HWND(edge.window.as_ref().unwrap().hwnd as *mut core::ffi::c_void);
+        assert!(unsafe { IsWindowVisible(hwnd).as_bool() });
+        hotzone.update(None);
+        assert!(!unsafe { IsWindowVisible(hwnd).as_bool() });
+        assert!(unsafe { IsWindowVisible(edge_hwnd).as_bool() });
+        for _ in 0..200 {
+            hotzone.update(None);
+        }
+        hotzone.update(Some(rect));
+        assert_eq!(hotzone.window.as_ref().unwrap().hwnd, hwnd.0 as isize);
+        assert!(unsafe { IsWindowVisible(hwnd).as_bool() });
+        unsafe {
+            DestroyWindow(hwnd).unwrap();
+            DestroyWindow(edge_hwnd).unwrap();
+        }
+    }
+
+    #[test]
     fn hint_windows_are_excluded_from_screen_capture() {
         let window = HintWindow::create();
         let hwnd = HWND(window.hwnd as *mut core::ffi::c_void);

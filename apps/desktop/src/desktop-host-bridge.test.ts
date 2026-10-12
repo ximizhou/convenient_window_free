@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
+const listen = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/event", () => ({ listen }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
@@ -16,6 +18,20 @@ describe("helper privilege switching", () => {
     });
   });
 
+  it("passes native startup errors to the settings subscriber and preserves unlisten", async () => {
+    const bridge = await createDesktopHostBridge();
+    const stop = vi.fn();
+    listen.mockResolvedValueOnce(stop);
+    const handler = vi.fn();
+    expect(await bridge.onStartupChanged!(handler)).toBe(stop);
+    expect(listen).toHaveBeenLastCalledWith("startup-changed", expect.any(Function));
+    const receive = listen.mock.calls.at(-1)![1];
+    receive({ payload: "access denied" });
+    expect(handler).toHaveBeenLastCalledWith("access denied");
+    receive({ payload: null });
+    expect(handler).toHaveBeenLastCalledWith(undefined);
+  });
+
   it("replaces the connection token after elevation and after cancellation fallback", async () => {
     const bridge = await createDesktopHostBridge();
     invoke.mockResolvedValueOnce({ token: "elevated-token", elevated: true, warning: null });
@@ -23,8 +39,8 @@ describe("helper privilege switching", () => {
     expect(invoke).toHaveBeenLastCalledWith("set_helper_elevation", { elevated: true });
     expect(bridge.getHelperToken()).toBe("elevated-token");
     expect(bridge.getPrivilegeState!()).toEqual({ supported: true, elevated: true });
-    invoke.mockResolvedValueOnce({ token: "ordinary-token", elevated: false, warning: "adminCancelled" });
-    expect(await bridge.setHelperElevation!(true)).toEqual({ ok: true, elevated: false, warning: "adminCancelled" });
+    invoke.mockResolvedValueOnce({ token: "ordinary-token", elevated: false, warning: "access denied" });
+    expect(await bridge.setHelperElevation!(true)).toEqual({ ok: true, elevated: false, warning: "access denied" });
     expect(bridge.getHelperToken()).toBe("ordinary-token");
   });
 
@@ -102,6 +118,31 @@ describe("helper privilege switching", () => {
     invoke.mockResolvedValueOnce({ token: "fallback-token", elevated: false, helperPath: "helper.exe", warning: "adminFallback" });
     expect(await bridge.setHelperElevation!(true)).toEqual({ ok: true, elevated: false, warning: "adminFallback" });
     expect(bridge.getHelperToken()).toBe("fallback-token");
+    expect(bridge.getPrivilegeState!().elevated).toBe(false);
+  });
+
+  it("reports the real startup state after a failed preference update without switching the current helper", async () => {
+    const bridge = await createDesktopHostBridge();
+    invoke.mockRejectedValueOnce("access denied");
+    invoke.mockResolvedValueOnce({ enabled: false });
+    expect(await bridge.setAdminStartup!(true)).toEqual({ enabled: false, error: "access denied" });
+    expect(invoke.mock.calls.slice(2).map(([command]) => command)).toEqual(["set_admin_startup", "admin_startup_status"]);
+    expect(bridge.getHelperToken()).toBe("old");
+    expect(bridge.getPrivilegeState!().elevated).toBe(false);
+  });
+
+  it("keeps a failed startup update unknown when its status cannot be read", async () => {
+    const bridge = await createDesktopHostBridge();
+    invoke.mockRejectedValueOnce("access denied");
+    invoke.mockRejectedValueOnce("registry unavailable");
+    expect(await bridge.setAdminStartup!(false)).toEqual({ enabled: null, error: "access denied" });
+  });
+
+  it("passes login fallback warnings to the UI while retaining the ordinary helper token", async () => {
+    const bridge = await createDesktopHostBridge();
+    invoke.mockResolvedValueOnce({ token: "ordinary", elevated: false, warning: "adminFallback" });
+    expect(await bridge.startHelper()).toMatchObject({ ok: true, warning: "adminFallback" });
+    expect(bridge.getHelperToken()).toBe("ordinary");
     expect(bridge.getPrivilegeState!().elevated).toBe(false);
   });
 });
