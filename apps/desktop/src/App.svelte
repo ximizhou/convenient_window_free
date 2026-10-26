@@ -119,14 +119,17 @@
     edgeHide: ["贴边隐藏", "edge hide"]
   };
 
-  function unavailableCapabilityText(platform: HelperPlatformInfo): string {
+  // 语言切换时必须重算：模板里直接调用读取 `english`/`ui` 的普通函数会被 Svelte
+  // 旧模式整体 untrack，切语言后标签不刷新（中英混排复发的根因）。模板会调用的
+  // 这类函数一律写成响应式箭头函数，让函数引用随语言变化，触发模板与子组件 prop 重算。
+  $: unavailableCapabilityText = (platform: HelperPlatformInfo): string => {
     const unavailable = Object.entries(platform.capabilities)
       .filter(([, enabled]) => !enabled)
       .map(([name]) => capabilityLabels[name as keyof HelperPlatformInfo["capabilities"]]?.[english ? 1 : 0] ?? name);
     return unavailable.length > 0
       ? `${english ? "Unavailable" : "暂不支持"}: ${unavailable.join(english ? ", " : "、")}`
       : (english ? "Base capabilities available" : "基础能力可用");
-  }
+  };
 
   let settings: AppSettings = loadSettings();
   let navigation: NavigationPreferences = loadNavigationPreferences();
@@ -592,11 +595,11 @@
     return modifiers.join("+");
   }
 
-  function modifierLabel(modifiers: ModifierKey[]): string {
+  $: modifierLabel = (modifiers: ModifierKey[]): string => {
     if (!modifiers.length) return ui("direct");
     const labels: Record<ModifierKey, string> = { ctrl: "Ctrl", alt: "Alt", shift: "Shift", win: "Win" };
     return modifiers.map((key) => labels[key]).join("+");
-  }
+  };
 
   function sameModifiers(left: ModifierKey[], right: ModifierKey[]): boolean {
     return modifierId(left) === modifierId(right);
@@ -739,14 +742,13 @@
   function openNavigationFeature(id: NavigationFeatureId): void {
     toggleMode(id as Mode);
   }
-  function navigationLabel(id: NavigationFeatureId): string {
-    const labels: Record<NavigationFeatureId, UiKey> = { power: "power", hotzones: "hotzones", "edge-hide": "edgeHide", gestures: "gestures", beautification: "beautification", "window-layouts": "windowLayouts" };
-    return ui(labels[id]);
-  }
-  function navigationDescription(id: NavigationFeatureId): string {
-    const descriptions: Record<NavigationFeatureId, UiKey> = { power: "navigationTipPower", hotzones: "navigationTipHotzones", "edge-hide": "navigationTipEdgeHide", gestures: "navigationTipGestures", beautification: "navigationTipBeautification", "window-layouts": "navigationTipWindowLayouts" };
-    return ui(descriptions[id]);
-  }
+  // 模板里调用读取 `ui`/`english` 的普通函数时，Svelte 旧模式会把它整体 untrack，
+  // 语言切换后标签不会重算（0.6.6/0.6.7 两次中英混排的根因）。这里把函数本身做成
+  // 响应式变量：语言变化 → 函数引用变化 → 模板表达式与子组件 prop 都重新求值。
+  const navigationLabelKeys: Record<NavigationFeatureId, UiKey> = { power: "power", hotzones: "hotzones", "edge-hide": "edgeHide", gestures: "gestures", beautification: "beautification", "window-layouts": "windowLayouts" };
+  const navigationDescriptionKeys: Record<NavigationFeatureId, UiKey> = { power: "navigationTipPower", hotzones: "navigationTipHotzones", "edge-hide": "navigationTipEdgeHide", gestures: "navigationTipGestures", beautification: "navigationTipBeautification", "window-layouts": "navigationTipWindowLayouts" };
+  $: navigationLabel = (id: NavigationFeatureId): string => ui(navigationLabelKeys[id]);
+  $: navigationDescription = (id: NavigationFeatureId): string => ui(navigationDescriptionKeys[id]);
   function applyNavigationPreferences(value: NavigationPreferences): void {
     navigation = normalizeNavigationPreferences(value);
     saveNavigationPreferences(navigation);
@@ -820,32 +822,25 @@
     persist();
   }
 
-  function triggerLabel(trigger: TriggerKind): string {
+  $: triggerLabel = (trigger: TriggerKind): string => {
     if (trigger === "slide-forward") return ["left", "right"].includes(selectedZone) ? ui("triggerSlideDown") : ui("triggerSlideRight");
     if (trigger === "slide-backward") return ["left", "right"].includes(selectedZone) ? ui("triggerSlideUp") : ui("triggerSlideLeft");
     return english ? triggerLabelsEn[trigger] : triggerLabels[trigger];
-  }
+  };
 
-  function triggerGroupLabel(group: typeof triggerGroups[number]): string {
-    return english ? group.labelEn : group.label;
-  }
+  $: triggerGroupLabel = (group: typeof triggerGroups[number]): string => (english ? group.labelEn : group.label);
 
-  function zoneLabel(zone: HotzoneId): string {
-    return english ? zoneLabelsEn[zone] : zoneLabels[zone];
-  }
+  $: zoneLabel = (zone: HotzoneId): string => (english ? zoneLabelsEn[zone] : zoneLabels[zone]);
 
-  function actionOptions(): { label: string; group: string }[] {
-    return actionPresets.map((item) => ({ label: english ? item.labelEn : item.label, group: english ? item.groupEn : item.group }));
-  }
+  $: actionOptions = (): { label: string; group: string }[] =>
+    actionPresets.map((item) => ({ label: english ? item.labelEn : item.label, group: english ? item.groupEn : item.group }));
 
-  function actionLabel(action: HotzoneAction): string {
+  $: actionLabel = (action: HotzoneAction): string => {
     const preset = actionPresets[presetIndex(action)];
     return preset ? (english ? preset.labelEn : preset.label) : ui("customAction");
-  }
+  };
 
-  function gestureName(gesture: GestureTemplate, translate = ui): string {
-    return gestureDisplayName(gesture, translate);
-  }
+  $: gestureName = (gesture: GestureTemplate): string => gestureDisplayName(gesture, ui);
 
   function presetIndex(action: HotzoneAction): number {
     const exact = actionPresets.findIndex((item) => item.kind === action.kind && item.value === action.value);
@@ -1535,7 +1530,7 @@
                     {#each settings.mouseGestures.gestures as gesture}
                       <button class:active={gesture.id === activeGesture.id} class:screenshot={gesture.mode === "region-screenshot"} on:click={() => selectGesture(gesture.id)} type="button">
                         <svg viewBox="0 0 100 100" aria-hidden="true">{#if gesture.samples.at(-1)?.length}<path d={gesturePath(gesture.samples.at(-1) ?? [])} />{/if}</svg>
-                        <span><b>{gestureName(gesture, ui)}</b><small>{gesture.mode === "region-screenshot" ? ui("regionScreenshot") : gesture.builtin ? ui("builtinGestures") : format(ui("sampleCount"), { count: gesture.samples.length })}</small></span>
+                        <span><b>{gestureName(gesture)}</b><small>{gesture.mode === "region-screenshot" ? ui("regionScreenshot") : gesture.builtin ? ui("builtinGestures") : format(ui("sampleCount"), { count: gesture.samples.length })}</small></span>
                         <i class:off={!gesture.enabled} title={gesture.enabled ? ui("enabledState") : ui("disabledState")}></i>
                       </button>
                     {/each}
@@ -1544,7 +1539,7 @@
 
                 <section class:screenshot-editor={activeGesture.mode === "region-screenshot"} class="gesture-editor">
                   <div class="gesture-paper-head">
-                    <label><span>{ui("currentGesture")}</span><input aria-label={ui("gestureNameLabel")} value={gestureName(activeGesture, ui)} on:input={renameGesture} /></label>
+                    <label><span>{ui("currentGesture")}</span><input aria-label={ui("gestureNameLabel")} value={gestureName(activeGesture)} on:input={renameGesture} /></label>
                     <span class:special={activeGesture.mode === "region-screenshot"} class="gesture-kind">{activeGesture.mode === "region-screenshot" ? ui("screenshotMode") : format(ui("sampleCount"), { count: activeGesture.samples.length })}</span>
                   </div>
                   {#if activeGesture.mode === "region-screenshot"}
@@ -1628,7 +1623,7 @@
                 <div class="runtime-details-body">
                   {#if helperPlatform}<div class="runtime-platform"><span>{ui("runtimePlatform")}</span><p>{helperPlatform.system} · {helperPlatform.architecture}{helperPlatform.session ? ` · ${helperPlatform.session}` : ""}</p><p>{unavailableCapabilityText(helperPlatform)}</p></div>{/if}
                   <div class="helper-meta"><span>{format(ui("helperVersion"), { version: helperInstallState.version })}</span><button on:click={() => openHelperPage("repository")} type="button">{ui("publicDownload")}</button><code>{helperInstallState.installDir ?? ui("helperInstallDirUnknown")}</code></div>
-                  <div class:error={Boolean(helperError)} class="status-rail"><div><span>{ui("recentAction")}</span><strong>{lastAction || statusText("noAction")}</strong></div><div><span>{ui("currentState")}</span><strong aria-live="polite">{statusText(helperError, english) || renderedLastMessage}</strong></div></div>
+                  <div class:error={Boolean(helperError)} class="status-rail"><div><span>{ui("recentAction")}</span><strong>{lastAction || statusText("noAction", english)}</strong></div><div><span>{ui("currentState")}</span><strong aria-live="polite">{statusText(helperError, english) || renderedLastMessage}</strong></div></div>
                   <button class="quiet" on:click={copyDiagnostics} type="button">{ui("diagnostics")}</button>
                 </div>
               </details>
@@ -1669,7 +1664,7 @@
                     </div>
                     <p id="admin-startup-description">{ui("adminStartupDetail")}</p>
                   {/if}
-                  {#if startupNotice || startup.error || adminStartup.error}<p role="status">{statusText(startupNotice || startup.error || adminStartup.error || "")}</p>{/if}
+                  {#if startupNotice || startup.error || adminStartup.error}<p role="status">{statusText(startupNotice || startup.error || adminStartup.error || "", english)}</p>{/if}
                   {#if privilegeNotice}<p class="runtime-notice" role="status">{statusText(privilegeNotice, english)}</p>{/if}
                   {#if helperError}<div class="runtime-notice error" role="alert">{statusText(helperError, english)}</div>{/if}
                 </section>
