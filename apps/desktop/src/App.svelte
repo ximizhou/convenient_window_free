@@ -749,6 +749,9 @@
   const navigationDescriptionKeys: Record<NavigationFeatureId, UiKey> = { power: "navigationTipPower", hotzones: "navigationTipHotzones", "edge-hide": "navigationTipEdgeHide", gestures: "navigationTipGestures", beautification: "navigationTipBeautification", "window-layouts": "navigationTipWindowLayouts" };
   $: navigationLabel = (id: NavigationFeatureId): string => ui(navigationLabelKeys[id]);
   $: navigationDescription = (id: NavigationFeatureId): string => ui(navigationDescriptionKeys[id]);
+  // 底部页签用一词短标签，保证抽屉挤窄场景也不溢出；完整名称保留在 aria-label/title 和功能入口气泡里。
+  const navigationTabLabelKeys: Record<NavigationFeatureId, UiKey> = { power: "navTabPower", hotzones: "navTabHotzones", "edge-hide": "navTabEdgeHide", gestures: "navTabGestures", beautification: "navTabBeautification", "window-layouts": "navTabWindowLayouts" };
+  $: navigationTabLabel = (id: NavigationFeatureId): string => ui(navigationTabLabelKeys[id]);
   function applyNavigationPreferences(value: NavigationPreferences): void {
     navigation = normalizeNavigationPreferences(value);
     saveNavigationPreferences(navigation);
@@ -1371,7 +1374,7 @@
         {#each visibleNavigation as item (item)}
           <button aria-label={navigationLabel(item)} title={navigationLabel(item)} data-feature-id={item} class:active={mode === item} on:click={() => openNavigationFeature(item)} type="button">
             <NavGlyph id={item} />
-            <b>{navigationLabel(item)}</b>
+            <b>{navigationTabLabel(item)}</b>
           </button>
         {/each}
       </nav>

@@ -285,8 +285,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   align-items: center;
   justify-content: center;
   gap: 8px;
+  min-width: 0;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
+  padding-inline: 4px;
   transition: color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-base);
 }
 .mode-nav button:hover { color: var(--ink); background: var(--hover); }
@@ -295,12 +298,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, transparent), var(--accent-bg));
   box-shadow: var(--ring-accent), 0 1px 0 rgba(255, 255, 255, .05) inset;
 }
-.mode-nav b { font-size: var(--fs-md); font-weight: 600; white-space: nowrap; }
+.mode-nav b { min-width: 0; overflow: hidden; font-size: var(--fs-md); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 /* 场景被抽屉挤窄时压缩间距与字号；再窄时只保留图标，名称仍由 aria-label、title 和焦点提示提供。 */
 @container (max-width: 620px) {
-  .mode-nav { width: min(430px, 96%); height: 48px; }
-  .mode-nav button { gap: 5px; }
+  .mode-nav { width: min(430px, 96%); height: 48px; padding: 3px; }
+  .mode-nav button { gap: 4px; padding-inline: 2px; }
   .mode-nav b { font-size: var(--fs-xs); }
+  .mode-nav .nav-icon { width: 15px; height: 15px; }
 }
 @container (max-width: 400px) {
   .mode-nav { width: min(260px, 96%); }

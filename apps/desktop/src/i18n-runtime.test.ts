@@ -32,6 +32,10 @@ it("keeps every rendered label switchable between Chinese and English", async ()
         return (clone.textContent ?? '').match(/[\\u4e00-\\u9fff]+/g) ?? [];
       };
       const nav = () => [...document.querySelectorAll('.mode-nav button b')].map((node) => node.textContent.trim());
+      const navTabs = () => [...document.querySelectorAll('.mode-nav button')].map((node) => ({
+        text: node.querySelector('b')?.textContent?.trim() ?? '',
+        title: node.getAttribute('title') ?? ''
+      }));
       const navButtons = () => [...document.querySelectorAll('.mode-nav button')];
       const composerLabels = () => [...document.querySelectorAll('.composer-bubble button')].map((node) => node.getAttribute('aria-label'));
       const openSettings = () => { document.querySelector('.settings-toggle').click(); flushSync(); };
@@ -79,7 +83,10 @@ it("keeps every rendered label switchable between Chinese and English", async ()
       localStorage.setItem('convenient-window-language', 'en-US');
       let component = mount(App, { target: document.body });
       flushSync(); await settle();
-      assert.deepEqual(nav(), ['Center', 'Corners', 'Windows', 'Gestures', 'Appearance'], 'stored English must apply to the bottom tabs');
+      assert.deepEqual(nav(), ['Center', 'Corners', 'Windows', 'Gestures', 'Style'], 'stored English must apply to the bottom tabs');
+      // 页签用一词短标签，完整名称留在 title 里；长名称会挤爆抽屉打开后的窄场景。
+      assert.ok(navTabs().every((tab) => !tab.text.includes(' ')), 'bottom tabs must use single-word labels: ' + JSON.stringify(navTabs()));
+      assert.equal(navTabs().find((tab) => tab.text === 'Style')?.title, 'Appearance', 'the full feature name must stay in the tab title');
       assert.deepEqual(cjk(), [], 'English startup must not keep any Chinese text: ' + cjk().join(' / '));
 
       for (let index = 0; index < navButtons().length; index++) {
@@ -101,7 +108,7 @@ it("keeps every rendered label switchable between Chinese and English", async ()
       openSettings(); await settle();
       assert.ok(composerLabels().includes('触发角'), 'feature entry labels must start in Chinese: ' + JSON.stringify(composerLabels()));
       await chooseLanguage('en-US');
-      assert.deepEqual(nav(), ['Center', 'Corners', 'Windows', 'Gestures', 'Appearance'], 'bottom tabs must follow a live language switch');
+      assert.deepEqual(nav(), ['Center', 'Corners', 'Windows', 'Gestures', 'Style'], 'bottom tabs must follow a live language switch');
       assert.ok(composerLabels().includes('Corners'), 'feature entry labels must follow a live language switch: ' + JSON.stringify(composerLabels()));
       assert.deepEqual(cjk(), [], 'a live switch to English must not leave Chinese text: ' + cjk().join(' / '));
       await chooseLanguage('zh-CN');
