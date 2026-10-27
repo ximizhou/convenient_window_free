@@ -1,7 +1,7 @@
 {
   "name": "convenient-window-free",
   "private": true,
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "Build and verification entry points for Convenient Window desktop and the shared helper",
   "license": "SEE LICENSE IN LICENSE",
   "engines": {

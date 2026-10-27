@@ -1,6 +1,6 @@
 [package]
 name = "convenient-window"
-version = "0.6.7"
+version = "0.6.8"
 description = "Convenient Window standalone desktop host"
 authors = ["ximizhou"]
 edition = "2021"
