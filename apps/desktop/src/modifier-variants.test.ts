@@ -31,7 +31,7 @@ describe("modifier variant drafts", () => {
     const existing = [variant(["ctrl", "shift"])];
     const result = addModifierVariant(existing, ["shift", "ctrl", "shift"]);
 
-    expect(result).toMatchObject({ ok: false, message: "这个组合已经存在" });
+    expect(result).toMatchObject({ ok: false, error: "variantDuplicate" });
     expect(result.variants).toBe(existing);
   });
 
@@ -55,7 +55,7 @@ describe("modifier variant drafts", () => {
     const result = addModifierVariant(existing, ["ctrl"]);
 
     expect(existing).toHaveLength(15);
-    expect(result).toMatchObject({ ok: false, message: "这个组合已经存在" });
+    expect(result).toMatchObject({ ok: false, error: "variantDuplicate" });
     expect(result.variants).toBe(existing);
   });
 
@@ -63,7 +63,7 @@ describe("modifier variant drafts", () => {
     const existing = Array.from({ length: MAX_MODIFIER_VARIANTS }, () => variant(["ctrl"]));
     const result = addModifierVariant(existing, ["alt"]);
 
-    expect(result).toMatchObject({ ok: false, message: "最多可添加 15 个组合" });
+    expect(result).toMatchObject({ ok: false, error: "variantLimit" });
     expect(result.variants).toBe(existing);
   });
 });

@@ -340,15 +340,23 @@
     gestureCreated: "gestureCreated", gestureDuplicateCreated: "gestureDuplicateCreated", gestureDeleted: "gestureDeleted", gestureSamplesUpdated: "gestureSamplesUpdated", gestureSamplesCleared: "gestureSamplesCleared",
     gestureVariantAdded: "gestureVariantAdded", gestureVariantDeleted: "gestureVariantDeleted", variantAdded: "variantAdded", variantDeleted: "variantDeleted", edgeUpdated: "edgeUpdated"
   };
-  function statusText(status: UiStatusKey | string, useEnglish = english): string {
+  let lastMessageValues: Record<string, string | number> = {};
+  function statusText(status: UiStatusKey | string, useEnglish = english, values: Record<string, string | number> = lastMessageValues): string {
     const key = statusKeys[status as UiStatusKey] ?? (Object.hasOwn(zh, status) ? status as UiKey : undefined);
-    return key ? format((useEnglish ? en : zh)[key], { schema: SUPPORTED_HELPER_SCHEMA }) : status;
+    const text = key ? format((useEnglish ? en : zh)[key], { schema: SUPPORTED_HELPER_SCHEMA, ...values }) : status;
+    // 后端（Rust / helper / preload）的诊断文案很多是中文；英文界面只显示通用提示，
+    // 原始错误留给“复制诊断”，避免英文界面出现中文。
+    return useEnglish && /[\u4e00-\u9fff]/.test(text) ? en.statusTechnicalError : text;
+  }
+  function setStatus(message: UiStatusKey | string, values: Record<string, string | number> = {}): void {
+    lastMessage = message;
+    lastMessageValues = values;
   }
   function formatHelperStartError(error: string): string {
     if (!/os error 5|access is denied|拒绝访问/i.test(error)) return error;
     return format(ui("helperAccessDenied"), { error });
   }
-  $: renderedLastMessage = statusText(lastMessage, english);
+  $: renderedLastMessage = statusText(lastMessage, english, lastMessageValues);
   // Lifecycle intent follows the saved switch/socket, not an error or unknown permission label.
   $: runtimePowerActive = settings.enabled || helperStatus !== "disconnected";
   let runtimeLabelKey: UiKey = "runtimeOff";
@@ -601,6 +609,10 @@
     return modifiers.map((key) => labels[key]).join("+");
   };
 
+  function modifierVariantError(code: "variantNeedsModifier" | "variantDuplicate" | "variantLimit"): string {
+    return code === "variantLimit" ? format(ui("statusVariantLimit"), { max: MAX_MODIFIER_VARIANTS }) : ui(code);
+  }
+
   function sameModifiers(left: ModifierKey[], right: ModifierKey[]): boolean {
     return modifierId(left) === modifierId(right);
   }
@@ -674,7 +686,7 @@
     const slot = ensureProfile().find((zone) => zone.id === selectedZone)!.actions.find((item) => item.trigger === activeTrigger)!;
     const result = addModifierVariant(slot.modifierActions, modifiers);
     if (!result.ok) {
-      hotzoneModifierError = result.message;
+      hotzoneModifierError = modifierVariantError(result.error);
       return;
     }
     slot.modifierActions = result.variants;
@@ -929,7 +941,7 @@
     const gesture = currentGesture();
     const result = addModifierVariant(gesture.modifierActions, modifiers);
     if (!result.ok) {
-      gestureModifierError = result.message;
+      gestureModifierError = modifierVariantError(result.error);
       return;
     }
     gesture.modifierActions = result.variants;

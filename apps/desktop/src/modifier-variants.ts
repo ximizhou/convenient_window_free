@@ -5,7 +5,9 @@ const modifierOrder: ModifierKey[] = ["ctrl", "alt", "shift", "win"];
 
 export type AddModifierVariantResult =
   | { ok: true; variants: ModifierAction[]; modifiers: ModifierKey[] }
-  | { ok: false; variants: ModifierAction[]; message: string };
+  | { ok: false; variants: ModifierAction[]; error: ModifierVariantErrorCode };
+
+export type ModifierVariantErrorCode = "variantNeedsModifier" | "variantDuplicate" | "variantLimit";
 
 export function addModifierVariant(
   variants: ModifierAction[] | undefined,
@@ -14,13 +16,13 @@ export function addModifierVariant(
   const existing = variants ?? [];
   const normalized = modifierOrder.filter((modifier) => modifiers.includes(modifier));
   if (!normalized.length) {
-    return { ok: false, variants: existing, message: "请先按下至少一个修饰键" };
+    return { ok: false, variants: existing, error: "variantNeedsModifier" };
   }
   if (existing.some((variant) => sameModifiers(variant.modifiers, normalized))) {
-    return { ok: false, variants: existing, message: "这个组合已经存在" };
+    return { ok: false, variants: existing, error: "variantDuplicate" };
   }
   if (existing.length >= MAX_MODIFIER_VARIANTS) {
-    return { ok: false, variants: existing, message: `最多可添加 ${MAX_MODIFIER_VARIANTS} 个组合` };
+    return { ok: false, variants: existing, error: "variantLimit" };
   }
   return {
     ok: true,

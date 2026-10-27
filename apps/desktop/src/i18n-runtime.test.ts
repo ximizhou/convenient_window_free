@@ -55,6 +55,7 @@ it("keeps every rendered label switchable between Chinese and English", async ()
       HelperClient.prototype.onStatus = function() { return () => {}; };
       HelperClient.prototype.ping = function() {};
 
+      let startFailure = null;
       const settings = normalizeSettings(defaultSettings);
       configureHostBridge({
         kind: 'desktop',
@@ -68,7 +69,7 @@ it("keeps every rendered label switchable between Chinese and English", async ()
         getPrivilegeState: () => ({ supported: true, elevated: false }),
         getStartup: async () => ({ enabled: false }),
         getAdminStartup: async () => ({ enabled: false }),
-        startHelper: async () => ({ ok: true }),
+        startHelper: async () => startFailure ? { ok: false, error: startFailure } : { ok: true },
         stopHelper: async () => ({ ok: true }),
         setHelperElevation: async () => ({ ok: true, elevated: false }),
         openExternal: () => ({ ok: true }),
@@ -114,6 +115,18 @@ it("keeps every rendered label switchable between Chinese and English", async ()
       await chooseLanguage('zh-CN');
       assert.deepEqual(nav(), ['运行中心', '触发角', '窗口增强', '鼠标手势', '窗口美化'], 'bottom tabs must switch back to Chinese');
 
+      // 3) 英文错误路径：Rust/preload 的诊断仍是中文时，界面只能显示本地化通用提示。
+      await unmount(component); document.body.replaceChildren();
+      startFailure = '后台助手启动失败：模拟后端错误';
+      localStorage.setItem('convenient-window-language', 'en-US');
+      component = mount(App, { target: document.body });
+      flushSync(); await settle();
+      document.querySelector('[data-feature-id="power"]').click(); flushSync(); await settle();
+      const startButton = document.querySelector('.power-actions .apply');
+      assert.ok(startButton, 'the start action must be available');
+      startButton.click(); await settle();
+      assert.deepEqual(cjk(), [], 'English mode must localize a Chinese backend error: ' + cjk().join(' / '));
+      assert.ok((document.body.textContent ?? '').includes('Operation failed'), 'backend errors must fall back to the localized technical error: ' + document.body.textContent);
       await unmount(component); document.body.replaceChildren();
       console.log('i18n runtime regression passed');
     `);
