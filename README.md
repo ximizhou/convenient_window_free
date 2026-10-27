@@ -22,16 +22,15 @@
 
 Convenient Window is a small tray companion for Windows 11. Configure the four corners and four edges of every display, tuck windows away at the screen edge, draw one-stroke mouse gestures, keep screenshots floating above other windows, and save the current desktop as a **window layout** you can restore in one click. Settings apply live, the interface is bilingual, and everything runs locally.
 
-## What's new in 0.6.7
+## What's new in 0.6.8
 
-0.6.7 is the current stable release for Windows 11 x64; the 0.6.6 stable downloads remain available for rollback.
+0.6.8 is the current stable release for Windows 11 x64; the 0.6.7 stable downloads remain available for rollback.
 
-- **Window layouts** — snapped windows are recorded at the size Windows shows and restore without jumping back; previews draw only windows visible on the desktop in real z-order, each layout can record a global shortcut, and an exclusion list skips chosen apps.
-- **Edge hiding** — dragging a window above the top edge past the move-out ratio now tucks it into the top edge, and layouts remember windows collapsed at an edge so a restore returns them to the same state.
-- **Pins and overlays** — the topmost pin re-adopts windows left topmost after a restart, and closing a screenshot overlay no longer expands edge-hidden windows underneath it.
-- **Visual polish** — one consistent type, radius, motion and elevation scale, brighter dark surfaces, pressed feedback and focus rings, without changing the layout skeleton.
+- **Language fixes** — English mode now switches every label, status message and helper-install feedback; settings labels, feature entries and helper operations no longer fall back to Chinese.
+- **Bottom tabs** — the bottom navigation uses short one-word labels and stays readable with the settings drawer open or in narrow windows; full feature names remain in the tooltips and accessible labels.
+- **No behavior changes** — hot corners, edge hiding, drag/resize, gestures, screenshots and OCR, window layouts and the topmost pin behave as before; the helper only bumped its version in this release.
 
-[Release notes](docs/release-notes/0.6.7.md) · [All releases](https://github.com/ximizhou/convenient_window_free/releases)
+[Release notes](docs/release-notes/0.6.8.md) · [All releases](https://github.com/ximizhou/convenient_window_free/releases)
 
 ## A closer look
 

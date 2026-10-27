@@ -1,5 +1,22 @@
 # Testing
 
+## 0.6.8 Online Acceptance
+
+The Windows x64 0.6.8 candidates were accepted by the user and promoted in place to stable / Latest on October 27, 2026. The installer, portable archive, manifest and checksums retain their accepted identities; nothing was rebuilt or re-uploaded. The 0.6.7 stable downloads remain available for rollback.
+
+- Desktop: [v0.6.8](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.8) NSIS installer and portable archive (build source `c4a43e5448feb82198cc07f7985292fbd51e5f29`);
+- Helper: [v0.6.8](https://github.com/ximizhou/convenient-window-helper-releases/releases/tag/v0.6.8), downloaded by the packaged plugin after explicit user consent (helper build source `7fb560a50ab8511b20766e7c6d25e7533e8d873e`; behavior unchanged from 0.6.7);
+- uTools plugin: packaged from the fixed market candidate `release/utools-plugin/plugin.json` (plugin 0.6.8); the plugin package itself contains no executable helper files. The 0.6.8 UPXS export, installed acceptance and market submission are tracked in the private release record.
+
+The acceptance list below is the tested scope and remains a regression reference; it is not a claim that every hardware, DPI or UAC scenario has an individual record.
+
+1. Internationalization: English mode switches the bottom tabs, feature entries, settings panels and helper-install/operation feedback; no Chinese labels remain in English mode, and narrow windows keep the tabs readable.
+2. Feature regression: hot corners, edge hiding, window drag/resize, mouse gestures, screenshots and local OCR, window layouts, topmost pins and taskbar appearance behave as in 0.6.7.
+3. Desktop: install from the 0.6.8 NSIS package, run it, verify tray exit and uninstall; test the portable archive from a separate folder.
+4. Settings: master-switch cycles, UAC approval/cancellation, theme switching and layout restart flows.
+
+Status after publication: helper and desktop are stable / Latest. The 0.6.8 plugin UPXS identity, installed acceptance and market submission remain pending in the private release record.
+
 ## 0.6.7 Online Acceptance
 
 The Windows x64 0.6.7 candidates were accepted by the user and promoted in place to stable / Latest on October 20, 2026. The installer, portable archive, manifest and checksums retain their accepted identities; nothing was rebuilt or re-uploaded. The 0.6.6 stable downloads remain available for rollback.
