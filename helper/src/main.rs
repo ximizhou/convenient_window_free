@@ -9,6 +9,7 @@ mod logging;
 mod paths;
 mod platform;
 mod single_instance;
+mod startup_manager;
 mod storage;
 mod usage;
 #[cfg(target_os = "windows")]
@@ -134,6 +135,14 @@ async fn wait_for_task(name: &str, task: &mut JoinHandle<Result<()>>) -> Result<
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<()> {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.iter().any(|arg| arg == "--startup-manager") {
+        anyhow::ensure!(
+            args.len() == 1,
+            "--startup-manager cannot be combined with runtime arguments"
+        );
+        return startup_manager::run_cli();
+    }
     #[cfg(target_os = "windows")]
     unsafe {
         use windows::Win32::UI::HiDpi::{

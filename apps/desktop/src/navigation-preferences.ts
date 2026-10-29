@@ -8,7 +8,8 @@ export const NAVIGATION_FEATURES = [
   "edge-hide",
   "gestures",
   "beautification",
-  "window-layouts"
+  "window-layouts",
+  "startup"
 ] as const;
 
 /** 第一行（底部页签）最多显示 4 个功能入口；“运行中心”固定可见，不占用这 4 个名额。 */

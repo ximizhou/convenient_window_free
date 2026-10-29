@@ -1,5 +1,20 @@
 # Testing
 
+## 0.6.9 development checks
+
+The startup manager backend has four isolated Windows tests covering temporary
+registry entries, shortcut creation, reversible approval changes and stale
+revisions. The helper suite passes 305 tests with three existing ignored cases;
+the desktop native suite passes 42 tests. Startup UI and model tests cover
+confirmed writes, read-only states, add confirmation, errors, language changes and
+focus refresh. Diagnostic and offline-display panels cover allowed export fields,
+save cancellation/failure and reconnect protection.
+
+Real startup enumeration has been checked read-only. Mutation tests do not use
+existing user startup entries. The next Windows sign-in and installed-app file
+dialogs remain separate acceptance checks. See [Startup applications](startup-apps.md)
+for the supported sources and operational limits.
+
 ## 0.6.8 Online Acceptance
 
 The Windows x64 0.6.8 candidates were accepted by the user and promoted in place to stable / Latest on October 27, 2026. The installer, portable archive, manifest and checksums retain their accepted identities; nothing was rebuilt or re-uploaded. The 0.6.7 stable downloads remain available for rollback.

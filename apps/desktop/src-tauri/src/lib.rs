@@ -1,5 +1,6 @@
 mod adjustment_hud;
 mod command_broker;
+mod startup_manager;
 mod storage;
 mod supervisor;
 #[cfg(windows)]
@@ -309,6 +310,20 @@ async fn stop_helper(state: State<'_, DesktopState>) -> Result<StopResult, Strin
 #[tauri::command]
 fn load_config(state: State<'_, DesktopState>) -> Result<Option<Value>, String> {
     storage::read_json_with_backup(&state.paths.settings_path)
+}
+
+#[tauri::command]
+async fn startup_items(request: Value, state: State<'_, DesktopState>) -> Result<Value, String> {
+    let payload_dir = state.paths.helper_payload_dir.clone();
+    let startup_lock = state.startup_lock.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = startup_lock.lock().map_err(|_| "busy".to_string())?;
+        let helper =
+            supervisor::validate_payload(&payload_dir).map_err(|_| "needsHelper".to_string())?;
+        startup_manager::request(helper, request)
+    })
+    .await
+    .map_err(|_| "unknown".to_string())?
 }
 
 #[tauri::command]
@@ -637,6 +652,7 @@ pub fn run() {
             start_helper,
             set_helper_elevation,
             startup_status,
+            startup_items,
             set_startup,
             #[cfg(windows)]
             admin_startup_status,

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 const listen = vi.hoisted(() => vi.fn());
+const open = vi.hoisted(() => vi.fn());
+const save = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open, save }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 import { createDesktopHostBridge } from "./desktop-host-bridge";
 
@@ -11,11 +13,52 @@ describe("helper privilege switching", () => {
   beforeEach(() => {
     vi.stubGlobal("navigator", { language: "en-US" });
     invoke.mockReset();
+    open.mockReset();
+    save.mockReset();
     invoke.mockImplementation(async (command: string) => {
       if (command === "load_config") return null;
       if (command === "desktop_status") return { helperExists: true, helperRunning: true, helperElevated: false, administratorModeSupported: true, token: "old" };
       throw new Error(`Unexpected command: ${command}`);
     });
+  });
+
+  it("passes startup requests through the native command without changing their identity", async () => {
+    const bridge = await createDesktopHostBridge();
+    const request = { action: "setEnabled" as const, id: "userRun:Editor", revision: "current-revision", enabled: false };
+    const response = { ok: true, version: 1, items: [], warnings: [] };
+    invoke.mockResolvedValueOnce(response);
+    expect(await bridge.startupItems!(request)).toBe(response);
+    expect(invoke).toHaveBeenLastCalledWith("startup_items", { request });
+  });
+
+  it("uses a single EXE picker for startup apps and returns null when cancelled", async () => {
+    const bridge = await createDesktopHostBridge();
+    invoke.mockClear();
+    open.mockResolvedValueOnce(null);
+    expect(await bridge.pickStartupExecutable!()).toBeNull();
+    expect(open).toHaveBeenLastCalledWith(expect.objectContaining({ multiple: false, directory: false, filters: [{ name: expect.any(String), extensions: ["exe"] }] }));
+    const selected = String.raw`D:\Apps\My Editor.exe`;
+    open.mockResolvedValueOnce(selected);
+    expect(await bridge.pickStartupExecutable!()).toBe(selected);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("cancels or saves diagnostic reports to the exact dialog path", async () => {
+    const bridge = await createDesktopHostBridge();
+    const report = JSON.stringify({ version: 1, host: "desktop" });
+    invoke.mockClear();
+    save.mockResolvedValueOnce(null);
+    expect(await bridge.saveDiagnosticReport!(report)).toBe(false);
+    expect(invoke).not.toHaveBeenCalled();
+    const selected = String.raw`D:\Reports\diagnostics.json`;
+    save.mockResolvedValueOnce(selected);
+    invoke.mockResolvedValueOnce(undefined);
+    expect(await bridge.saveDiagnosticReport!(report)).toBe(true);
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ defaultPath: "convenient-window-diagnostics.json", filters: [{ name: "JSON", extensions: ["json"] }] }));
+    expect(invoke).toHaveBeenLastCalledWith("write_config_file", { path: selected, content: report });
+    save.mockResolvedValueOnce(selected);
+    invoke.mockRejectedValueOnce(new Error("write denied"));
+    await expect(bridge.saveDiagnosticReport!(report)).rejects.toThrow("write denied");
   });
 
   it("passes native startup errors to the settings subscriber and preserves unlisten", async () => {

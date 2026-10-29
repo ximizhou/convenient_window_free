@@ -66,6 +66,16 @@ export async function createDesktopHostBridge(): Promise<HostBridge> {
 
   return {
     kind: "desktop",
+    startupItems: request => invoke("startup_items", { request }),
+    async pickStartupExecutable() {
+      const selected = await open({
+        title: translator(language)("startupChooseApp"),
+        multiple: false,
+        directory: false,
+        filters: [{ name: translator(language)("startupExecutable"), extensions: ["exe"] }]
+      });
+      return typeof selected === "string" ? selected : null;
+    },
     async setLanguage(value) {
       language = value;
       const ui = translator(language);
@@ -148,6 +158,16 @@ export async function createDesktopHostBridge(): Promise<HostBridge> {
       return { ok: false, error: "独立版不支持 uTools 宿主动作" };
     },
     diagnostics: () => invoke<DesktopDiagnostics>("diagnostics"),
+    async saveDiagnosticReport(report) {
+      const selected = await save({
+        title: translator(language)("diagnostics"),
+        defaultPath: "convenient-window-diagnostics.json",
+        filters: [{ name: "JSON", extensions: ["json"] }]
+      });
+      if (!selected) return false;
+      await invoke("write_config_file", { path: selected, content: report });
+      return true;
+    },
     getInitialSettings: () => initialSettings,
     saveSettings(settings) {
       const saveTask = saveQueue.then(() => invoke<void>("save_config", { settings }));

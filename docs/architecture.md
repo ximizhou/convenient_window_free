@@ -1,5 +1,19 @@
 # Architecture
 
+## Startup applications and local maintenance (0.6.9 development)
+
+[Startup applications](startup-apps.md) use an ordinary short-lived helper process
+with bounded JSON pipes, independent of the privileged/window runtime. Known
+current-user entries can be toggled; system entries remain read-only. The CLI
+capability marker prevents invoking this operation on older payloads; it does
+not replace payload integrity validation.
+
+Diagnostic exports use explicit allowed fields, anonymous display geometry and
+error categories. Raw logs, paths, authentication tokens and configuration bodies
+are omitted. Offline display-profile removal requires a live nonempty topology,
+protects both stable and legacy IDs, and publishes changes only after persistence
+succeeds. Both features preserve runtime protocol v7 and configuration schema v9.
+
 ## Hot-zone hover hint
 
 Introduced in schema v8, the optional `showHotzoneHint` boolean defaults to true for older settings and preserves an explicit false across normalization and persistence. It controls only the pale translucent hover hint. The engine keeps one shared input/hint frame and submits `None` to the dedicated hot-zone hint channel when disabled, hiding an existing hint without clearing edge-hide or gesture overlays. Detection, per-display actions, wheel accumulation, timings, and settings previews remain independent. Request deduplication is unchanged; the option adds no worker, timer, polling, or file I/O. Protocol v7 is unchanged; current settings use schema v9.

@@ -1,6 +1,6 @@
 [package]
 name = "magic-corners-helper"
-version = "0.6.8"
+version = "0.6.9"
 edition = "2021"
 license-file = "../LICENSE"
 repository = "https://github.com/ximizhou/convenient_window_free"
@@ -19,6 +19,7 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-core = "0.58"
+winreg = "0.55"
 windows = { version = "0.58", features = [
   "implement",
   "Win32_Foundation",

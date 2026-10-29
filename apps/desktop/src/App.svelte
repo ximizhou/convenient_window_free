@@ -27,6 +27,12 @@
   import NavigationComposer from "./NavigationComposer.svelte";
   import NavGlyph from "./NavGlyph.svelte";
   import WindowLayouts from "./WindowLayouts.svelte";
+  import StartupManager from "./StartupManager.svelte";
+  import DiagnosticsPanel from "./DiagnosticsPanel.svelte";
+  import OfflineMonitorProfiles from "./OfflineMonitorProfiles.svelte";
+  import { buildDiagnosticReport } from "./diagnostics";
+  import type { StartupRequest, StartupResponse } from "./startup-manager";
+  import appPackage from "../package.json";
   import { disposeLayoutHotkeys, initLayoutHotkeys } from "./layout-hotkeys";
   import { filterLayoutWindows, loadLayoutExclusions } from "./window-layout-exclusions";
   import { loadNavigationPreferences, normalizeNavigationPreferences, saveNavigationPreferences, type NavigationFeatureId, type NavigationPreferences } from "./navigation-preferences";
@@ -37,7 +43,35 @@
     OcrLanguage, TaskbarAppearanceSettings, TaskbarAppearanceStatus, TriggerAction, TriggerKind
   } from "./types";
 
-  type Mode = "power" | "hotzones" | "edge-hide" | "gestures" | "more" | "beautification" | "window-layouts";
+  type Mode = "power" | "hotzones" | "edge-hide" | "gestures" | "more" | "beautification" | "window-layouts" | "startup";
+  let observedHelper: { version?: unknown; protocolVersion?: unknown; schemaVersion?: unknown } = {};
+  async function saveOfflineProfileRemoval(next: AppSettings): Promise<boolean> {
+    const prepared = prepareSettingsUpdate(next);
+    if (!(await savePreparedSettings(prepared.normalized))) return false;
+    settings = prepared.editable;
+    helper.sendConfig(prepared.normalized);
+    return true;
+  }
+  async function collectDiagnostics() {
+    const raw = await host.diagnostics();
+    return buildDiagnosticReport({
+      host: "desktop", appVersion: appPackage.version,
+      expectedHelperVersion, actualHelperVersion: observedHelper.version,
+      protocolVersion: observedHelper.protocolVersion, schemaVersion: observedHelper.schemaVersion,
+      connection: helperStatus, phase: helperError ? "error" : starting ? "starting" : stopping ? "stopping" : recoveringHelper ? "recovering" : helperStatus === "connected" ? "running" : "idle",
+      displays: displayReady && helperStatus === "connected" ? displays : [], rawDiagnostics: raw, error: helperError
+    });
+  }
+  async function requestStartupItems(request: StartupRequest): Promise<StartupResponse> {
+    const bridge = host;
+    if (!bridge?.startupItems) return { ok: false, version: 1, items: [], warnings: [], error: { code: "unavailable", message: "" } };
+    return bridge.startupItems(request);
+  }
+  async function pickStartupExecutable(): Promise<string | null> {
+    const picker = host?.pickStartupExecutable;
+    if (!picker) throw new Error("unavailable");
+    return picker();
+  }
   let taskbarStatus: TaskbarAppearanceStatus | null = null;
   function updateTaskbarAppearance(patch: Partial<TaskbarAppearanceSettings>): void {
     settings = {
@@ -381,6 +415,7 @@
     syncGestureActionDraft();
     const offStatus = helper.onStatus((status) => {
       helperStatus = status;
+      if (status !== "connected") observedHelper = {};
       if (status !== "connected") helperElevated = null;
       if (status === "connected") lastMessage = "helperSync";
       if (status === "disconnected" && connectionTestState === "testing") finishConnectionTest(false, "connectionLost");
@@ -403,6 +438,7 @@
     const offMessage = helper.onMessage((message) => {
       if (message.type === "helper.ready") {
         const data = message.data as { version?: unknown; protocolVersion?: unknown; schemaVersion?: unknown; ocrLanguages?: unknown; platform?: HelperPlatformInfo; elevated?: unknown } | null;
+        observedHelper = { version: data?.version, protocolVersion: data?.protocolVersion, schemaVersion: data?.schemaVersion };
         helperPlatform = helper.platformInfo ?? (data?.platform ?? null);
         availableOcrLanguages = Array.isArray(data?.ocrLanguages)
           ? data.ocrLanguages.filter((language): language is OcrLanguage => language === "auto" || language === "zh-Hans" || language === "en")
@@ -757,12 +793,12 @@
   // 模板里调用读取 `ui`/`english` 的普通函数时，Svelte 旧模式会把它整体 untrack，
   // 语言切换后标签不会重算（0.6.6/0.6.7 两次中英混排的根因）。这里把函数本身做成
   // 响应式变量：语言变化 → 函数引用变化 → 模板表达式与子组件 prop 都重新求值。
-  const navigationLabelKeys: Record<NavigationFeatureId, UiKey> = { power: "power", hotzones: "hotzones", "edge-hide": "edgeHide", gestures: "gestures", beautification: "beautification", "window-layouts": "windowLayouts" };
-  const navigationDescriptionKeys: Record<NavigationFeatureId, UiKey> = { power: "navigationTipPower", hotzones: "navigationTipHotzones", "edge-hide": "navigationTipEdgeHide", gestures: "navigationTipGestures", beautification: "navigationTipBeautification", "window-layouts": "navigationTipWindowLayouts" };
+  const navigationLabelKeys: Record<NavigationFeatureId, UiKey> = { power: "power", hotzones: "hotzones", "edge-hide": "edgeHide", gestures: "gestures", beautification: "beautification", "window-layouts": "windowLayouts", startup: "startupTitle" };
+  const navigationDescriptionKeys: Record<NavigationFeatureId, UiKey> = { power: "navigationTipPower", hotzones: "navigationTipHotzones", "edge-hide": "navigationTipEdgeHide", gestures: "navigationTipGestures", beautification: "navigationTipBeautification", "window-layouts": "navigationTipWindowLayouts", startup: "startupDescription" };
   $: navigationLabel = (id: NavigationFeatureId): string => ui(navigationLabelKeys[id]);
   $: navigationDescription = (id: NavigationFeatureId): string => ui(navigationDescriptionKeys[id]);
   // 底部页签用一词短标签，保证抽屉挤窄场景也不溢出；完整名称保留在 aria-label/title 和功能入口气泡里。
-  const navigationTabLabelKeys: Record<NavigationFeatureId, UiKey> = { power: "navTabPower", hotzones: "navTabHotzones", "edge-hide": "navTabEdgeHide", gestures: "navTabGestures", beautification: "navTabBeautification", "window-layouts": "navTabWindowLayouts" };
+  const navigationTabLabelKeys: Record<NavigationFeatureId, UiKey> = { power: "navTabPower", hotzones: "navTabHotzones", "edge-hide": "navTabEdgeHide", gestures: "navTabGestures", beautification: "navTabBeautification", "window-layouts": "navTabWindowLayouts", startup: "startupTab" };
   $: navigationTabLabel = (id: NavigationFeatureId): string => ui(navigationTabLabelKeys[id]);
   function applyNavigationPreferences(value: NavigationPreferences): void {
     navigation = normalizeNavigationPreferences(value);
@@ -1327,7 +1363,7 @@
   }
   async function copyDiagnostics(): Promise<void> {
     try {
-      await navigator.clipboard.writeText(JSON.stringify(await host.diagnostics(), null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(await collectDiagnostics(), null, 2));
       lastMessage = "diagnosticsCopied";
     } catch (error) {
       lastMessage = format(ui("diagnosticsFailed"), { error: error instanceof Error ? error.message : String(error) });
@@ -1358,7 +1394,7 @@
     </button>
   </header>
 
-  <main class:drawer-open={mode !== null} class:gesture-open={mode === "gestures"} class="workspace">
+  <main class:drawer-open={mode !== null} class:startup-open={mode === "startup"} class:gesture-open={mode === "gestures"} class="workspace">
     <section class="scene" aria-label={ui("displayAndPreview")}>
       <div class="scene-tools">
         <button class:ready={displayReady} class:pending={!displayReady && helperStatus === "connecting"} class="display-picker" on:click={() => helper.ping()} type="button"><i class:ready={displayReady} class:pending={!displayReady && helperStatus === "connecting"}></i><span class="display-status">{displayReady ? `${displays.length}${ui("displays")}` : helperStatus === "connecting" ? ui("connecting") : ui("displayPreview")}</span><span class="display-action">{ui("checkConnection")}</span></button>
@@ -1395,7 +1431,7 @@
     {#if mode !== null}
       <aside class:gesture-drawer={mode === "gestures"} class="drawer" in:fly={{ x: 28, duration: 220 }}>
         <header class="drawer-head">
-          <div><span>{mode === "power" ? ui("power") : mode === "hotzones" ? ui("hotzones") : mode === "edge-hide" ? ui("edgeHide") : mode === "gestures" ? ui("gestures") : mode === "beautification" ? ui("beautification") : mode === "window-layouts" ? ui("windowLayouts") : ui("settingsLabel")}</span><p>{mode === "hotzones" ? `${zoneLabel(selectedZone)} · S${Math.max(0, displays.findIndex((item) => item.id === selectedDisplayId)) + 1}` : mode === "edge-hide" ? windowEnhancementTab === "edge" ? ui("edgeSubtitle") : ui("dragSubtitle") : mode === "gestures" ? ui("gestureSubtitle") : mode === "more" ? ui("moreSubtitle") : mode === "beautification" ? ui("beautificationSubtitle") : mode === "window-layouts" ? ui("windowLayoutsSubtitle") : ui("powerSubtitle")}</p></div>
+          <div><span>{mode === "power" ? ui("power") : mode === "hotzones" ? ui("hotzones") : mode === "edge-hide" ? ui("edgeHide") : mode === "gestures" ? ui("gestures") : mode === "beautification" ? ui("beautification") : mode === "window-layouts" ? ui("windowLayouts") : mode === "startup" ? ui("startupTitle") : ui("settingsLabel")}</span><p>{mode === "hotzones" ? `${zoneLabel(selectedZone)} · S${Math.max(0, displays.findIndex((item) => item.id === selectedDisplayId)) + 1}` : mode === "edge-hide" ? windowEnhancementTab === "edge" ? ui("edgeSubtitle") : ui("dragSubtitle") : mode === "gestures" ? ui("gestureSubtitle") : mode === "more" ? ui("moreSubtitle") : mode === "beautification" ? ui("beautificationSubtitle") : mode === "window-layouts" ? ui("windowLayoutsSubtitle") : mode === "startup" ? ui("startupDescription") : ui("powerSubtitle")}</p></div>
           <button aria-label={ui("close")} class="close-drawer" on:click={closeMode} type="button">×</button>
         </header>
 
@@ -1642,6 +1678,9 @@
                   <button class="quiet" on:click={copyDiagnostics} type="button">{ui("diagnostics")}</button>
                 </div>
               </details>
+              <DiagnosticsPanel {english} collect={collectDiagnostics} saveReport={host?.saveDiagnosticReport} />
+            {:else if mode === "startup"}
+              <StartupManager {english} request={requestStartupItems} pickExecutable={pickStartupExecutable} />
             {:else if mode === "window-layouts"}
               <WindowLayouts {helper} english={english} foregroundApp={foregroundApp} connected={helperStatus === "connected"} supported={helperPlatform?.capabilities.windowLayouts === true} platformSupportsWindowControl={helperPlatform?.capabilities.windowControl === true} />
             {:else if mode === "beautification"}
@@ -1684,7 +1723,8 @@
                   {#if helperError}<div class="runtime-notice error" role="alert">{statusText(helperError, english)}</div>{/if}
                 </section>
                 <div class="timing single"><label><span>{ui("pollInterval")}</span><div><input use:numberSetting={{ value: settings.pollIntervalMs, onChange: (value) => { settings.pollIntervalMs = value; persist(); } }} min="10" max="250" type="number" /><em>ms</em></div></label></div>
-                <div class="config-section"><h2>{ui("config")}</h2><div class="config-actions"><button class="quiet" on:click={exportSettings} type="button">{ui("export")}</button><button class="quiet" on:click={importSettings} type="button">{ui("import")}</button><button class="danger" on:click={resetSettings} type="button">{ui("reset")}</button></div></div>
+                <OfflineMonitorProfiles {settings} {displays} ready={helperStatus === "connected" && displayReady} {english} onRemove={saveOfflineProfileRemoval} />
+              <div class="config-section"><h2>{ui("config")}</h2><div class="config-actions"><button class="quiet" on:click={exportSettings} type="button">{ui("export")}</button><button class="quiet" on:click={importSettings} type="button">{ui("import")}</button><button class="danger" on:click={resetSettings} type="button">{ui("reset")}</button></div></div>
               </div>
             {/if}
           </div>

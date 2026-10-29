@@ -10,7 +10,7 @@ describe("navigation preferences", () => {
 
   it("keeps the runtime center visible while accepting custom order and visibility", () => {
     const value = normalizeNavigationPreferences({ order: ["window-layouts", "power", "power", "unknown"], visible: ["window-layouts"] });
-    expect(value.order).toEqual(["window-layouts", "power", "hotzones", "edge-hide", "gestures", "beautification"]);
+    expect(value.order).toEqual(["window-layouts", "power", "hotzones", "edge-hide", "gestures", "beautification", "startup"]);
     expect(value.visible).toEqual(["power", "window-layouts"]);
   });
 
@@ -26,7 +26,7 @@ describe("navigation preferences", () => {
   it("keeps four configurable entries active and window layouts in the secondary row by default", () => {
     const value = defaultNavigationPreferences();
     expect(value.visible).toEqual(["power", "hotzones", "edge-hide", "gestures", "beautification"]);
-    expect(value.order.filter((id) => !value.visible.includes(id))).toEqual(["window-layouts"]);
+    expect(value.order.filter((id) => !value.visible.includes(id))).toEqual(["window-layouts", "startup"]);
   });
 
   it("collapses a previously saved fifth entry into the spare row", () => {

@@ -36,6 +36,7 @@ export function format(template: string, values: Record<string, string | number>
 }
 
 export const zh = {
+  startupTitle: "开机启动", startupTab: "启动项", startupDescription: "管理登录 Windows 后自动打开的应用", startupChooseApp: "选择应用程序", startupExecutable: "Windows 应用程序",
   runtimeDetails: "运行详情",
   runtimeRulesBrief: "控制全部功能",
   runtimeHelperBrief: "监听与窗口操作",
@@ -251,6 +252,7 @@ export const zh = {
 } as const;
 
 export const en: Record<keyof typeof zh, string> = {
+  startupTitle: "Startup apps", startupTab: "Startup", startupDescription: "Manage apps that open when you sign in to Windows", startupChooseApp: "Choose an application", startupExecutable: "Windows application",
   runtimeDetails: "Runtime details",
   runtimeRulesBrief: "Controls all features",
   runtimeHelperBrief: "Window actions",

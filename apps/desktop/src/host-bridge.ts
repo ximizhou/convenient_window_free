@@ -5,6 +5,9 @@ export interface AdminStartupState {
 
 export interface HostBridge {
   readonly kind: "desktop";
+  startupItems?: (request: import("./startup-manager").StartupRequest) => Promise<import("./startup-manager").StartupResponse>;
+  pickStartupExecutable?: () => Promise<string | null>;
+  saveDiagnosticReport?: (report: string) => Promise<boolean>;
   setLanguage?(language: import("./i18n").Language): Promise<void>;
   startHelper(): Promise<{
     ok: boolean;

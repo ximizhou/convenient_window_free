@@ -1177,3 +1177,6 @@ body, .topbar, .drawer, .drawer-head, .mode-nav, .power-facts, .power-orb,
 :where(button, [role="button"]):active:not(:disabled):not(.theme-toggle):not(.feature-help-button) {
   transform: translateY(1px);
 }
+/* Startup applications need room for names and the per-item state. */
+.workspace.startup-open { --drawer-width: min(580px, 70vw); }
+@media (max-width: 700px) { .workspace.startup-open { --drawer-width: 100%; } }

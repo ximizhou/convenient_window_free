@@ -18,6 +18,9 @@
 
 </div>
 
+> Development 0.6.9 adds [startup application management](docs/startup-apps.md), private diagnostic exports and offline display-profile management. These source changes are not a new published release.
+
+
 ![Convenient Window overview](docs/images/running-center.png)
 
 Convenient Window is a small tray companion for Windows 11. Configure the four corners and four edges of every display, tuck windows away at the screen edge, draw one-stroke mouse gestures, keep screenshots floating above other windows, and save the current desktop as a **window layout** you can restore in one click. Settings apply live, the interface is bilingual, and everything runs locally.

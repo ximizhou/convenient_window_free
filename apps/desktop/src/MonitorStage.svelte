@@ -5,7 +5,7 @@
 
   export let displays: DisplayInfo[];
   export let selectedDisplayId: string;
-  export let mode: "power" | "hotzones" | "edge-hide" | "gestures" | "more" | "beautification" | "window-layouts" | null;
+  export let mode: "power" | "hotzones" | "edge-hide" | "gestures" | "more" | "beautification" | "window-layouts" | "startup" | null;
   export let english = false;
   export let selectedZone: HotzoneId;
   export let hotzonesEnabled: boolean;
