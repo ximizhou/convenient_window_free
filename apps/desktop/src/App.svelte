@@ -8,6 +8,7 @@
   import { needsHelperUpgrade } from "./helper-version";
   import { HelperRecoveryGuard } from "./helper-recovery";
   import ActionPicker from "./ActionPicker.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import MonitorStage from "./MonitorStage.svelte";
   import HotzoneGeometryEditor from "./HotzoneGeometryEditor.svelte";
   import GestureCanvas from "./GestureCanvas.svelte";
@@ -467,6 +468,7 @@
       } else if (message.type === "config.applied") {
         const data = message.data as { revision?: unknown; adjusted?: unknown } | null;
         if (helper.isLatestConfigRevision(data?.revision)) {
+          saveFeedback = "applied";
           lastMessage = data?.adjusted ? "configAdjusted" : "configApplied";
         }
       } else if (message.type === "runtime.status") {
@@ -570,6 +572,7 @@
   }
 
   function persist(message: UiStatusKey | string = "savedApplying"): void {
+    saveFeedback = "saving";
     const prepared = prepareSettingsUpdate(settings);
     settings = prepared.editable;
     lastMessage = "configSavedApplying";
@@ -578,6 +581,7 @@
 
   async function persistPreparedSettings(value: AppSettings, message: UiStatusKey | string): Promise<void> {
     const result = await settingsApply.schedule(value, (sent) => {
+      saveFeedback = sent ? "saving" : "waiting";
       lastMessage = sent ? "configSent" : "savedWaiting";
     });
     if (!handleSettingsCommit(result)) return;
@@ -591,6 +595,7 @@
   function handleSettingsCommit(result: { latest: boolean; ok: boolean; error?: unknown }): boolean {
     if (!result.latest) return false;
     if (!result.ok) {
+      saveFeedback = "error";
       lastMessage = result.error instanceof Error
         ? format(ui("statusConfigSaveFailed"), { error: result.error.message })
         : format(ui("statusConfigSaveFailed"), { error: String(result.error) });
@@ -777,14 +782,48 @@
     syncHotzoneEditor();
   }
 
+  let drawerElement: HTMLElement | null = null;
+  let focusBeforeDrawer: HTMLElement | null = null;
+  let pendingGestureDelete = false;
+  let pendingHelperRemoval = false;
+  let saveFeedback: "idle" | "saving" | "waiting" | "applied" | "error" = "idle";
+  $: saveFeedbackKey = (saveFeedback === "saving" ? "saveStateApplying" : saveFeedback === "waiting" ? "saveStateWaiting" : saveFeedback === "applied" ? "saveStateApplied" : saveFeedback === "error" ? "saveStateError" : null) as UiKey | null;
+
+  async function focusDrawer(restoreFocus: HTMLElement | null = null): Promise<void> {
+    await tick();
+    if (!mode && restoreFocus?.isConnected) restoreFocus.focus({ preventScroll: true });
+    else if (mode && !(drawerElement?.contains(document.activeElement) ?? false)) drawerElement?.querySelector<HTMLElement>(".close-drawer")?.focus({ preventScroll: true });
+  }
+
+  function handleDrawerKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || !mode || pendingGestureDelete || pendingHelperRemoval) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest("input, textarea, [contenteditable='true'], .shortcut-recorder, .modifier-recorder")) return;
+    event.preventDefault();
+    closeMode();
+  }
+
+  function handleTabKeydown(event: KeyboardEvent): void {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>("[role='tab']"));
+    const current = tabs.indexOf(event.target as HTMLButtonElement);
+    if (current < 0 || !tabs.length) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].focus();
+    tabs[next].click();
+  }
+
   function toggleMode(nextMode: Mode): void {
     if (mode === nextMode) {
       closeMode();
       return;
     }
+    if (!mode && document.activeElement instanceof HTMLElement) focusBeforeDrawer = document.activeElement;
     if (mode === "hotzones") cancelHotzoneVariant();
     if (mode === "gestures") cancelGestureVariant();
     mode = nextMode;
+    void focusDrawer();
   }
 
   function openNavigationFeature(id: NavigationFeatureId): void {
@@ -809,6 +848,9 @@
     if (mode === "hotzones") cancelHotzoneVariant();
     if (mode === "gestures") cancelGestureVariant();
     mode = null;
+    const target = focusBeforeDrawer;
+    focusBeforeDrawer = null;
+    void focusDrawer(target);
   }
 
   function selectDisplay(id: string): void {
@@ -1071,8 +1113,13 @@
   }
 
   function deleteGesture(): void {
+    if (!currentGesture().builtin) pendingGestureDelete = true;
+  }
+
+  function confirmGestureDelete(): void {
     const gesture = currentGesture();
-    if (gesture.builtin || !window.confirm(format(ui("gestureDeleteConfirm"), { name: gestureName(gesture) }))) return;
+    pendingGestureDelete = false;
+    if (gesture.builtin) return;
     settings.mouseGestures.gestures = settings.mouseGestures.gestures.filter((item) => item.id !== gesture.id);
     selectGesture(settings.mouseGestures.gestures[0]?.id ?? "");
     gestureConflict = "";
@@ -1325,6 +1372,7 @@
     settings = prepared.editable;
     const result = await settingsApply.applyNow(prepared.normalized);
     if (!handleSettingsCommit(result)) return false;
+    saveFeedback = result.sent ? "saving" : "waiting";
     lastMessage = result.sent ? "configSent" : "savedWaiting";
     return true;
   }
@@ -1380,6 +1428,8 @@
   </div>
 {/snippet}
 
+<svelte:window on:keydown={handleDrawerKeydown} />
+
 <div class:app-disabled={!settings.enabled} class="app-shell">
   <header class="topbar">
     <div class="brand"><img src="app-icon.png" alt="" /><strong>{ui("brandName")}</strong></div>
@@ -1420,7 +1470,7 @@
 
       <nav class="mode-nav" aria-label={ui("featureNavigation")}>
         {#each visibleNavigation as item (item)}
-          <button aria-label={navigationLabel(item)} title={navigationLabel(item)} data-feature-id={item} class:active={mode === item} on:click={() => openNavigationFeature(item)} type="button">
+          <button aria-current={mode === item ? "page" : undefined} aria-label={navigationLabel(item)} title={navigationLabel(item)} data-feature-id={item} class:active={mode === item} on:click={() => openNavigationFeature(item)} type="button">
             <NavGlyph id={item} />
             <b>{navigationTabLabel(item)}</b>
           </button>
@@ -1429,10 +1479,13 @@
     </section>
 
     {#if mode !== null}
-      <aside class:gesture-drawer={mode === "gestures"} class="drawer" in:fly={{ x: 28, duration: 220 }}>
+      <aside aria-label={mode === "more" ? ui("settingsLabel") : navigationLabel(mode)} bind:this={drawerElement} class:gesture-drawer={mode === "gestures"} class="drawer" in:fly={{ x: 28, duration: 220 }}>
         <header class="drawer-head">
           <div><span>{mode === "power" ? ui("power") : mode === "hotzones" ? ui("hotzones") : mode === "edge-hide" ? ui("edgeHide") : mode === "gestures" ? ui("gestures") : mode === "beautification" ? ui("beautification") : mode === "window-layouts" ? ui("windowLayouts") : mode === "startup" ? ui("startupTitle") : ui("settingsLabel")}</span><p>{mode === "hotzones" ? `${zoneLabel(selectedZone)} · S${Math.max(0, displays.findIndex((item) => item.id === selectedDisplayId)) + 1}` : mode === "edge-hide" ? windowEnhancementTab === "edge" ? ui("edgeSubtitle") : ui("dragSubtitle") : mode === "gestures" ? ui("gestureSubtitle") : mode === "more" ? ui("moreSubtitle") : mode === "beautification" ? ui("beautificationSubtitle") : mode === "window-layouts" ? ui("windowLayoutsSubtitle") : mode === "startup" ? ui("startupDescription") : ui("powerSubtitle")}</p></div>
-          <button aria-label={ui("close")} class="close-drawer" on:click={closeMode} type="button">×</button>
+          <div class="drawer-head-actions">
+            {#if mode !== "power" && saveFeedbackKey}<span class:error={saveFeedback === "error"} class="save-feedback" role="status">{ui(saveFeedbackKey)}</span>{/if}
+            <button aria-label={ui("close")} class="close-drawer" on:click={closeMode} type="button">×</button>
+          </div>
         </header>
 
         {#key mode}
@@ -1440,25 +1493,23 @@
             {#if mode === "hotzones"}
               <div class="feature-intro hotzone-master-intro">
                 <div class="feature-copy-stack">
-                  <span>{ui("hotzoneMaster")}</span>
                   <h2>{ui("hotzoneTitle")}</h2>
                   <p>{ui("hotzoneDescription")}</p>
                 </div>
-                <div class="feature-master-toggle"><b class:on={settings.hotzonesEnabled}>{settings.hotzonesEnabled ? ui("enabled") : ui("disabled")}</b><label class="mini-switch"><input aria-label={ui("enableHotzones")} bind:checked={settings.hotzonesEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                <label class="mini-switch"><input aria-label={ui("enableHotzones")} bind:checked={settings.hotzonesEnabled} on:change={() => persist()} type="checkbox" /><span></span></label>
               </div>
-              <div class="feature-settings-head"><span>{ui("hotzoneSettings")}</span><strong>{settings.hotzonesEnabled ? ui("unifiedOn") : ui("keepConfig")}</strong></div>
               <div class="feature-settings-body" class:off={!settings.hotzonesEnabled} inert={!settings.hotzonesEnabled}>
                 <p class:visible={!displayReady} class="empty hotzone-connection-note" class:error={Boolean(helperError)} role={helperError ? "alert" : "status"}>{helperError ? statusText(helperError, english) : ui("waitingForDisplays")}</p>
                 <div class="monitor-hotzone-settings" inert={!displayReady}>
-                <div class="trigger-tabs">
+                <div aria-label={ui("hotzones")} class="trigger-tabs" on:keydown={handleTabKeydown} role="tablist" tabindex="-1">
                   {#each triggerGroups as group}
-                    <button class:active={group.items.includes(activeTrigger)} disabled={group.items.includes("slide-forward") && !["top", "right", "bottom", "left"].includes(selectedZone)} on:click={() => { activeTrigger = group.items[0]; selectedHotzoneModifiers = []; cancelHotzoneVariant(); syncHotzoneEditor(); }} type="button">{triggerGroupLabel(group)}</button>
+                    <button aria-selected={group.items.includes(activeTrigger)} class:active={group.items.includes(activeTrigger)} role="tab" tabindex={group.items.includes(activeTrigger) ? 0 : -1} disabled={group.items.includes("slide-forward") && !["top", "right", "bottom", "left"].includes(selectedZone)} on:click={() => { activeTrigger = group.items[0]; selectedHotzoneModifiers = []; cancelHotzoneVariant(); syncHotzoneEditor(); }} type="button">{triggerGroupLabel(group)}</button>
                   {/each}
                 </div>
                 {#if activeTrigger.startsWith("wheel") || activeTrigger.startsWith("slide")}
-                  <div class="direction-tabs">
+                  <div aria-label={triggerLabel(activeTrigger)} class="direction-tabs" on:keydown={handleTabKeydown} role="tablist" tabindex="-1">
                     {#each triggerGroups.find((group) => group.items.includes(activeTrigger))?.items ?? [] as trigger}
-                      <button class:active={activeTrigger === trigger} on:click={() => { activeTrigger = trigger; selectedHotzoneModifiers = []; cancelHotzoneVariant(); syncHotzoneEditor(); }} type="button">{triggerLabel(trigger)}</button>
+                      <button aria-selected={activeTrigger === trigger} class:active={activeTrigger === trigger} role="tab" tabindex={activeTrigger === trigger ? 0 : -1} on:click={() => { activeTrigger = trigger; selectedHotzoneModifiers = []; cancelHotzoneVariant(); syncHotzoneEditor(); }} type="button">{triggerLabel(trigger)}</button>
                     {/each}
                   </div>
                 {/if}
@@ -1504,17 +1555,17 @@
                   onReset={resetHotzoneGeometry}
                   onSelectZone={selectZone}
                 />
-                <div class="list-section"><div class="subhead"><div><h2>{ui("pausedApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("hotzones")} type="button">+ {ui("addApp")}</button></div><div class="app-list">{#each settings.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("hotzones", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noPausedApps")}</p>{/each}</div></div>
+                <div class="list-section"><div class="subhead"><div><h2>{ui("pausedApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("hotzones")} type="button">+ {ui("addApp")}</button></div><div class="app-list">{#each settings.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("hotzones", app)} type="button">×</button></div>{:else}<div class="empty empty-with-action"><p>{ui("noPausedApps")}</p><button class="empty-action" on:click={() => addForeground("hotzones")} type="button">+ {ui("addApp")}</button></div>{/each}</div></div>
               </div>
             {:else if mode === "edge-hide"}
-              <div class="window-tabs"><button class:active={windowEnhancementTab === "edge"} on:click={() => { windowEnhancementTab = "edge"; }} type="button">{ui("edgeTab")}</button><button class:active={windowEnhancementTab === "drag"} on:click={() => { windowEnhancementTab = "drag"; }} type="button">{ui("dragTab")}</button></div>
+              <div aria-label={ui("edgeHide")} class="window-tabs" on:keydown={handleTabKeydown} role="tablist" tabindex="-1"><button aria-selected={windowEnhancementTab === "edge"} class:active={windowEnhancementTab === "edge"} role="tab" tabindex={windowEnhancementTab === "edge" ? 0 : -1} on:click={() => { windowEnhancementTab = "edge"; }} type="button">{ui("edgeTab")}</button><button aria-selected={windowEnhancementTab === "drag"} class:active={windowEnhancementTab === "drag"} role="tab" tabindex={windowEnhancementTab === "drag" ? 0 : -1} on:click={() => { windowEnhancementTab = "drag"; }} type="button">{ui("dragTab")}</button></div>
               {#if windowEnhancementTab === "edge"}
                 <div class="feature-intro edge-master-intro" on:mouseleave={(event) => handleFeatureTutorialMouseLeave("edge-hide", event)} on:focusout={(event) => handleFeatureTutorialFocusOut("edge-hide", event)} role="group">
-                  <div class="feature-copy-stack"><span>{ui("edgeMaster")}</span><div class="feature-title-row"><h2>{ui("edgeTitle")}</h2><div class="feature-help" on:mouseenter={() => showFeatureTutorial("edge-hide")} on:focusin={() => showFeatureTutorial("edge-hide")} role="group"><button aria-controls="edge-hide-tutorial" aria-describedby={activeFeatureTutorial === "edge-hide" ? "edge-hide-tutorial" : undefined} aria-expanded={activeFeatureTutorial === "edge-hide"} aria-label={ui("viewEdgeHideTutorial")} class="feature-help-button" on:click={() => showFeatureTutorial("edge-hide")} type="button">?</button>{#if activeFeatureTutorial === "edge-hide"}<section class="feature-help-card" id="edge-hide-tutorial" role="tooltip"><strong>{ui("edgeHideTutorial")}</strong><div aria-hidden="true" class="tutorial-demo"><div class="tutorial-screen"><div class="tutorial-edge-window"><i></i><span></span></div><div class="tutorial-cursor"><i></i></div></div></div><p>{ui("edgeHideTutorialBody")}</p></section>{/if}</div></div><p>{ui("edgeDescription")}</p></div>
-                  <div class="feature-master-toggle"><b class:on={settings.edgeHide.enabled}>{settings.edgeHide.enabled ? ui("enabled") : ui("disabled")}</b><label class="mini-switch"><input aria-label={ui("enableEdge")} bind:checked={settings.edgeHide.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                  <div class="feature-copy-stack"><div class="feature-title-row"><h2>{ui("edgeTitle")}</h2><div class="feature-help" on:mouseenter={() => showFeatureTutorial("edge-hide")} on:focusin={() => showFeatureTutorial("edge-hide")} role="group"><button aria-controls="edge-hide-tutorial" aria-describedby={activeFeatureTutorial === "edge-hide" ? "edge-hide-tutorial" : undefined} aria-expanded={activeFeatureTutorial === "edge-hide"} aria-label={ui("viewEdgeHideTutorial")} class="feature-help-button" on:click={() => showFeatureTutorial("edge-hide")} type="button">?</button>{#if activeFeatureTutorial === "edge-hide"}<section class="feature-help-card" id="edge-hide-tutorial" role="tooltip"><strong>{ui("edgeHideTutorial")}</strong><div aria-hidden="true" class="tutorial-demo"><div class="tutorial-screen"><div class="tutorial-edge-window"><i></i><span></span></div><div class="tutorial-cursor"><i></i></div></div></div><p>{ui("edgeHideTutorialBody")}</p></section>{/if}</div></div><p>{ui("edgeDescription")}</p></div>
+                  <label class="mini-switch"><input aria-label={ui("enableEdge")} bind:checked={settings.edgeHide.enabled} on:change={() => persist()} type="checkbox" /><span></span></label>
                 </div>
-                <div class="feature-settings-head"><span>{ui("edgeSettings")}</span><strong>{settings.edgeHide.enabled ? ui("unifiedOn") : ui("edgeEnabled")}</strong></div>
-                <div class="feature-settings-body" class:off={!settings.edgeHide.enabled} inert={!settings.edgeHide.enabled}>
+
+                <div class="feature-settings-body" class:off={!settings.edgeHide.enabled} inert={!settings.edgeHide.enabled} data-feature-disabled={!settings.edgeHide.enabled}>
                 <section class="window-options">
                 <div class="setting-title edge-preview-setting"><div><h2>{ui("snapHint")}</h2><p>{ui("snapHintDescription")}</p></div><label class="mini-switch"><input aria-label={ui("snapHint")} bind:checked={settings.edgeHide.showPreview} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                 <div class="setting-title edge-restore-hint-setting"><div><h2>{ui("expansionOutline")}</h2><p>{ui("expansionOutlineDescription")}</p></div><label class="mini-switch"><input aria-label={ui("expansionOutline")} bind:checked={settings.edgeHide.showRestoreHint} on:change={() => persist()} type="checkbox" /><span></span></label></div>
@@ -1530,8 +1581,8 @@
                 <div class="setting-title"><div><h3>{ui("moveOutRatio")}</h3><p>{ui("moveOutRatioDescription")}</p></div><label class="mini-switch"><input aria-label={ui("enableMoveOutRatio")} bind:checked={settings.edgeHide.ratioTriggerEnabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
                 </section>
                 </div>
-                <div class="list-section"><div class="subhead"><div><h2>{ui("excludedApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("edge")} type="button">+ {ui("addApp")}</button></div><div class="app-list">{#each settings.edgeHide.excludedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("edge", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noExcludedApps")}</p>{/each}</div></div>
-                <section class="window-tuning edge-tuning" aria-label={ui("windowTuning")}>
+                <div class="list-section"><div class="subhead"><div><h2>{ui("excludedApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("edge")} type="button">+ {ui("addApp")}</button></div><div class="app-list">{#each settings.edgeHide.excludedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("edge", app)} type="button">×</button></div>{:else}<div class="empty empty-with-action"><p>{ui("noExcludedApps")}</p><button class="empty-action" on:click={() => addForeground("edge")} type="button">+ {ui("addApp")}</button></div>{/each}</div></div>
+                <details class="advanced-settings"><summary><span>{ui("advancedSettings")}</span><small>{ui("advancedSettingsDescription")}</small></summary><div class="advanced-settings-body"><section class="window-tuning edge-tuning" aria-label={ui("windowTuning")}>
                 <div class="tuning-heading"><h2>{ui("windowTuning")}</h2><p>{ui("windowTuningHint")}</p></div>
                 <section class="tuning-section edge-motion-settings"><div class="tuning-heading"><h3>{ui("animationSpeed")}</h3><p>{ui("edgeAnimationDurationHint")}</p></div>
                 <div class="motion-presets"><button class:active={settings.edgeHide.animationDurationMs === 160} aria-pressed={settings.edgeHide.animationDurationMs === 160} disabled={!settings.edgeHide.animationEnabled} on:click={() => { settings.edgeHide.animationDurationMs = 160; persist(); }} type="button"><strong>{ui("animationCurrent")}</strong><small>160 ms</small></button><button class:active={settings.edgeHide.animationDurationMs === 260} aria-pressed={settings.edgeHide.animationDurationMs === 260} disabled={!settings.edgeHide.animationEnabled} on:click={() => { settings.edgeHide.animationDurationMs = 260; persist(); }} type="button"><strong>{ui("animationGentle")}</strong><small>260 ms</small></button><button class:active={settings.edgeHide.animationDurationMs === 400} aria-pressed={settings.edgeHide.animationDurationMs === 400} disabled={!settings.edgeHide.animationEnabled} on:click={() => { settings.edgeHide.animationDurationMs = 400; persist(); }} type="button"><strong>{ui("animationSlow")}</strong><small>400 ms</small></button></div>
@@ -1545,31 +1596,31 @@
                 <section class="tuning-section restore-tuning"><div class="tuning-heading"><h3>{ui("restoreTuning")}</h3></div>
                 <div class="form-grid"><label><span>{ui("stripSize")}</span><div><input use:numberSetting={{ value: settings.edgeHide.stripSize, onChange: (value) => { settings.edgeHide.stripSize = value; persist(); } }} min="4" max="64" type="number" /><em>px</em></div></label><label><span>{ui("collapseDelay")}</span><div><input use:numberSetting={{ value: settings.edgeHide.collapseDelayMs, onChange: (value) => { settings.edgeHide.collapseDelayMs = value; persist(); } }} min="0" max="5000" type="number" /><em>ms</em></div></label><label><span>{ui("restoreDelay")}</span><div><input use:numberSetting={{ value: settings.edgeHide.restoreDelayMs, onChange: (value) => { settings.edgeHide.restoreDelayMs = value; persist(); } }} min="0" max="5000" type="number" /><em>ms</em></div></label></div>
                 </section>
-                </section>
+                </section></div></details>
                 </div>
               {:else}
                 <div class="feature-intro drag-master-intro">
-                  <div class="feature-copy-stack"><span>{ui("dragMaster")}</span><div class="feature-title-row"><h2>{ui("dragTitle")}</h2></div><p>{ui("dragDescription")}</p></div>
-                  <div class="feature-master-toggle"><b class:on={settings.windowDrag.enabled}>{settings.windowDrag.enabled ? ui("enabled") : ui("disabled")}</b><label class="mini-switch"><input aria-label={ui("enableDrag")} bind:checked={settings.windowDrag.enabled} on:change={() => persist()} type="checkbox" /><span></span></label></div>
+                  <div class="feature-copy-stack"><div class="feature-title-row"><h2>{ui("dragTitle")}</h2></div><p>{ui("dragDescription")}</p></div>
+                  <label class="mini-switch"><input aria-label={ui("enableDrag")} bind:checked={settings.windowDrag.enabled} on:change={() => persist()} type="checkbox" /><span></span></label>
                 </div>
-                <div class="feature-settings-head"><span>{ui("dragSettings")}</span><strong>{settings.windowDrag.enabled ? ui("unifiedOn") : ui("edgeEnabled")}</strong></div>
+
                 <div class="feature-settings-body" class:off={!settings.windowDrag.enabled} inert={!settings.windowDrag.enabled}>
                 <div class="drag-bindings">
                   <div><span><b>{ui("moveWindow")}</b><small>{ui("defaultAltLeft")}</small></span><ModifierRecorder english={english} label={ui("recordMoveModifiers")} value={settings.windowDrag.moveModifiers} onChange={(value) => { settings.windowDrag.moveModifiers = value; persist(); }} /><select aria-label={ui("moveWindowButton")} bind:value={settings.windowDrag.moveButton} on:change={() => persist()}><option value="left">{ui("leftButton")}</option><option value="right">{ui("rightButton")}</option><option value="middle">{ui("middleButton")}</option><option value="x1">{ui("sideButton1")}</option><option value="x2">{ui("sideButton2")}</option></select></div>
                   <div><span><b>{ui("resizeWindow")}</b><small>{ui("defaultAltRight")}</small></span><ModifierRecorder english={english} label={ui("recordResizeModifiers")} value={settings.windowDrag.resizeModifiers} onChange={(value) => { settings.windowDrag.resizeModifiers = value; persist(); }} /><select aria-label={ui("resizeWindowButton")} bind:value={settings.windowDrag.resizeButton} on:change={() => persist()}><option value="left">{ui("leftButton")}</option><option value="right">{ui("rightButton")}</option><option value="middle">{ui("middleButton")}</option><option value="x1">{ui("sideButton1")}</option><option value="x2">{ui("sideButton2")}</option></select></div>
                 </div>
                 {#if windowDragBindingConflict}<p class="gesture-warning">{ui("moveResizeConflict")}</p>{/if}
-                <div class="list-section drag-paused-apps"><div class="subhead"><div><h2>{ui("pausedDragApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("drag")} type="button">+ {ui("addCurrentApp")}</button></div><div class="app-list">{#each settings.windowDrag.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("drag", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noPausedDragApps")}</p>{/each}</div></div>
-                <section class="window-tuning drag-update-settings" aria-label={ui("dragUpdateRate")}>
+                <div class="list-section drag-paused-apps"><div class="subhead"><div><h2>{ui("pausedDragApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("drag")} type="button">+ {ui("addCurrentApp")}</button></div><div class="app-list">{#each settings.windowDrag.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("drag", app)} type="button">×</button></div>{:else}<div class="empty empty-with-action"><p>{ui("noPausedDragApps")}</p><button class="empty-action" on:click={() => addForeground("drag")} type="button">+ {ui("addApp")}</button></div>{/each}</div></div>
+                <details class="advanced-settings"><summary><span>{ui("advancedSettings")}</span><small>{ui("dragUpdateRateHint")}</small></summary><div class="advanced-settings-body"><section class="window-tuning drag-update-settings" aria-label={ui("dragUpdateRate")}>
                 <div class="tuning-heading"><h2>{ui("dragUpdateRate")}</h2><p>{ui("dragUpdateRateHint")}</p></div>
                 <div class="motion-presets">{#each [60, 120, 240] as hz}<button class:active={settings.windowDrag.updateHz === hz} aria-pressed={settings.windowDrag.updateHz === hz} on:click={() => { settings.windowDrag.updateHz = hz; persist(); }} type="button"><strong>{ui(hz === 60 ? "dragRateEconomy" : hz === 120 ? "dragRateBalanced" : "dragRateSmooth")}</strong><small>{hz} Hz</small></button>{/each}</div>
                 <div class="form-grid single"><label><span>{ui("customUpdateRate")}</span><div><input aria-label={ui("dragUpdateRate")} use:numberSetting={{ value: settings.windowDrag.updateHz, onChange: (value) => { settings.windowDrag.updateHz = value; persist(); } }} min="30" max="240" type="number" /><em>Hz</em></div></label></div>
-                </section>
+                </section></div></details>
                 </div>
               {/if}
             {:else if mode === "gestures"}
               <div class="gesture-intro">
-                <div><span>{ui("gestureTitle")}</span><h2>{ui("gestureHeading")}</h2><p>{ui("gestureDescription")}</p></div>
+                <div><h2>{ui("gestureHeading")}</h2><p>{ui("gestureDescription")}</p></div>
                 <label class="mini-switch"><input aria-label={ui("enableGesture")} bind:checked={settings.mouseGestures.enabled} on:change={() => persist()} type="checkbox" /><span></span></label>
               </div>
 
@@ -1638,7 +1689,7 @@
                 </section>
               </div>
 
-              <section class="gesture-global-settings">
+              <details class="advanced-settings gesture-advanced"><summary><span>{ui("gestureGlobal")}</span><small>{ui("advancedSettingsDescription")}</small></summary><div class="advanced-settings-body"><section class="gesture-global-settings">
                 <div class="gesture-section-head"><div><span>{ui("gestureGlobal")}</span><strong>{ui("allGestures")}</strong></div></div>
                 <div class="gesture-controls">
                   <label><span>{ui("triggerMouseButton")}</span><select bind:value={settings.mouseGestures.triggerButton} on:change={() => persist()}><option value="right">{ui("rightButton")}</option><option value="middle">{ui("middleButton")}</option><option value="x1">{ui("sideButton1")}</option><option value="x2">{ui("sideButton2")}</option></select></label>
@@ -1646,8 +1697,8 @@
                   <label><span>{ui("sensitivity")} <b>{settings.mouseGestures.sensitivity}</b></span><input bind:value={settings.mouseGestures.sensitivity} min="35" max="95" on:input={() => persist()} type="range" /></label>
                 </div>
                 <div class="gesture-options"><label><input bind:checked={settings.mouseGestures.showTrail} on:change={() => persist()} type="checkbox" /><span><b>{ui("showTrail")}</b><small>{ui("showTrailDescription")}</small></span></label><label><input bind:checked={settings.mouseGestures.fullscreenPause} on:change={() => persist()} type="checkbox" /><span><b>{ui("fullscreenPause")}</b><small>{ui("fullscreenPauseDescription")}</small></span></label></div>
-              </section>
-              <div class="list-section gesture-paused-apps"><div class="subhead"><div><h2>{ui("pausedGestureApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("gestures")} type="button">+ {ui("addCurrentApp")}</button></div><div class="app-list">{#each settings.mouseGestures.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("gestures", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noPausedGestureApps")}</p>{/each}</div></div>
+              </section></div></details>
+              <div class="list-section gesture-paused-apps"><div class="subhead"><div><h2>{ui("pausedGestureApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("gestures")} type="button">+ {ui("addCurrentApp")}</button></div><div class="app-list">{#each settings.mouseGestures.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("gestures", app)} type="button">×</button></div>{:else}<div class="empty empty-with-action"><p>{ui("noPausedGestureApps")}</p><button class="empty-action" on:click={() => addForeground("gestures")} type="button">+ {ui("addCurrentApp")}</button></div>{/each}</div></div>
             {:else if mode === "power"}
               {#if !helperInstallState.installed}
                 <section class="helper-install-card">
@@ -1722,7 +1773,7 @@
                   {#if privilegeNotice}<p class="runtime-notice" role="status">{statusText(privilegeNotice, english)}</p>{/if}
                   {#if helperError}<div class="runtime-notice error" role="alert">{statusText(helperError, english)}</div>{/if}
                 </section>
-                <div class="timing single"><label><span>{ui("pollInterval")}</span><div><input use:numberSetting={{ value: settings.pollIntervalMs, onChange: (value) => { settings.pollIntervalMs = value; persist(); } }} min="10" max="250" type="number" /><em>ms</em></div></label></div>
+                <details class="advanced-settings global-advanced"><summary><span>{ui("advancedSettings")}</span><small>{ui("advancedSettingsDescription")}</small></summary><div class="advanced-settings-body"><div class="timing single"><label><span>{ui("pollInterval")}</span><div><input use:numberSetting={{ value: settings.pollIntervalMs, onChange: (value) => { settings.pollIntervalMs = value; persist(); } }} min="10" max="250" type="number" /><em>ms</em></div></label></div></div></details>
                 <OfflineMonitorProfiles {settings} {displays} ready={helperStatus === "connected" && displayReady} {english} onRemove={saveOfflineProfileRemoval} />
               <div class="config-section"><h2>{ui("config")}</h2><div class="config-actions"><button class="quiet" on:click={exportSettings} type="button">{ui("export")}</button><button class="quiet" on:click={importSettings} type="button">{ui("import")}</button><button class="danger" on:click={resetSettings} type="button">{ui("reset")}</button></div></div>
               </div>
@@ -1733,3 +1784,7 @@
     {/if}
   </main>
 </div>
+
+{#if pendingGestureDelete}
+  <ConfirmDialog title={ui("confirmGestureDeleteTitle")} description={format(ui("gestureDeleteConfirm"), { name: gestureName(currentGesture()) })} confirmLabel={ui("remove")} cancelLabel={ui("cancel")} onCancel={() => { pendingGestureDelete = false; }} onConfirm={confirmGestureDelete} />
+{/if}

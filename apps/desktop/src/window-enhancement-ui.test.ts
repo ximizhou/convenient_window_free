@@ -30,9 +30,9 @@ describe("window enhancement UI wiring", () => {
   });
 
   it("uses the unified hotzone master-toggle copy and disabled settings body", () => {
-    expect(source).toContain('ui("hotzoneMaster")');
+    expect(source).not.toContain('ui("hotzoneMaster")');
     expect(source).toContain('ui("hotzoneTitle")');
-    expect(source).toContain('ui("hotzoneSettings")');
+    expect(source).not.toContain('ui("hotzoneSettings")');
     expect(i18n.zh.hotzoneMaster).toBe("触发角总开关");
     expect(i18n.zh.hotzoneTitle).toBe("把屏幕边角变成快捷操作入口");
     expect(i18n.zh.hotzoneSettings).toBe("触发角设置");
@@ -126,13 +126,26 @@ describe("window enhancement UI wiring", () => {
   });
 
   it("auto-saves mouse gesture edits without a manual apply button", () => {
-    for (const handler of ["createGesture", "recordGesture", "renameGesture", "duplicateGesture", "deleteGesture", "clearGestureSamples", "toggleGestureEnabled", "setGestureActionPreset", "setGestureActionValue"]) {
+    for (const handler of ["createGesture", "recordGesture", "renameGesture", "duplicateGesture", "confirmGestureDelete", "clearGestureSamples", "toggleGestureEnabled", "setGestureActionPreset", "setGestureActionValue"]) {
       const handlerSource = source.match(new RegExp(`function ${handler}\\([\\s\\S]*?\\n  }`))?.[0];
       expect(handlerSource, `${handler} should persist its edit`).toContain("persist(");
     }
     expect(source).not.toContain("保存并应用鼠标增强");
+    expect(source).toContain("pendingGestureDelete = true");
+    expect(source).not.toContain("window.confirm");
     expect(source).not.toContain('class="apply gesture-apply"');
     expect(styles).not.toContain(".gesture-apply");
+  });
+
+  it("keeps advanced settings and drawer keyboard behavior accessible", () => {
+    expect(source).toContain('class="advanced-settings"');
+    expect(source).toContain('ui("advancedSettings")');
+    expect(source).toContain('role="tablist"');
+    expect(source).toContain('aria-selected={windowEnhancementTab === "edge"}');
+    expect(source).toContain("function handleTabKeydown");
+    expect(source).toContain("function handleDrawerKeydown");
+    expect(source).toContain("restoreFocus?.isConnected");
+    expect(source).toContain("<ConfirmDialog");
   });
 });
 

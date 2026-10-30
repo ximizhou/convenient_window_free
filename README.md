@@ -18,7 +18,7 @@
 
 </div>
 
-> Development 0.6.9 adds [startup application management](docs/startup-apps.md), private diagnostic exports and offline display-profile management. These source changes are not a new published release.
+> Development 0.6.10 simplifies feature panels, progressively discloses advanced settings, and improves keyboard navigation, confirmations and save feedback. These source changes are not a new published release.
 
 
 ![Convenient Window overview](docs/images/running-center.png)

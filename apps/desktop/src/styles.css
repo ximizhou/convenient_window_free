@@ -1177,6 +1177,36 @@ body, .topbar, .drawer, .drawer-head, .mode-nav, .power-facts, .power-orb,
 :where(button, [role="button"]):active:not(:disabled):not(.theme-toggle):not(.feature-help-button) {
   transform: translateY(1px);
 }
+/* 0.6.10：保留现有视觉语言，压缩重复标题并明确辅助操作层级。 */
+.drawer-head-actions { display: flex; flex: none; align-items: center; gap: 10px; }
+.drawer-head .save-feedback { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: var(--fs-xs); font-weight: 400; white-space: nowrap; }
+.save-feedback::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+.save-feedback.error { color: var(--danger); }
+.save-feedback.error::before { background: var(--danger); }
+.feature-intro { margin-bottom: 14px; padding-bottom: 14px; }
+.feature-copy-stack h2 { margin-top: 0; }
+.gesture-intro { margin-bottom: 14px; }
+.advanced-settings { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--highlight); }
+[data-feature-disabled="true"] > .advanced-settings { pointer-events: auto; }
+[data-feature-disabled="true"] > .advanced-settings summary { opacity: 1; }
+.advanced-settings > summary { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; padding: 12px 36px 12px 13px; border-radius: inherit; cursor: pointer; list-style: none; position: relative; }
+.advanced-settings > summary::-webkit-details-marker { display: none; }
+.advanced-settings > summary::after { content: "+"; position: absolute; right: 13px; top: 12px; color: var(--muted); font-size: var(--fs-lg); font-weight: 400; }
+.advanced-settings[open] > summary::after { content: "−"; }
+.advanced-settings > summary > span { color: var(--ink); font-size: var(--fs-md); font-weight: 620; }
+.advanced-settings > summary > small { grid-column: 1 / -1; color: var(--muted); font-size: var(--fs-xs); line-height: 1.5; }
+.advanced-settings > summary:hover { background: var(--hover); }
+.advanced-settings > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.advanced-settings-body { padding: 0 12px 12px; border-top: 1px solid var(--line); }
+.advanced-settings-body > .window-tuning { margin-top: 0; border: 0; background: transparent; box-shadow: none; }
+.advanced-settings-body > .gesture-global-settings { margin-top: 0; padding-right: 0; padding-left: 0; }
+.global-advanced .advanced-settings-body { padding-top: 12px; }
+.empty-action { display: inline-flex; margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--accent-soft); font-size: var(--fs-xs); }
+.empty-with-action p { margin: 0; }
+.empty-action:hover { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 700px) { .save-feedback { display: none; } }
+@media (prefers-reduced-motion: reduce) { .confirm-dialog::backdrop { backdrop-filter: none; } }
+
 /* Startup applications need room for names and the per-item state. */
 .workspace.startup-open { --drawer-width: min(580px, 70vw); }
 @media (max-width: 700px) { .workspace.startup-open { --drawer-width: 100%; } }
