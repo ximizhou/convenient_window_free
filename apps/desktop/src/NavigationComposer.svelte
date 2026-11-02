@@ -371,6 +371,8 @@
   .composer-capacity.full { border-color: color-mix(in srgb, var(--accent-line) 62%, var(--line)); background: color-mix(in srgb, var(--accent-bg) 55%, var(--panel)); }
 
   .composer-stage { position: relative; width: 100%; height: var(--stage-height); min-height: var(--stage-height); }
+  .composer-stage:has(.composer-bubble-button:hover),
+  .composer-stage:has(.composer-bubble-button:focus-visible) { z-index: 30; }
   .composer-layer { position: absolute; top: var(--layer-top); left: 0; right: 0; }
   .composer-caption { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; height: var(--row-caption); margin: 0; }
   .composer-caption > span { color: var(--faint-text); font-size: var(--fs-3xs); font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
@@ -385,6 +387,10 @@
 
   .composer-bubble, .composer-placeholder { position: absolute; top: 0; left: 0; width: var(--bubble-size); height: var(--bubble-size); border-radius: 50%; }
   .composer-bubble { z-index: 2; }
+  /* transform 已让每个气泡形成独立层叠上下文；必须提升整个悬停/聚焦气泡，
+     仅提高内部 tooltip 的 z-index 无法越过设置面板的后续内容。 */
+  .composer-bubble:has(.composer-bubble-button:hover),
+  .composer-bubble:has(.composer-bubble-button:focus-visible) { z-index: 30; }
   .composer-stage.measured .composer-bubble { transition: transform var(--dur-mid) var(--ease-out), opacity var(--dur-base) ease; }
   .composer-bubble.dragging { z-index: 8; opacity: 1; transition: none; }
   .composer-bubble.dragging .composer-bubble-button { background: linear-gradient(180deg, var(--chip-a), var(--chip-b)); --glyph-cutout: var(--chip-b); }
