@@ -18,22 +18,22 @@
 
 </div>
 
-> Development 0.6.10 simplifies feature panels, progressively discloses advanced settings, and improves keyboard navigation, confirmations and save feedback. These source changes are not a new published release.
+> Development 0.6.10 simplifies feature panels, progressively discloses advanced settings, and improves keyboard navigation, confirmations, save feedback and feature-entry tooltip stacking while preserving the home screen and display preview. These source changes are not a new published release.
 
 
 ![Convenient Window overview](docs/images/running-center.png)
 
 Convenient Window is a small tray companion for Windows 11. Configure the four corners and four edges of every display, tuck windows away at the screen edge, draw one-stroke mouse gestures, keep screenshots floating above other windows, and save the current desktop as a **window layout** you can restore in one click. Settings apply live, the interface is bilingual, and everything runs locally.
 
-## What's new in 0.6.8
+## What's new in 0.6.9
 
-0.6.8 is the current stable release for Windows 11 x64; the 0.6.7 stable downloads remain available for rollback.
+The Windows 11 x64 0.6.9 release was accepted and promoted to stable on October 30, 2026. The 0.6.8 stable downloads remain available for rollback.
 
-- **Language fixes** — English mode now switches every label, status message and helper-install feedback; settings labels, feature entries and helper operations no longer fall back to Chinese.
-- **Bottom tabs** — the bottom navigation uses short one-word labels and stays readable with the settings drawer open or in narrow windows; full feature names remain in the tooltips and accessible labels.
-- **No behavior changes** — hot corners, edge hiding, drag/resize, gestures, screenshots and OCR, window layouts and the topmost pin behave as before; the helper only bumped its version in this release.
+- **Startup apps** — search regular Windows sign-in entries, toggle supported current-user entries and select an executable to add an app. System entries remain read-only.
+- **Local diagnostics** — preview, copy or save a report with versions, connection state and error categories, excluding personal paths, tokens and raw logs.
+- **Offline displays** — inspect saved profiles for disconnected displays and remove one after confirmation; connected display settings stay protected.
 
-[Release notes](docs/release-notes/0.6.8.md) · [All releases](https://github.com/ximizhou/convenient_window_free/releases)
+[Release notes](docs/release-notes/0.6.9.md) · [All releases](https://github.com/ximizhou/convenient_window_free/releases)
 
 ## A closer look
 

@@ -1,5 +1,11 @@
 # Testing
 
+## 0.6.10 UI candidate
+
+The source candidate preserves the home screen and display preview, simplifies repeated panel headings, discloses advanced settings, and adds keyboard tabs, modal confirmations and save feedback. Tooltip stacking raises the hovered or keyboard-focused bubble and its stage; raising only the nested tooltip cannot escape a transformed ancestor's stacking context. Hit testing must temporarily enable pointer events on the tooltip and restore them afterwards, since normal tooltips intentionally allow pointer events to pass through.
+
+Production browser checks cover both frontends in light/dark themes at 1100×700 and 800×600. The screenshot check verifies the center-point hit of a hovered active-row tooltip; it does not independently prove full-edge visibility, keyboard-focus or inactive-row stacking, nor that both ancestor elevations are individually necessary. Navigation, UI and runtime-language tests passed after the tooltip change. Browser host and WebSocket state is mocked. No 0.6.10 native installer or release asset has been produced; actual host, DPI and installation acceptance remain separate checks.
+
 ## 0.6.9 development checks
 
 The startup manager backend has four isolated Windows tests covering temporary
