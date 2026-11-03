@@ -5,3 +5,4 @@ pub mod gesture;
 pub mod hotzone;
 pub mod trigger;
 pub mod window_drag;
+pub mod window_layout;

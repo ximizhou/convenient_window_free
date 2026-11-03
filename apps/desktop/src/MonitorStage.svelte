@@ -190,6 +190,8 @@
   .screen-index{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);font-family:"Cascadia Mono",monospace;font-size:26px;color:var(--accent-soft);border:1.5px solid currentColor;border-radius:50%;width:52px;height:52px;display:grid;place-items:center}
   .screen strong{position:absolute;left:50%;top:63%;transform:translateX(-50%);color:var(--accent-soft);font: 600 var(--fs-md)/1.2 "Segoe UI Variable","Microsoft YaHei",sans-serif;white-space:nowrap}
   .screen small{position:absolute;left:16px;bottom:14px;color: var(--faint-text);font: var(--fs-xs)/1.2 "Cascadia Mono","Microsoft YaHei",sans-serif}
+  /* Keep display metadata between the identity and bottom controls, clear of corner targets. */
+  .hotzone-layer .screen small{left:48px;right:48px;bottom:28px;text-align:center}
   .monitor-neck{position:absolute;left:46%;right:46%;bottom:5%;height:12%;background:var(--stand);border-radius:2px;z-index:-1}
   .monitor-foot{position:absolute;left:34%;right:34%;bottom:3%;height:5px;background:var(--stand);border-radius:3px}
   .companion-monitor{left:2%;top:5%;width:27%;height:31%;opacity:.65;filter:saturate(.6);transform:translate(calc(var(--slot) * 18px),calc(var(--slot) * 22px));z-index:calc(6 - var(--slot))}

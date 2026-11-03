@@ -1,7 +1,6 @@
 use crate::config::{Edge, EdgeHideConfig};
 use crate::platform::{Monitor, Point, Rect, WindowHandle, WindowInfo};
-use std::collections::{HashMap, VecDeque};
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 const EDGE_HIDE_PREVIEW_THICKNESS: i32 = 4;
@@ -390,6 +389,7 @@ impl EdgeHideController {
                     edge,
                     restore_rect,
                     hidden_rect,
+                    original_topmost,
                     ..
                 } = state
                 else {
@@ -400,9 +400,151 @@ impl EdgeHideController {
                     edge: *edge,
                     restore_rect: *restore_rect,
                     hidden_rect: *hidden_rect,
+                    original_topmost: *original_topmost,
                 })
             })
             .collect()
+    }
+
+    /// The window's topmost state before edge hiding temporarily raised it.
+    /// Queued cleanup still owns that state after the active map is drained.
+    pub fn original_topmost(&self, handle: WindowHandle) -> Option<bool> {
+        if let Some(state) = self.states.get(&handle) {
+            return Some(match state {
+                EdgeHideState::Pending {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Collapsing {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Collapsed {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Expanding {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Expanded {
+                    original_topmost, ..
+                }
+                | EdgeHideState::Relocating {
+                    original_topmost, ..
+                }
+                | EdgeHideState::CleaningUp {
+                    original_topmost, ..
+                } => *original_topmost,
+            });
+        }
+        self.restore_queue
+            .iter()
+            .rev()
+            .find_map(|command| match command {
+                EdgeHideCommand::Restore {
+                    handle: queued,
+                    topmost,
+                    ..
+                } if *queued == handle => Some(*topmost),
+                _ => None,
+            })
+    }
+
+    /// Release one owned window before applying a layout snapshot.
+    ///
+    /// The caller must execute and acknowledge the returned cleanup before
+    /// applying the layout. Ownership remains in `CleaningUp` until that move
+    /// succeeds, so a failed release can still restore the original topmost bit.
+    pub fn prepare_layout_restore(&mut self, handle: WindowHandle) -> Option<EdgeHideCommand> {
+        let cleanup = match self.states.get(&handle) {
+            Some(
+                EdgeHideState::Pending {
+                    restore_rect,
+                    original_topmost,
+                    ..
+                }
+                | EdgeHideState::Collapsing {
+                    restore_rect,
+                    original_topmost,
+                    ..
+                }
+                | EdgeHideState::Collapsed {
+                    restore_rect,
+                    original_topmost,
+                    ..
+                }
+                | EdgeHideState::Expanding {
+                    restore_rect,
+                    original_topmost,
+                    ..
+                }
+                | EdgeHideState::Expanded {
+                    restore_rect,
+                    original_topmost,
+                    ..
+                }
+                | EdgeHideState::Relocating {
+                    restore_rect,
+                    original_topmost,
+                    ..
+                },
+            ) => Some((*restore_rect, *original_topmost)),
+            Some(EdgeHideState::CleaningUp {
+                rect,
+                original_topmost,
+            }) => Some((*rect, *original_topmost)),
+            None => self
+                .restore_queue
+                .iter()
+                .rev()
+                .find_map(|command| match command {
+                    EdgeHideCommand::Restore {
+                        handle: queued,
+                        rect,
+                        topmost,
+                    } if *queued == handle => Some((*rect, *topmost)),
+                    _ => None,
+                }),
+        };
+        self.restore_queue.retain(|command| match command {
+            EdgeHideCommand::Collapse { handle: queued, .. }
+            | EdgeHideCommand::Restore { handle: queued, .. } => *queued != handle,
+        });
+        self.relocation_retry_after.remove(&handle);
+        if self.context_menu_guard == Some(handle) {
+            self.context_menu_guard = None;
+        }
+        if self
+            .drag_intent
+            .as_ref()
+            .is_some_and(|intent| intent.handle == handle)
+        {
+            self.drag_intent = None;
+        }
+        if self
+            .released_top_intent
+            .as_ref()
+            .is_some_and(|intent| intent.handle == handle)
+        {
+            self.released_top_intent = None;
+        }
+        if self
+            .released_side_intent
+            .as_ref()
+            .is_some_and(|intent| intent.handle == handle)
+        {
+            self.released_side_intent = None;
+        }
+        let (rect, original_topmost) = cleanup?;
+        self.states.insert(
+            handle,
+            EdgeHideState::CleaningUp {
+                rect,
+                original_topmost,
+            },
+        );
+        Some(EdgeHideCommand::Restore {
+            handle,
+            rect,
+            topmost: original_topmost,
+        })
     }
 
     /// Re-collapses a window that a layout restore has just placed at
@@ -441,13 +583,16 @@ impl EdgeHideController {
             return None;
         }
         self.relocation_retry_after.remove(&window.handle);
+        let original_topmost = self
+            .original_topmost(window.handle)
+            .unwrap_or(window.topmost);
         self.states.insert(
             window.handle,
             EdgeHideState::Collapsing {
                 edge,
                 restore_rect,
                 hidden_rect,
-                original_topmost: window.topmost,
+                original_topmost,
                 was_foreground: false,
             },
         );
@@ -485,6 +630,18 @@ impl EdgeHideController {
 
     pub fn has_restore_work(&self) -> bool {
         !self.states.is_empty() || !self.restore_queue.is_empty()
+    }
+
+    pub fn restore_work_count(&self) -> usize {
+        self.states
+            .keys()
+            .copied()
+            .chain(self.restore_queue.iter().map(|command| match command {
+                EdgeHideCommand::Collapse { handle, .. }
+                | EdgeHideCommand::Restore { handle, .. } => *handle,
+            }))
+            .collect::<HashSet<_>>()
+            .len()
     }
 
     pub fn prepare_restore_all(&mut self, monitors: &[Monitor], strip_size: i32) {
@@ -1677,54 +1834,7 @@ pub struct CollapsedWindow {
     pub edge: Edge,
     pub restore_rect: Rect,
     pub hidden_rect: Rect,
-}
-
-/// A layout-restore request for the engine to re-collapse one window.
-///
-/// The IPC restore task cannot touch the controller (it lives in the engine
-/// run loop), so it queues the recorded edge state here and the next engine
-/// tick performs the collapse with the usual command lifecycle.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CollapseRequest {
-    pub handle: WindowHandle,
-    pub edge: Edge,
-    pub restore_rect: Rect,
-    pub hidden_rect: Rect,
-}
-
-// `Mutex::new` is const, so the shared queues need no lazy initialization.
-static COLLAPSE_REQUESTS: Mutex<Vec<CollapseRequest>> = Mutex::new(Vec::new());
-static COLLAPSED_WINDOWS: Mutex<Vec<CollapsedWindow>> = Mutex::new(Vec::new());
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// Queue a re-collapse request for the next engine tick.
-pub fn request_collapse(request: CollapseRequest) {
-    lock(&COLLAPSE_REQUESTS).push(request);
-}
-
-/// Drain every queued re-collapse request.
-pub fn take_collapse_requests() -> Vec<CollapseRequest> {
-    std::mem::take(&mut *lock(&COLLAPSE_REQUESTS))
-}
-
-/// Drop pending requests, for example when the engine starts or stops.
-pub fn clear_collapse_requests() {
-    lock(&COLLAPSE_REQUESTS).clear();
-}
-
-/// Publish the controller's current collapsed set for the layout capture path.
-pub fn publish_collapsed_windows(windows: Vec<CollapsedWindow>) {
-    *lock(&COLLAPSED_WINDOWS) = windows;
-}
-
-/// Copy of the last published collapsed set.
-pub fn collapsed_windows_snapshot() -> Vec<CollapsedWindow> {
-    lock(&COLLAPSED_WINDOWS).clone()
+    pub original_topmost: bool,
 }
 
 fn is_candidate_window(window: &WindowInfo, config: &EdgeHideConfig) -> bool {
@@ -6089,6 +6199,7 @@ mod tests {
         assert_eq!(
             controller.collapsed_windows(),
             vec![CollapsedWindow {
+                original_topmost: false,
                 handle: WindowHandle(42),
                 edge: Edge::Left,
                 restore_rect: Rect {
@@ -6105,6 +6216,227 @@ mod tests {
                 },
             }]
         );
+    }
+
+    #[test]
+    fn layout_recollapse_preserves_original_topmost_across_existing_states() {
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..EdgeHideConfig::default()
+        };
+        let now = Instant::now();
+        let monitors = [monitor()];
+        let restore_rect = Rect {
+            left: 0,
+            top: 120,
+            right: 600,
+            bottom: 700,
+        };
+        let hidden_rect = hidden_rect_for(
+            restore_rect,
+            monitors[0].work_area,
+            Edge::Left,
+            config.strip_size,
+        );
+        // Layout restoration observes the temporary topmost bit applied by edge
+        // hiding. It must not replace the controller's original window state.
+        for original_topmost in [false, true] {
+            let states = [
+                EdgeHideState::Pending {
+                    edge: Edge::Left,
+                    observed_rect: restore_rect,
+                    restore_rect,
+                    original_topmost,
+                    since: now,
+                },
+                EdgeHideState::Collapsing {
+                    edge: Edge::Left,
+                    restore_rect,
+                    hidden_rect,
+                    original_topmost,
+                    was_foreground: false,
+                },
+                EdgeHideState::Collapsed {
+                    edge: Edge::Left,
+                    restore_rect,
+                    hidden_rect,
+                    original_topmost,
+                    was_foreground: false,
+                },
+                EdgeHideState::Expanding {
+                    edge: Edge::Left,
+                    restore_rect,
+                    hidden_rect,
+                    original_topmost,
+                    pointer_entered: false,
+                },
+                EdgeHideState::Expanded {
+                    edge: Edge::Left,
+                    restore_rect,
+                    hidden_rect,
+                    original_topmost,
+                    pointer_entered: false,
+                    leave_since: None,
+                },
+                EdgeHideState::Relocating {
+                    edge: Edge::Left,
+                    restore_rect,
+                    hidden_rect,
+                    previous_restore_rect: restore_rect,
+                    previous_hidden_rect: hidden_rect,
+                    original_topmost,
+                    was_foreground: false,
+                },
+                EdgeHideState::CleaningUp {
+                    rect: restore_rect,
+                    original_topmost,
+                },
+            ];
+            for previous in states {
+                let context = format!("{previous:?}");
+                let mut controller = EdgeHideController::new();
+                let mut live = window(restore_rect);
+                live.topmost = true;
+                let mut preparing = EdgeHideController::new();
+                preparing.states.insert(live.handle, previous.clone());
+                let cleanup = preparing.prepare_layout_restore(live.handle).unwrap();
+                assert_eq!(
+                    cleanup,
+                    EdgeHideCommand::Restore {
+                        handle: live.handle,
+                        rect: restore_rect,
+                        topmost: original_topmost,
+                    },
+                    "prepare must preserve ownership for {context}"
+                );
+                assert_eq!(
+                    preparing.original_topmost(live.handle),
+                    Some(original_topmost)
+                );
+                preparing.command_succeeded(cleanup, EdgeHideLiveState::Visible(restore_rect), now);
+                assert_eq!(preparing.original_topmost(live.handle), None);
+                controller.states.insert(live.handle, previous);
+                let collapse = controller
+                    .collapse_now(
+                        now,
+                        &config,
+                        &monitors,
+                        &live,
+                        Edge::Left,
+                        restore_rect,
+                        hidden_rect,
+                    )
+                    .expect("a valid layout restore can replace an existing edge-hide lifecycle");
+                controller.command_succeeded(
+                    collapse,
+                    EdgeHideLiveState::Visible(hidden_rect),
+                    now,
+                );
+                assert_eq!(
+                    controller.restore_if_needed(),
+                    Some(EdgeHideCommand::Restore {
+                        handle: live.handle,
+                        rect: restore_rect,
+                        topmost: original_topmost,
+                    }),
+                    "layout restore must preserve original topmost for {context}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn layout_prepare_preserves_cleanup_ownership_until_verified_success() {
+        let mut controller = collapsed_controller_on_left_monitor();
+        let handle = WindowHandle(42);
+        let now = Instant::now();
+        let cleanup = controller.prepare_layout_restore(handle).unwrap();
+        let EdgeHideCommand::Restore { rect, topmost, .. } = cleanup else {
+            panic!("expected cleanup");
+        };
+        assert!(!topmost);
+        assert!(controller.collapsed_windows().is_empty());
+        assert_eq!(controller.original_topmost(handle), Some(false));
+        controller.command_failed(cleanup, now);
+        assert_eq!(controller.original_topmost(handle), Some(false));
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..EdgeHideConfig::default()
+        };
+        let retry = controller.tick_with_live_state(
+            now + RELOCATION_RETRY_DELAY,
+            &config,
+            Point { x: 900, y: 900 },
+            &[monitor()],
+            None,
+            EdgeHideInput::default(),
+            |_, _| {
+                EdgeHideLiveState::Visible(Rect {
+                    left: -592,
+                    top: 120,
+                    right: 8,
+                    bottom: 700,
+                })
+            },
+        );
+        assert_eq!(retry, Some(cleanup));
+        // A platform success without the requested geometry must retain ownership.
+        controller.command_succeeded(
+            cleanup,
+            EdgeHideLiveState::Visible(Rect {
+                left: -592,
+                top: 120,
+                right: 8,
+                bottom: 700,
+            }),
+            now,
+        );
+        assert_eq!(controller.original_topmost(handle), Some(false));
+        controller.command_succeeded(cleanup, EdgeHideLiveState::Visible(rect), now);
+        assert_eq!(controller.original_topmost(handle), None);
+        assert!(!controller.has_restore_work());
+    }
+
+    #[test]
+    fn layout_prepare_isolates_target_from_other_queued_windows() {
+        let mut controller = collapsed_controller_on_left_monitor();
+        let target = WindowHandle(42);
+        let other = WindowHandle(43);
+        let other_rect = Rect {
+            left: 1320,
+            top: 100,
+            right: 1920,
+            bottom: 700,
+        };
+        let other_cleanup = EdgeHideCommand::Restore {
+            handle: other,
+            rect: other_rect,
+            topmost: true,
+        };
+        let state = controller.states.get(&target).unwrap().clone();
+        controller.states.insert(other, state);
+        controller.queue_restore_all();
+        controller.restore_queue.retain(|command| matches!(command, EdgeHideCommand::Restore { handle, .. } if *handle == target));
+        controller.restore_queue.push_back(other_cleanup);
+        let duplicate = *controller.restore_queue.front().unwrap();
+        controller.restore_queue.push_back(duplicate);
+        assert_eq!(controller.restore_work_count(), 2);
+        controller.context_menu_guard = Some(other);
+        let cleanup = controller.prepare_layout_restore(target).unwrap();
+        assert_eq!(controller.restore_work_count(), 2);
+        assert_eq!(controller.original_topmost(target), Some(false));
+        assert_eq!(controller.original_topmost(other), Some(true));
+        assert_eq!(controller.context_menu_guard, Some(other));
+        assert_eq!(
+            controller.restore_queue.iter().copied().collect::<Vec<_>>(),
+            vec![other_cleanup]
+        );
+        let EdgeHideCommand::Restore { rect, .. } = cleanup else {
+            panic!("expected cleanup");
+        };
+        controller.command_succeeded(cleanup, EdgeHideLiveState::Visible(rect), Instant::now());
+        assert_eq!(controller.restore_if_needed(), Some(other_cleanup));
+        assert_eq!(controller.restore_if_needed(), None);
     }
 
     #[test]
@@ -6158,6 +6490,7 @@ mod tests {
         assert_eq!(
             controller.collapsed_windows(),
             vec![CollapsedWindow {
+                original_topmost: false,
                 handle: live.handle,
                 edge: Edge::Left,
                 restore_rect,
@@ -6322,63 +6655,5 @@ mod tests {
             None
         );
         assert!(controller.collapsed_windows().is_empty());
-    }
-
-    #[test]
-    fn collapse_request_queue_and_collapsed_snapshot_are_process_wide() {
-        let request = CollapseRequest {
-            handle: WindowHandle(9),
-            edge: Edge::Bottom,
-            restore_rect: Rect {
-                left: 100,
-                top: 400,
-                right: 700,
-                bottom: 980,
-            },
-            hidden_rect: Rect {
-                left: 100,
-                top: 964,
-                right: 700,
-                bottom: 1564,
-            },
-        };
-        clear_collapse_requests();
-        assert!(take_collapse_requests().is_empty());
-        request_collapse(request);
-        request_collapse(request);
-        assert_eq!(take_collapse_requests(), vec![request, request]);
-        assert!(take_collapse_requests().is_empty());
-        request_collapse(request);
-        clear_collapse_requests();
-        assert!(take_collapse_requests().is_empty());
-
-        let collapsed = vec![
-            CollapsedWindow {
-                handle: WindowHandle(9),
-                edge: Edge::Bottom,
-                restore_rect: request.restore_rect,
-                hidden_rect: request.hidden_rect,
-            },
-            CollapsedWindow {
-                handle: WindowHandle(10),
-                edge: Edge::Left,
-                restore_rect: Rect {
-                    left: 0,
-                    top: 100,
-                    right: 500,
-                    bottom: 700,
-                },
-                hidden_rect: Rect {
-                    left: -484,
-                    top: 100,
-                    right: 16,
-                    bottom: 700,
-                },
-            },
-        ];
-        publish_collapsed_windows(collapsed.clone());
-        assert_eq!(collapsed_windows_snapshot(), collapsed);
-        publish_collapsed_windows(Vec::new());
-        assert!(collapsed_windows_snapshot().is_empty());
     }
 }

@@ -120,7 +120,7 @@
 </script>
 
 <section class="startup-manager" aria-label={text.title}>
-  <div class="startup-heading"><div><h2>{text.title}</h2><p>{text.description}</p></div><button class="startup-add" disabled={busy || blocked} on:click={chooseApplication} type="button"><span aria-hidden="true">＋</span>{text.add}</button></div>
+  <div class="startup-heading"><div><p>{text.description}</p></div><button class="startup-add" disabled={busy || blocked} on:click={chooseApplication} type="button"><span aria-hidden="true">＋</span>{text.add}</button></div>
   <div class="startup-search"><svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="8" cy="8" r="5.5" /><path d="m12 12 5 5" /></svg><input aria-label={text.search} placeholder={text.search} bind:value={query} type="search" /><button class="startup-refresh" disabled={busy} on:click={() => perform({ action: "list" })} type="button" title={text.refresh} aria-label={text.refresh}><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M16.5 8a6.5 6.5 0 1 0-.8 5M16.5 3v5h-5" /></svg></button></div>
   <div class="startup-filters" aria-label={text.title}>{#each ["all", "enabled", "disabled"] as value}<button aria-pressed={filter === value} class:active={filter === value} on:click={() => { filter = value as StartupFilter; }} type="button">{text[value as StartupFilter]}</button>{/each}</div>
 
@@ -159,16 +159,18 @@
   .startup-manager { display: grid; gap: 14px; min-width: 0; color: var(--ink); }
   .startup-heading { display: flex; align-items: flex-start; gap: 12px; }
   .startup-heading > div { flex: 1; min-width: 0; }
-  .startup-heading h2 { margin: 0 0 6px; font-size: var(--fs-lg); font-weight: 650; }
   .startup-heading p, .startup-hint, .startup-scope { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.6; }
   .startup-manager button { cursor: pointer; }
   .startup-manager button:disabled { cursor: default; opacity: .48; }
   .startup-manager button:focus-visible, .startup-manager input:focus-visible, .startup-manager summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .startup-add { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex-shrink: 0; padding: 8px 10px; background: var(--accent-bg); color: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
   .startup-search { display: flex; align-items: center; gap: 8px; padding-left: 10px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
+  .startup-search:focus-within { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
   .startup-search > svg, .startup-refresh svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; flex-shrink: 0; color: var(--muted); }
   .startup-search input { width: 100%; min-width: 0; border: 0; border-radius: var(--radius-xs); padding: 9px 0; background: transparent; font-size: var(--fs-sm); }
-  .startup-refresh { display: grid; place-items: center; background: transparent; border: 0; min-width: 36px; min-height: 36px; padding: 8px; }
+  .startup-search input:focus-visible { outline: none; }
+  .startup-refresh { display: grid; place-items: center; background: transparent; border: 0; border-radius: var(--radius-xs); min-width: 36px; min-height: 36px; padding: 8px; }
+  .startup-manager .startup-refresh:focus-visible { outline-offset: -4px; }
   .startup-filters { display: flex; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   .startup-filters button { border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--muted); padding: 5px 10px; font-size: var(--fs-sm); }
   .startup-filters button.active { color: var(--ink); background: var(--raised); border-color: var(--line-strong); }

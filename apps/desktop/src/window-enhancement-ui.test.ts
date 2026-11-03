@@ -29,23 +29,31 @@ describe("window enhancement UI wiring", () => {
     expect(source).toContain("English");
   });
 
-  it("uses the unified hotzone master-toggle copy and disabled settings body", () => {
+  it("uses compact hotzone copy and keeps paused settings editable", () => {
     expect(source).not.toContain('ui("hotzoneMaster")');
-    expect(source).toContain('ui("hotzoneTitle")');
+    expect(source).toContain('ui("hotzones")');
     expect(source).not.toContain('ui("hotzoneSettings")');
     expect(i18n.zh.hotzoneMaster).toBe("触发角总开关");
-    expect(i18n.zh.hotzoneTitle).toBe("把屏幕边角变成快捷操作入口");
+    expect(i18n.zh.hotzoneTitle).toBe("触发角");
     expect(i18n.zh.hotzoneSettings).toBe("触发角设置");
     expect(i18n.en.hotzoneMaster).toBe("Corner switch");
-    expect(source).toContain('class="feature-settings-body" class:off={!settings.hotzonesEnabled} inert={!settings.hotzonesEnabled}');
+    expect(source).not.toContain('inert={!settings.hotzonesEnabled}');
+    expect(source).not.toContain('inert={!settings.edgeHide.enabled}');
+    expect(source).not.toContain('inert={!settings.windowDrag.enabled}');
+    expect(source).toContain('class="feature-settings-body" class:off={!settings.hotzonesEnabled}');
+    expect(source).not.toContain('featurePauseMessage');
+    expect(source).not.toContain('feature-state-note');
+    expect(source).toContain('class="monitor-hotzone-settings" inert={!displayReady}');
     expect(source).toContain('class:app-disabled={!settings.enabled}');
-    expect(styles).toContain(".app-disabled .feature-settings-body");
+    expect(styles).toContain('.app-disabled .feature-settings-body');
+    expect(source).toContain('class="gesture-workbench" class:off={!settings.mouseGestures.enabled}');
+    expect(source).toContain('class="advanced-settings gesture-advanced" class:off={!settings.mouseGestures.enabled}');
+    expect(source).toContain('class="list-section gesture-paused-apps" class:off={!settings.mouseGestures.enabled}');
   });
 
   it("keeps configured hotzone markers visible in the monitor preview", () => {
     expect(source).toContain("hotzonesEnabled={settings.hotzonesEnabled}");
     expect(source).toContain("displayReady");
-    expect(source).toContain('ui("checkConnection")');
   });
 
   it("keeps the selected monitor and edge controls above companion content", () => {
@@ -71,7 +79,9 @@ describe("window enhancement UI wiring", () => {
   it("labels fallback display data as a preview and only marks live data online", () => {
     expect(source).toContain("let displayReady = false");
     expect(source).toContain("let helperError = \"\"");
-    expect(source).toContain('ui("checkConnection")');
+    expect(source).toContain('class="display-picker" role="status"');
+    expect(source).not.toContain('class="display-action"');
+    expect(source).not.toContain('on:click={() => helper.ping()}');
     expect(source).toContain("class:ready={displayReady}");
     expect(source).toContain("displayReady={displayReady}");
     expect(styles).toContain(".display-picker i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint);");
@@ -80,9 +90,10 @@ describe("window enhancement UI wiring", () => {
     expect(monitorStage).toContain("等待后台助手提供显示器信息");
   });
 
-  it("keeps disabled settings readable and preserves a persistent error rail", () => {
-    expect(styles).toContain(".feature-settings-body.off { cursor: not-allowed; opacity: 1;");
-    expect(styles).toContain(".app-disabled .feature-settings-body { opacity: 1;");
+  it("keeps paused settings editable and preserves a persistent error rail", () => {
+    expect(styles).not.toContain(".feature-settings-body.off { cursor: not-allowed;");
+    expect(source).not.toContain('feature-state-note');
+    expect(styles).toContain('filter: grayscale(1); opacity: .7;');
     expect(source).toContain("class:error={Boolean(helperError)}");
     expect(source).toContain('if (status === "connected") lastMessage =');
     expect(source).toMatch(/function markHelperReady\(\): void \{\r?\n    helperError = ""/);
@@ -116,9 +127,15 @@ describe("window enhancement UI wiring", () => {
     expect(styles).toContain("animation: tutorial-cursor-cycle");
     expect(styles).toContain("@keyframes tutorial-edge-window-cycle");
     expect(styles).toContain("@keyframes tutorial-cursor-cycle");
-    expect(styles).toContain(".feature-help { position: relative;");
-    expect(styles).toContain("right: -112px;");
-    expect(styles).toContain("top: calc(100% + 6px);");
+    expect(styles).toContain(".feature-help { position: static;");
+    const card = styles.match(/\.feature-help-card \{[^}]*\}/)?.[0] ?? "";
+    expect(card).toContain("left: 0;");
+    expect(card).toContain("max-width: 100%;");
+    expect(card).not.toContain("right: -112px");
+    expect(styles).toContain("container-type: inline-size;");
+    expect(styles).toContain("translateX(calc(50cqw - 66px))");
+    expect(styles).toContain("translateX(calc(50cqw + 50px))");
+    expect(card).toContain("top: 30px;");
     expect(styles).toContain(".feature-help-button::before");
     expect(styles).toContain('content: "?";');
     expect(styles).toContain("inset: 4px;");

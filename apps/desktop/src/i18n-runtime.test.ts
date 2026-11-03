@@ -46,6 +46,33 @@ it("keeps every rendered label switchable between Chinese and English", async ()
         select.dispatchEvent(new Event('change', { bubbles: true }));
         flushSync(); await settle();
       };
+      const assertFeatureControls = async language => {
+        const english = language === 'en-US';
+        for (const [index, label, title] of [
+          [1, english ? 'Enable corners' : '启用触发角功能', english ? 'Hot corners' : '触发角'],
+          [3, english ? 'Enable gestures' : '启用鼠标增强', english ? 'Mouse gestures' : '鼠标手势']
+        ]) {
+          navButtons()[index].click(); flushSync(); await settle();
+          const control = document.querySelector('.feature-header-toggle input');
+          assert.ok(control, 'the feature switch belongs in the header');
+          assert.equal(control.getAttribute('aria-label'), label, 'header switch names follow the current language');
+          assert.equal(document.querySelectorAll('.drawer input[aria-label="' + label + '"]').length, 1, 'each feature has only one master switch');
+          assert.equal(document.querySelector('.drawer-head .drawer-title').textContent, title);
+          assert.equal(document.querySelector('.feature-intro-copy h2'), null, 'the body does not repeat the feature heading');
+          if (english) assert.deepEqual(cjk(), [], 'English feature descriptions and controls contain no Chinese');
+        }
+        navButtons()[2].click(); flushSync(); await settle();
+        assert.deepEqual([...document.querySelectorAll('.window-tab-item .mini-switch input')].map(input => input.getAttribute('aria-label')),
+          english ? ['Enable edge hide', 'Enable dragging'] : ['启用贴边隐藏', '启用任意位置拖拽'], 'both independent switch labels follow the language');
+        const tabs = [...document.querySelectorAll('.window-tabs button[role="tab"]')];
+        assert.deepEqual(tabs.map(tab => tab.textContent.trim()), english ? ['Edge hide', 'Move / resize'] : ['贴边隐藏', '拖拽与缩放']);
+        for (const tab of tabs) {
+          tab.click(); flushSync(); await settle();
+          assert.equal(document.querySelector('.feature-intro-copy h2'), null, 'window feature descriptions do not repeat tab headings');
+          if (english) assert.deepEqual(cjk(), [], 'both English window feature panels contain no Chinese');
+        }
+        openSettings(); await settle();
+      };
 
       HelperClient.prototype.connect = function() {};
       HelperClient.prototype.disconnect = function() {};
@@ -96,6 +123,7 @@ it("keeps every rendered label switchable between Chinese and English", async ()
         navButtons()[index].click(); flushSync(); await settle();
       }
       openSettings(); await settle();
+      await assertFeatureControls('en-US');
       assert.deepEqual(cjk(), [], 'English settings drawer must not contain Chinese: ' + cjk().join(' / '));
       assert.ok(composerLabels().includes('Corners'), 'feature entry labels must be English: ' + JSON.stringify(composerLabels()));
       openSettings(); await settle();
@@ -109,10 +137,12 @@ it("keeps every rendered label switchable between Chinese and English", async ()
       openSettings(); await settle();
       assert.ok(composerLabels().includes('触发角'), 'feature entry labels must start in Chinese: ' + JSON.stringify(composerLabels()));
       await chooseLanguage('en-US');
+      await assertFeatureControls('en-US');
       assert.deepEqual(nav(), ['Center', 'Corners', 'Windows', 'Gestures', 'Style'], 'bottom tabs must follow a live language switch');
       assert.ok(composerLabels().includes('Corners'), 'feature entry labels must follow a live language switch: ' + JSON.stringify(composerLabels()));
       assert.deepEqual(cjk(), [], 'a live switch to English must not leave Chinese text: ' + cjk().join(' / '));
       await chooseLanguage('zh-CN');
+      await assertFeatureControls('zh-CN');
       assert.deepEqual(nav(), ['运行中心', '触发角', '窗口增强', '鼠标手势', '窗口美化'], 'bottom tabs must switch back to Chinese');
 
       // 3) 英文错误路径：Rust/preload 的诊断仍是中文时，界面只能显示本地化通用提示。

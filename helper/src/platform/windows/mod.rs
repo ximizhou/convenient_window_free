@@ -5,6 +5,8 @@ pub mod input;
 pub mod keyboard;
 pub mod monitor;
 pub mod mouse;
+#[cfg(test)]
+pub(crate) mod native_test_windows;
 pub mod ocr;
 pub mod screenshot;
 pub mod topmost_pin;

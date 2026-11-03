@@ -33,11 +33,14 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       HelperClient.prototype.disconnect = function() { receiveStatus('disconnected'); };
       HelperClient.prototype.stop = function() { stopCalls++; receiveStatus('disconnected'); };
       HelperClient.prototype.sendConfig = function(settings) { sent.push(structuredClone(settings)); return true; };
+      let pingCalls = 0, pingAccepted = true;
+      HelperClient.prototype.ping = function() { pingCalls++; return pingAccepted; };
       let stored = normalizeSettings(defaultSettings);
       delete stored.showHotzoneHint;
       stored.enabled = true;
       stored.hotzonesEnabled = true;
       stored.mouseGestures.enabled = true;
+      stored.edgeHide.enabled = true;
       stored.windowDrag.enabled = false;
       stored.topmostPin = { enabled: false };
       stored.edgeHide.animationEnabled = false;
@@ -119,13 +122,138 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
         option.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
       };
       open(2);
-      assert.equal(document.querySelector('.window-tabs button').classList.contains('active'), true, 'Windows enhancement must initially show the edge tab');
+      const assertFeatureIntro = title => {
+        assert.equal(document.querySelector('.drawer-head .drawer-title').textContent, title, 'the feature title belongs in the drawer header');
+        assert.equal([...document.querySelectorAll('.drawer h2')].filter(heading => heading.textContent === title).length, 1, 'the feature heading is only rendered once');
+        assert.equal(document.querySelectorAll('.feature-intro-copy h2').length, 0, 'feature descriptions must not repeat the title');
+        assert.equal(document.querySelectorAll('.feature-intro-copy .feature-summary').length, 1, 'keep the feature summary');
+        assert.equal(document.querySelectorAll('.feature-intro-copy .feature-details > summary').length, 1, 'keep expandable feature information');
+      };
+      const windowTabs = () => [...document.querySelectorAll('.window-tabs button[role="tab"]')];
+      const edgeSwitch = () => document.querySelector('.window-tab-item input[aria-label="Enable edge hide"]');
+      const dragSwitch = () => document.querySelector('.window-tab-item input[aria-label="Enable dragging"]');
+      const selectedWindowTab = () => windowTabs().findIndex(tab => tab.getAttribute('aria-selected') === 'true');
+      assert.equal(windowTabs().length, 2);
+      assert.equal(selectedWindowTab(), 0, 'Windows enhancement must initially show the edge tab');
+      assertFeatureIntro('Windows');
+      assert.equal(document.querySelectorAll('.window-tabs .mini-switch input').length, 2, 'both independent feature switches stay visible');
+      for (const input of [edgeSwitch(), dragSwitch()]) {
+        assert.ok(input, 'each window enhancement feature keeps its own switch');
+        assert.equal(input.closest('button'), null, 'a switch must not be nested inside its tab button');
+        assert.ok(input.closest('.window-tab-item').querySelector('button[role="tab"]'), 'the switch shares its row with the corresponding tab');
+      }
+      assert.equal(edgeSwitch().checked, true);
+      assert.equal(dragSwitch().checked, false);
+      for (const enabled of [true, false]) {
+        dragSwitch().click(); await settle();
+        assert.equal(stored.windowDrag.enabled, enabled, 'the unselected drag switch persists independently');
+        assert.equal(stored.edgeHide.enabled, true, 'changing drag does not alter edge hide');
+        assert.equal(selectedWindowTab(), 0, 'toggling an unselected feature must not navigate');
+      }
+      const settingsBeforeTabChanges = structuredClone(stored);
+      const savesBeforeTabChanges = saves;
+      for (const [index, key, selected] of [[0, 'ArrowRight', 1], [1, 'ArrowLeft', 0], [0, 'End', 1], [1, 'Home', 0]]) {
+        const tab = windowTabs()[index];
+        tab.focus();
+        tab.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+        await settle();
+        assert.equal(selectedWindowTab(), selected, key + ' changes the active window tab');
+        assert.equal(document.activeElement, windowTabs()[selected], key + ' moves focus to the chosen tab');
+      }
+      for (const input of [edgeSwitch(), dragSwitch()]) {
+        input.focus();
+        for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End']) {
+          const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+          input.dispatchEvent(event); await settle();
+          assert.equal(event.defaultPrevented, false, 'tab navigation must not consume keys from a switch');
+          assert.equal(document.activeElement, input, 'arrow keys on a switch keep focus there');
+          assert.equal(selectedWindowTab(), 0, 'arrow keys on a switch do not navigate');
+        }
+      }
+      windowTabs()[1].click(); await settle();
+      windowTabs()[0].click(); await settle();
+      assert.deepEqual(stored, settingsBeforeTabChanges, 'tab navigation does not change saved configuration');
+      assert.equal(saves, savesBeforeTabChanges, 'tab navigation must not save unchanged settings');
+      edgeSwitch().click(); await settle();
+      assert.equal(stored.edgeHide.enabled, false);
+      const edgeBody = document.querySelector('.feature-settings-body');
+      assert.ok(edgeBody.classList.contains('off'), 'disabled edge settings are dimmed');
+      assert.equal(edgeBody.hasAttribute('inert'), false, 'disabled edge settings remain editable');
+      const edgePreviewBefore = stored.edgeHide.showPreview;
+      for (const preview of [!edgePreviewBefore, edgePreviewBefore]) {
+        document.querySelector('.edge-preview-setting input').click(); await settle();
+        assert.equal(stored.edgeHide.showPreview, preview, 'edits to a disabled edge feature persist');
+        assert.equal(stored.edgeHide.enabled, false, 'editing a disabled feature does not enable it');
+      }
+      edgeSwitch().click(); await settle();
       noTopmostPin();
-      document.querySelectorAll('.window-tabs button')[1].click(); flushSync();
+      windowTabs()[1].click(); await settle();
+      assertFeatureIntro('Windows');
+      for (const enabled of [false, true]) {
+        edgeSwitch().click(); await settle();
+        assert.equal(stored.edgeHide.enabled, enabled, 'the unselected edge switch persists independently');
+        assert.equal(stored.windowDrag.enabled, false, 'changing edge hide does not enable dragging');
+        assert.equal(selectedWindowTab(), 1, 'toggling the other feature preserves the selected drag tab');
+      }
       assert.equal(document.querySelector('input[aria-label="Enable dragging"]').checked, false, 'window drag is disabled in this scenario');
-      assert.equal(document.querySelector('.feature-settings-body').hasAttribute('inert'), true, 'disabled drag settings must actually be inert');
+      assert.equal(document.querySelector('.feature-settings-body').hasAttribute('inert'), false, 'paused drag settings must remain editable');
+      assert.equal(document.querySelector('.feature-state-note'), null, 'paused drag must not add an explanatory banner');
+      assert.ok(document.querySelector('.feature-settings-body').classList.contains('off'), 'paused drag must expose the dimmed visual state');
+      const dragDetails = document.querySelector('.drag-update-settings').closest('details');
+      dragDetails.open = true;
+      const dragPreset = document.querySelectorAll('.drag-update-settings .motion-presets button')[2];
+      assert.equal(dragPreset.closest('[inert]'), null);
+      dragPreset.click(); await settle();
+      assert.equal(stored.windowDrag.updateHz, 240, 'editing a paused drag setting must persist');
+      assert.equal(stored.windowDrag.enabled, false, 'editing a setting must not enable dragging');
+      assert.equal(document.querySelector('input[aria-label="Enable dragging"]').checked, false);
       noTopmostPin();
       open(1);
+      assertFeatureIntro('Hot corners');
+      assert.equal(document.querySelectorAll('.feature-header-toggle input[aria-label="Enable corners"]').length, 1, 'the corner switch is available in the header exactly once');
+      receive({ type: 'runtime.status', data: { displays: [{ id: 'display:0:0:1920:1080', primary: true, bounds: { left: 0, top: 0, right: 1920, bottom: 1080 }, workArea: { left: 0, top: 0, right: 1920, bottom: 1040 } }] } });
+      await settle();
+      const keyboard = async (target, key) => {
+        target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+        await settle();
+      };
+      const pickerTrigger = document.querySelector('.action-editor .picker-trigger');
+      pickerTrigger.focus(); pickerTrigger.click(); await settle();
+      assert.ok(document.querySelector('.picker-menu'), 'open the real action menu before cancelling it');
+      await keyboard(pickerTrigger, 'Escape');
+      assert.equal(document.querySelector('.picker-menu'), null, 'Escape closes the action menu');
+      assert.ok(document.querySelector('.drawer'), 'cancelling an action menu must not also close the settings drawer');
+      assert.equal(document.activeElement === pickerTrigger, true, 'cancelling the menu keeps focus on its trigger');
+
+      document.querySelector('.zone-top-left').click(); await settle();
+      const triggerTabs = () => [...document.querySelectorAll('.trigger-tabs [role="tab"]')];
+      const enabledTabs = () => triggerTabs().filter(tab => !tab.disabled);
+      assert.equal(triggerTabs().at(-1).disabled, true, 'corners cannot use the slide trigger');
+      for (const [start, key, expected] of [[0, 'ArrowLeft', -1], [-1, 'ArrowRight', 0], [0, 'End', -1], [-1, 'Home', 0]]) {
+        const source = enabledTabs().at(start);
+        source.click(); source.focus(); await settle();
+        await keyboard(source, key);
+        const destination = enabledTabs().at(expected);
+        assert.equal(document.activeElement === destination, true, key + ' skips disabled trigger tabs');
+        assert.equal(destination.getAttribute('aria-selected'), 'true', key + ' activates the focused trigger');
+      }
+      await keyboard(document.activeElement, 'Escape');
+      assert.equal(document.querySelector('.drawer'), null, 'Escape still closes the drawer when no child consumes it');
+      localStorage.setItem('convenient-window-layouts', JSON.stringify([{ id: 'keyboard-layout', name: 'Keyboard test', capturedAt: 1, windows: [] }]));
+      document.querySelector('.settings-toggle').click(); await settle();
+      document.querySelector('.composer-bubble[data-feature-id="window-layouts"] button').click(); await settle();
+      const layoutRecorder = document.querySelector('.layout-shortcut');
+      layoutRecorder.focus(); layoutRecorder.click(); await settle();
+      assert.equal(layoutRecorder.classList.contains('recording'), true, 'start the real layout shortcut recorder');
+      await keyboard(layoutRecorder, 'Escape');
+      assert.ok(document.querySelector('.window-layouts-panel'), 'Escape cancels layout recording without dismissing its drawer');
+      assert.equal(layoutRecorder.classList.contains('recording'), false, 'the layout shortcut recorder must leave recording mode');
+      localStorage.removeItem('convenient-window-layouts');
+      open(1); await settle();
+      document.querySelector('.zone-right').click(); await settle();
+      const zoneSelect = document.querySelector('.geometry-zone-select');
+      zoneSelect.focus(); await keyboard(zoneSelect, 'Escape');
+      assert.ok(document.querySelector('.hotzone-geometry'), 'Escape in a native select must not dismiss its drawer');
       assert.equal(hotzoneHint().checked, true, 'missing/initial hint preference defaults on in the real App');
       assert.equal(hotzoneHint().getAttribute('aria-label'), 'Show translucent hint area');
       assert.equal(document.querySelector('.hotzone-hint-setting h2').textContent, 'Show translucent hint area');
@@ -145,12 +273,19 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
         assert.equal(stored.edgeSize, edgeSizeBeforeHint, 'hint changes must not alter the hotzone size');
       }
       assert.equal(saves, savesBeforeHint + 3, 'each hint change must auto-save');
-      document.querySelector('.hotzone-master-intro input').click(); await settle();
+      document.querySelector('.feature-header-toggle input[aria-label="Enable corners"]').click(); await settle();
       assert.equal(stored.hotzonesEnabled, false);
-      assert.equal(document.querySelector('.feature-settings-body').hasAttribute('inert'), true, 'the existing corner master switch still disables settings');
+      assert.equal(document.querySelector('.feature-settings-body').hasAttribute('inert'), false, 'paused corners must remain editable');
+      assert.equal(document.querySelector('.feature-state-note'), null, 'paused corners must not add an explanatory banner');
+      assert.ok(document.querySelector('.feature-settings-body').classList.contains('off'), 'paused corners must expose the dimmed visual state');
       assert.equal(hotzoneHint().checked, false);
       assert.equal(stored.showHotzoneHint, false, 'disabling corners must retain the hint choice');
-      document.querySelector('.hotzone-master-intro input').click(); await settle();
+      for (const hint of [true, false]) {
+        hotzoneHint().click(); await settle();
+        assert.equal(stored.showHotzoneHint, hint, 'hint edits while corners are off must persist');
+        assert.equal(stored.hotzonesEnabled, false, 'editing a hint must not enable corner actions');
+      }
+      document.querySelector('.feature-header-toggle input[aria-label="Enable corners"]').click(); await settle();
       assert.equal(stored.hotzonesEnabled, true);
       assert.equal(hotzoneHint().checked, false, 're-enabling corners must not reset the hint choice');
       document.querySelector('.settings-toggle').click(); flushSync();
@@ -178,12 +313,27 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       assert.deepEqual(stored.taskbarAppearance, { enabled: true, mode: 'acrylic', opacity: 73, tint: '#EAF1FC', showBorder: true });
       open(3);
       noTopmostPin();
+      assertFeatureIntro('Mouse gestures');
+      assert.equal(document.querySelectorAll('.feature-header-toggle input[aria-label="Enable gestures"]').length, 1, 'the gesture switch is available in the header exactly once');
+      document.querySelector('.feature-header-toggle input[aria-label="Enable gestures"]').click(); await settle();
+      assert.equal(stored.mouseGestures.enabled, false);
+      assert.equal(document.querySelector('.feature-state-note'), null, 'paused gestures must not add an explanatory banner');
+      for (const selector of ['.gesture-workbench', '.gesture-advanced', '.gesture-paused-apps']) {
+        const section = document.querySelector(selector);
+        assert.ok(section.classList.contains('off'), selector + ' must expose the dimmed state');
+        assert.equal(section.closest('[inert]'), null, selector + ' must remain editable');
+      }
       const circle = [...document.querySelectorAll('.gesture-library button')].find(button => button.textContent.includes('Circle'));
       assert.ok(circle, 'the built-in circle gesture must be available');
       circle.click(); await settle();
       assert.equal(topmostPin().checked, true, 'the gesture topmost action must use the same default-enabled pin setting');
       topmostPin().click(); await settle();
       assert.equal(stored.topmostPin.enabled, false, 'the gesture topmost pin choice must persist through the same host setting');
+      assert.equal(stored.mouseGestures.enabled, false, 'editing paused gesture settings must not enable gestures');
+      document.querySelector('.feature-header-toggle input[aria-label="Enable gestures"]').click(); await settle();
+      assert.equal(stored.mouseGestures.enabled, true);
+      assert.equal(document.querySelector('.gesture-workbench').classList.contains('off'), false);
+
       await unmount(component); document.body.replaceChildren();
       component = mount(App, { target: document.body }); flushSync(); await settle();
       open(1);
@@ -439,6 +589,14 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       stored.enabled = true;
       component = mount(App, { target: document.body }); flushSync(); await settle(); open(0);
       assert.equal(document.querySelector('.power-summary').dataset.state, 'starting', 'an active connect reports starting');
+      const displayStatus = document.querySelector('.display-picker');
+      assert.equal(displayStatus.getAttribute('role'), 'status', 'display information is a read-only status');
+      assert.equal(displayStatus.matches('button, a, [tabindex]'), false, 'display status must not enter keyboard navigation');
+      assert.equal(displayStatus.querySelector('button, a, [tabindex], .display-action'), null, 'display status has no connection action');
+      assert.equal(displayStatus.querySelector('.display-status').textContent, 'Connecting', 'the pending connection state stays visible');
+      const pingsBeforeStatusClick = pingCalls;
+      displayStatus.click(); flushSync();
+      assert.equal(pingCalls, pingsBeforeStatusClick, 'clicking display status must not send a ping');
       const runtimeDetails = () => document.querySelector('.runtime-details:not(.install-details)');
       assert.equal(runtimeDetails().open, false, 'technical details start collapsed');
       assert.equal(document.querySelectorAll('.power-facts > .runtime-card').length, 2, 'the two grey cards are retained');
@@ -453,6 +611,30 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
         platform: { system: 'windows', architecture: 'x86_64', session: 'Win32', capabilities: { globalInput: true, ocr: false } } } }); flushSync();
       assert.equal(document.querySelector('.power-summary').dataset.state, 'running');
       assert.ok(document.querySelector('.power-orb').classList.contains('on'));
+      assert.equal(displayStatus.querySelector('.display-status').textContent, 'Waiting for helper', 'missing display data keeps the existing waiting state');
+      receive({ type: 'runtime.status', data: { displays: [{ id: 'display:0:0:1920:1080', primary: true, bounds: { left: 0, top: 0, right: 1920, bottom: 1080 }, workArea: { left: 0, top: 0, right: 1920, bottom: 1040 } }] } }); flushSync();
+      assert.equal(displayStatus.querySelector('.display-status').textContent, '1 displays', 'live display count remains visible');
+      assert.ok(displayStatus.querySelector('i').classList.contains('ready'), 'only live display data marks the status ready');
+      const connectionTest = document.querySelector('.runtime-actions > .connection-test');
+      assert.equal(connectionTest.disabled, false);
+      connectionTest.click(); flushSync();
+      assert.equal(pingCalls, pingsBeforeStatusClick + 1, 'the runtime center remains the connection test entry');
+      assert.equal(connectionTest.textContent.trim(), 'Testing');
+      assert.equal(connectionTest.disabled, true, 'connection testing blocks a duplicate request');
+      receive({ type: 'helper.pong', data: {} }); flushSync();
+      assert.equal(connectionTest.textContent.trim(), 'Connected', 'a pong shows successful connection feedback');
+      assert.ok(connectionTest.classList.contains('success'));
+      assert.equal(connectionTest.disabled, false);
+      pingAccepted = false;
+      connectionTest.click(); flushSync();
+      assert.equal(pingCalls, pingsBeforeStatusClick + 2);
+      assert.equal(connectionTest.textContent.trim(), 'Test failed', 'an unsent request shows failure feedback');
+      assert.ok(connectionTest.classList.contains('failed'));
+      assert.equal(connectionTest.disabled, false);
+      pingAccepted = true;
+      connectionTest.click(); flushSync();
+      receive({ type: 'helper.pong', data: {} }); flushSync();
+      assert.ok(connectionTest.classList.contains('success'), 'a failed connection test can be retried successfully');
       openSettings();
       assert.equal(permission().checked, false);
       assert.equal(document.querySelector('.permission-state'), null, 'known permission uses only the switch state');

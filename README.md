@@ -18,7 +18,7 @@
 
 </div>
 
-> Development 0.6.10 simplifies feature panels, progressively discloses advanced settings, and improves keyboard navigation, confirmations, save feedback and feature-entry tooltip stacking while preserving the home screen and display preview. These source changes are not a new published release.
+> Development 0.6.10 simplifies panel headings, adds independent switches to the window-enhancement tabs, keeps paused settings editable, and improves narrow-panel layouts and keyboard focus. It also fixes edge-hide restoration and temporary topmost state in window layouts. Candidate validation is pending; these source changes are not a new published release.
 
 
 ![Convenient Window overview](docs/images/running-center.png)

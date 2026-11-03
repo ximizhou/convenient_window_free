@@ -72,3 +72,11 @@ jobs:
         env:
           SEVEN_ZIP: C:\Program Files\7-Zip\7z.exe
         run: npm run desktop:audit
+
+      - name: Preserve the verified release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-candidate
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14

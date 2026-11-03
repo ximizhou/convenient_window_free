@@ -13,6 +13,15 @@
   let activeIndex = value;
   let menuStyle = "";
   let selected: { label: string; group: string };
+  let reducedMotion = false;
+
+  onMount(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => { reducedMotion = preference.matches; };
+    update();
+    preference.addEventListener("change", update);
+    return () => preference.removeEventListener("change", update);
+  });
 
   $: if (!open) activeIndex = value;
   $: selected = options[value] ?? options[0];
@@ -105,7 +114,7 @@
     class="picker-menu"
     id="action-picker-menu"
     bind:this={menu}
-    in:fly={{ y: -5, duration: 150 }}
+    in:fly={{ y: -5, duration: reducedMotion ? 0 : 150 }}
     role="listbox"
     style={menuStyle}
     tabindex="-1"

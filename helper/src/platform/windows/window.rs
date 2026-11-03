@@ -637,6 +637,74 @@ mod tests {
         CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_POPUP, WS_VISIBLE,
     };
 
+    use super::super::native_test_windows::{IsolatedDesktop, TestWindow};
+
+    #[test]
+    fn isolated_non_topmost_restore_does_not_inherit_topmost_from_neighbours() {
+        let _desktop = IsolatedDesktop::new();
+        let first = TestWindow::new("Native topmost restore first");
+        let second = TestWindow::new("Native topmost restore second");
+        let pinned = TestWindow::new("Native topmost restore pinned neighbour");
+        set_window_topmost(pinned.handle(), true).unwrap();
+
+        for iteration in 0..32 {
+            for window in [&first, &second] {
+                let rect = AppRect {
+                    left: 100 + iteration,
+                    top: 100,
+                    right: 340 + iteration,
+                    bottom: 260,
+                };
+                set_window_rect_topmost(window.handle(), rect, true).unwrap();
+                assert!(window.topmost());
+                if iteration == 0 {
+                    let captured = list_window_layouts()
+                        .unwrap()
+                        .into_iter()
+                        .find(|candidate| candidate.handle == window.handle())
+                        .unwrap();
+                    assert!(
+                        captured.topmost,
+                        "native capture reports the current temporary style; the engine must restore user intent"
+                    );
+                }
+                set_window_rect_topmost(window.handle(), rect, false).unwrap();
+                assert!(!window.topmost(), "explicit false must demote its target");
+                assert!(pinned.topmost(), "another pinned window must stay pinned");
+            }
+            assert!(!first.topmost());
+            assert!(!second.topmost());
+        }
+
+        for placement in [true, false] {
+            for order in [[&first, &second], [&second, &first]] {
+                for window in order {
+                    set_window_topmost(window.handle(), true).unwrap();
+                    let info = window_info_for_handle(window.handle()).unwrap().unwrap();
+                    let layout = crate::platform::WindowLayout {
+                        process_name: info.process_name,
+                        class_name: info.class_name,
+                        title: info.title,
+                        occurrence: 0,
+                        z_index: 0,
+                        rect: info.rect,
+                        placement_rect: placement.then_some(info.rect),
+                        minimized: false,
+                        maximized: false,
+                        topmost: false,
+                        edge_hidden: None,
+                    };
+                    apply_window_layout(window.handle(), &layout).unwrap();
+                    assert!(
+                        !window.topmost(),
+                        "both layout paths must demote a false snapshot"
+                    );
+                    assert!(pinned.topmost());
+                }
+            }
+        }
+    }
+
     #[test]
     fn bottom_hidden_window_is_anchored_behind_overlapping_taskbar() {
         let target = AppRect {

@@ -280,7 +280,10 @@
     const isDragging = dragging && item.id === pointerSource;
     const x = isDragging ? pointerPoint.x - bubbleSize / 2 : item.x;
     const y = isDragging ? pointerPoint.y - bubbleSize / 2 : item.y;
-    return `transform: translate3d(${x}px, ${y}px, 0);`;
+    const tooltipWidth = Math.min(220, layoutWidth);
+    const tooltipCenter = Math.max(tooltipWidth / 2, Math.min(layoutWidth - tooltipWidth / 2, x + bubbleSize / 2));
+    // Keep hidden and visible tooltips inside the stage; the button has a 1px border.
+    return `transform: translate3d(${x}px, ${y}px, 0); --tooltip-left:${tooltipCenter - x - 1}px; --tooltip-width:${tooltipWidth}px;`;
   }
 
   function placeholderStyle(): string {
@@ -392,7 +395,7 @@
   .composer-bubble:has(.composer-bubble-button:hover),
   .composer-bubble:has(.composer-bubble-button:focus-visible) { z-index: 30; }
   .composer-stage.measured .composer-bubble { transition: transform var(--dur-mid) var(--ease-out), opacity var(--dur-base) ease; }
-  .composer-bubble.dragging { z-index: 8; opacity: 1; transition: none; }
+  .composer-stage.measured .composer-bubble.dragging { z-index: 8; opacity: 1; transition: none; }
   .composer-bubble.dragging .composer-bubble-button { background: linear-gradient(180deg, var(--chip-a), var(--chip-b)); --glyph-cutout: var(--chip-b); }
   .composer-bubble.dim { opacity: .6; }
   .composer-bubble.dim:hover { opacity: .92; }
@@ -426,7 +429,7 @@
 
   .composer-placeholder { z-index: 1; border: 1.5px dashed color-mix(in srgb, var(--accent) 68%, transparent); background: color-mix(in srgb, var(--accent-bg) 62%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-line) 46%, transparent), 0 0 0 4px color-mix(in srgb, var(--accent-line) 10%, transparent); pointer-events: none; transition: transform var(--dur-mid) var(--ease-out); }
 
-  .composer-tooltip { position: absolute; top: calc(100% + 8px); left: 50%; z-index: 30; display: grid; width: max-content; max-width: min(220px, calc(100vw - 34px)); gap: 3px; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 11px; background: color-mix(in srgb, var(--panel) 95%, var(--raised)); box-shadow: 0 12px 28px rgba(15, 23, 42, .18), 0 1px 2px rgba(15, 23, 42, .08); color: var(--ink); text-align: left; opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, -4px) scale(.98); transform-origin: top center; transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease, visibility var(--dur-fast) ease; }
+  .composer-tooltip { position: absolute; top: calc(100% + 8px); left: var(--tooltip-left); z-index: 30; display: grid; width: max-content; max-width: var(--tooltip-width); gap: 3px; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 11px; background: color-mix(in srgb, var(--panel) 95%, var(--raised)); box-shadow: 0 12px 28px rgba(15, 23, 42, .18), 0 1px 2px rgba(15, 23, 42, .08); color: var(--ink); text-align: left; opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, -4px) scale(.98); transform-origin: top center; transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease, visibility var(--dur-fast) ease; }
   .composer-tooltip strong { color: var(--ink); font-size: var(--fs-xs); font-weight: 650; white-space: nowrap; }
   .composer-tooltip small { color: var(--muted); font-size: var(--fs-3xs); line-height: 1.35; white-space: normal; }
   .composer-bubble-button:hover .composer-tooltip, .composer-bubble-button:focus-visible .composer-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0) scale(1); }

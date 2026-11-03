@@ -30,10 +30,10 @@
     "@tauri-apps/cli": "^2.11.4",
     "@tsconfig/svelte": "^5.0.4",
     "@types/node": "^25.9.3",
-    "happy-dom": "^20.14.5",
+    "happy-dom": "^21.0.4",
     "svelte-check": "^4.1.1",
     "typescript": "^5.7.2",
-    "vite": "^6.0.7",
-    "vitest": "^3.2.4"
+    "vite": "^6.4.5",
+    "vitest": "^4.1.12"
   }
 }

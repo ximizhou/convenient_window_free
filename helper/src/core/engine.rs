@@ -2,12 +2,13 @@ use crate::config::GestureMode;
 use crate::config::{ActionKind, AppConfig, HotzoneId, HotzoneSetting, TriggerKind};
 use crate::core::actions::ActionDispatcher;
 use crate::core::edge_hide::{
-    self, EdgeHideCommand, EdgeHideController, EdgeHideInput, EdgeHideLiveState,
+    EdgeHideCommand, EdgeHideController, EdgeHideInput, EdgeHideLiveState,
 };
 use crate::core::gesture::{path_length_pixels, recognize};
 use crate::core::hotzone::{configured_hotzone_rect, detect_configured_hotzone};
 use crate::core::trigger::HotzoneTriggerController;
 use crate::core::window_drag::WindowDragController;
+use crate::core::window_layout;
 use crate::ipc::errors::{ErrorCode, RuntimeError};
 use crate::ipc::messages::HelperMessage;
 use crate::logging;
@@ -53,10 +54,6 @@ impl Engine {
         if self.shutdown_rx.try_recv().is_ok() {
             return Ok(());
         }
-        // Shared edge-hide state is process-wide, so a previous engine session
-        // must not leak a stale collapse request or snapshot into this one.
-        edge_hide::clear_collapse_requests();
-        edge_hide::publish_collapsed_windows(Vec::new());
         platform::install_mouse_hook()?;
         logging::write_line("engine: mouse hook requested");
 
@@ -84,6 +81,7 @@ impl Engine {
         #[cfg(debug_assertions)]
         let injected_failure_at = injected_engine_failure_deadline();
 
+        window_layout::start_session();
         loop {
             if self.shutdown_rx.try_recv().is_ok() {
                 break;
@@ -102,6 +100,11 @@ impl Engine {
                 break;
             }
             let now = Instant::now();
+            let layout_restored =
+                window_layout::process_pending(&mut edge_hide, &config, now, |command| {
+                    execute_edge_hide_command(command, false, EDGE_HIDE_ANIMATION_DURATION)?;
+                    Ok(edge_hide_live_state(edge_hide_command_handle(command)))
+                });
             let recording = platform::shortcut_recording::active();
             platform::configure_topmost_pins(config.enabled && config.topmost_pin.enabled);
             platform::configure_window_drag_capture(
@@ -127,7 +130,8 @@ impl Engine {
                             foreground_handle,
                             platform::window_is_minimized,
                         )
-                            || platform::edge_hide_foreground_restore_suppressed();
+                            || platform::edge_hide_foreground_restore_suppressed()
+                            || layout_restored;
                         if window_prune.should_refresh(now) {
                             edge_hide.prune_invalid_windows(platform::window_exists);
                         }
@@ -278,13 +282,6 @@ impl Engine {
                                 },
                                 &mut edge_hide_live_states,
                             );
-                            self.handle_collapse_requests(
-                                &config,
-                                &mut edge_hide,
-                                now,
-                                monitors,
-                                &mut edge_hide_live_states,
-                            );
                         }
                         let strip_hints = if config.edge_hide.show_restore_hint {
                             edge_hide.collapsed_strips_with_live_state(monitors, |handle, _| {
@@ -352,9 +349,6 @@ impl Engine {
                 previous_cursor = None;
                 foreground_tracker.reset();
                 platform::hide_hotzone_hints();
-                // Layout restores cannot re-collapse anything while the engine
-                // is disabled; drop the requests instead of applying them later.
-                edge_hide::take_collapse_requests();
                 if edge_hide.has_restore_work() {
                     match platform::monitors() {
                         Ok(monitors) => cached_monitors = monitors,
@@ -369,9 +363,6 @@ impl Engine {
                     );
                 }
             }
-            // Publish the collapsed set once per tick for the layout capture
-            // path: the IPC task cannot read the engine-local controller.
-            edge_hide::publish_collapsed_windows(edge_hide.collapsed_windows());
             self.handle_ocr_completions();
             if let Some(feedback) = platform::take_adjustment_feedback() {
                 // 调整失败必须同时走运行错误通道：桌面提示条之外（uTools 宿主、状态栏）
@@ -406,6 +397,7 @@ impl Engine {
                 _ = self.shutdown_rx.recv() => break,
             }
         }
+        window_layout::stop_session();
         taskbar.configure(false, &config.taskbar_appearance);
         drop(taskbar);
         platform::configure_topmost_pins(false);
@@ -437,10 +429,11 @@ impl Engine {
                 config.edge_hide.strip_size,
             );
         }
-        // The engine no longer owns any collapsed window after the final
-        // restore pass; drop queued requests and the published snapshot.
-        edge_hide::clear_collapse_requests();
-        edge_hide::publish_collapsed_windows(Vec::new());
+        if edge_hide.has_restore_work() {
+            logging::write_line(
+                "engine: some edge-hidden windows could not be restored after shutdown retries",
+            );
+        }
         platform::stop_mouse_hook();
         logging::write_line("engine: stopped");
 
@@ -854,104 +847,61 @@ impl Engine {
         }
     }
 
-    /// Re-collapses windows that a layout restore put back on screen.
-    ///
-    /// Requests are queued by the IPC restore task (it cannot touch the
-    /// controller) and consumed here on the engine thread with the same
-    /// command lifecycle as a user-triggered collapse. Invalid or stale
-    /// requests are dropped silently: the window then simply stays at its
-    /// restored visible rectangle.
-    fn handle_collapse_requests(
-        &self,
-        config: &AppConfig,
-        edge_hide: &mut EdgeHideController,
-        now: Instant,
-        monitors: &[platform::Monitor],
-        live_states: &mut HashMap<platform::WindowHandle, EdgeHideLiveState>,
-    ) {
-        let requests = edge_hide::take_collapse_requests();
-        if requests.is_empty() || !config.edge_hide.enabled {
-            return;
-        }
-        for request in requests {
-            let Ok(Some(window)) = platform::window_info_for_handle(request.handle) else {
-                continue;
-            };
-            let Some(command) = edge_hide.collapse_now(
-                now,
-                &config.edge_hide,
-                monitors,
-                &window,
-                request.edge,
-                request.restore_rect,
-                request.hidden_rect,
-            ) else {
-                continue;
-            };
-            match execute_edge_hide_command(
-                command,
-                config.edge_hide.animation_enabled,
-                Duration::from_millis(config.edge_hide.animation_duration_ms),
-            ) {
-                Ok(_) => {
-                    let live_state = edge_hide_live_state(request.handle);
-                    live_states.insert(request.handle, live_state);
-                    if let Some(cleanup) = edge_hide.command_succeeded(command, live_state, now) {
-                        match execute_edge_hide_command(
-                            cleanup,
-                            false,
-                            EDGE_HIDE_ANIMATION_DURATION,
-                        ) {
-                            Ok(_) => {
-                                let cleanup_live_state = edge_hide_live_state(request.handle);
-                                edge_hide.command_succeeded(cleanup, cleanup_live_state, now);
-                                live_states.insert(request.handle, cleanup_live_state);
-                            }
-                            Err(error) => {
-                                edge_hide.command_failed(cleanup, now);
-                                self.report_runtime_error(ErrorCode::WindowOperationFailed, error);
-                                live_states
-                                    .insert(request.handle, edge_hide_live_state(request.handle));
-                            }
-                        }
-                    }
-                }
-                Err(error) => {
-                    edge_hide.command_failed(command, now);
-                    self.report_runtime_error(ErrorCode::WindowOperationFailed, error);
-                }
-            }
-        }
-    }
-
     fn restore_edge_hide_if_needed(
         &self,
         edge_hide: &mut EdgeHideController,
         monitors: &[platform::Monitor],
         strip_size: i32,
     ) {
+        restore_edge_hide_batch(edge_hide, monitors, strip_size, |command| {
+            let EdgeHideCommand::Restore {
+                handle,
+                rect,
+                topmost,
+            } = command
+            else {
+                unreachable!()
+            };
+            match platform::set_window_rect_topmost(handle, rect, topmost) {
+                Ok(()) => Ok(edge_hide_live_state(handle)),
+                Err(error) => {
+                    self.report_runtime_error(
+                        ErrorCode::WindowOperationFailed,
+                        anyhow::anyhow!("{error:#}"),
+                    );
+                    Err(error)
+                }
+            }
+        });
+    }
+}
+
+fn restore_edge_hide_batch(
+    edge_hide: &mut EdgeHideController,
+    monitors: &[platform::Monitor],
+    strip_size: i32,
+    mut execute: impl FnMut(EdgeHideCommand) -> Result<EdgeHideLiveState>,
+) {
+    // Retry passes, not a fixed number of windows. A failed target retains
+    // CleaningUp ownership, while every other target still receives its turn.
+    for _ in 0..3 {
         edge_hide.prepare_restore_all(monitors, strip_size);
-        for _ in 0..3 {
-            let Some(
-                command @ EdgeHideCommand::Restore {
-                    handle,
-                    rect,
-                    topmost,
-                },
-            ) = edge_hide.restore_if_needed()
+        let count = edge_hide.restore_work_count();
+        for _ in 0..count {
+            let Some(command @ EdgeHideCommand::Restore { .. }) = edge_hide.restore_if_needed()
             else {
                 break;
             };
             let now = Instant::now();
-            match platform::set_window_rect_topmost(handle, rect, topmost) {
-                Ok(()) => {
-                    edge_hide.command_succeeded(command, edge_hide_live_state(handle), now);
+            match execute(command) {
+                Ok(live) => {
+                    edge_hide.command_succeeded(command, live, now);
                 }
-                Err(error) => {
-                    edge_hide.command_failed(command, now);
-                    self.report_runtime_error(ErrorCode::WindowOperationFailed, error);
-                }
+                Err(_) => edge_hide.command_failed(command, now),
             }
+        }
+        if !edge_hide.has_restore_work() {
+            break;
         }
     }
 }
@@ -1445,6 +1395,86 @@ fn is_continuous_adjustment_trigger(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shutdown_restores_every_edge_window_and_preserves_original_topmost() {
+        let mut controller = EdgeHideController::new();
+        let config = crate::config::EdgeHideConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let bounds = Rect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let monitors = [Monitor {
+            bounds,
+            work_area: bounds,
+            primary: true,
+            device_id: [0; 128],
+        }];
+        let now = Instant::now();
+        for id in 1..=5 {
+            let rect = Rect {
+                left: 0,
+                top: 100 + id as i32 * 50,
+                right: 240,
+                bottom: 260 + id as i32 * 50,
+            };
+            let hidden = Rect {
+                left: -224,
+                right: 16,
+                ..rect
+            };
+            let window = platform::WindowInfo {
+                handle: platform::WindowHandle(id),
+                rect,
+                title: format!("test-{id}"),
+                class_name: "TestWindow".into(),
+                process_name: "fixture.exe".into(),
+                maximized: false,
+                transient: false,
+                arranged: false,
+                topmost: id == 5,
+            };
+            let command = controller
+                .collapse_now(
+                    now,
+                    &config,
+                    &monitors,
+                    &window,
+                    crate::config::Edge::Left,
+                    rect,
+                    hidden,
+                )
+                .unwrap();
+            controller.command_succeeded(command, EdgeHideLiveState::Visible(hidden), now);
+        }
+        let mut restored = std::collections::HashMap::new();
+        restore_edge_hide_batch(&mut controller, &monitors, config.strip_size, |command| {
+            let EdgeHideCommand::Restore {
+                handle,
+                rect,
+                topmost,
+            } = command
+            else {
+                panic!("expected restore")
+            };
+            restored.insert(handle.0, topmost);
+            Ok(EdgeHideLiveState::Visible(rect))
+        });
+        assert_eq!(
+            restored.len(),
+            5,
+            "shutdown must restore every window, not just three"
+        );
+        for id in 1..=5 {
+            assert_eq!(restored[&id], id == 5);
+        }
+        assert!(!controller.has_restore_work());
+    }
 
     #[tokio::test]
     async fn shutdown_before_engine_start_is_preserved() {

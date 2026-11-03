@@ -1,8 +1,6 @@
 use crate::config::SCHEMA_VERSION;
-use crate::core::edge_hide::CollapseRequest;
+use crate::core::window_layout;
 use crate::ipc::errors::{ErrorCode, RuntimeError};
-#[cfg(test)]
-use crate::platform::WindowInfo;
 use crate::platform::WindowLayout;
 
 pub const PROTOCOL_VERSION: u32 = 7;
@@ -14,7 +12,6 @@ use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use socket2::{Domain, Protocol, Socket, Type};
-use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -214,7 +211,7 @@ async fn handle_connection(
                 ));
                 match incoming.kind.as_str() {
                     "window.layout.capture" => {
-                        match capture_window_layout().await {
+                        match window_layout::capture().await {
                             Ok(windows) => {
                                 let captured = HelperMessage::new(
                                     "window.layout.captured",
@@ -249,7 +246,7 @@ async fn handle_connection(
                                 continue;
                             }
                         };
-                        match restore_window_layout(layouts).await {
+                        match window_layout::restore(layouts).await {
                             Ok(summary) => {
                                 let restored = HelperMessage::new(
                                     "window.layout.restored",
@@ -415,114 +412,6 @@ fn parse_hotkeys(data: &Value) -> Result<Vec<(String, String)>> {
     Ok(hotkeys)
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WindowLayoutRestoreError {
-    window: WindowLayout,
-    details: String,
-}
-
-#[derive(Debug)]
-struct WindowLayoutRestoreSummary {
-    restored: usize,
-    skipped: usize,
-    errors: Vec<WindowLayoutRestoreError>,
-}
-
-async fn capture_window_layout() -> Result<Vec<WindowLayout>> {
-    let windows = tokio::task::spawn_blocking(crate::platform::list_window_layouts)
-        .await
-        .context("window layout capture task failed")??;
-    // Edge-hidden windows are parked mostly off-screen. Their snapshot must
-    // record the expanded restore rectangle plus the edge state so a restore
-    // can bring them back on screen and re-collapse them afterwards.
-    let collapsed = collapsed_windows_by_handle();
-    Ok(layouts_from_layout_targets(windows, &collapsed))
-}
-
-async fn restore_window_layout(layouts: Vec<WindowLayout>) -> Result<WindowLayoutRestoreSummary> {
-    tokio::task::spawn_blocking(move || restore_window_layout_blocking(&layouts))
-        .await
-        .context("window layout restore task failed")?
-}
-
-/// Snapshot of the windows the engine currently keeps hidden at an edge.
-///
-/// The engine publishes this once per tick; the layout capture/restore code
-/// runs on its own task and cannot read the engine-local controller.
-fn collapsed_windows_by_handle() -> HashMap<isize, crate::core::edge_hide::CollapsedWindow> {
-    crate::core::edge_hide::collapsed_windows_snapshot()
-        .into_iter()
-        .map(|window| (window.handle.0, window))
-        .collect()
-}
-
-fn restore_window_layout_blocking(layouts: &[WindowLayout]) -> Result<WindowLayoutRestoreSummary> {
-    let windows = crate::platform::list_window_layouts()?;
-    let indexed = windows_with_occurrences(windows);
-    let collapsed = collapsed_windows_by_handle();
-    let mut used_handles = HashSet::new();
-    let mut restored = 0;
-    let mut skipped = 0;
-    let mut errors = Vec::new();
-
-    for layout in layouts {
-        let Some(window) = indexed.iter().find(|(window, occurrence)| {
-            *occurrence == layout.occurrence
-                && !used_handles.contains(&window.handle)
-                && layout_matches(window, layout)
-        }) else {
-            skipped += 1;
-            continue;
-        };
-        used_handles.insert(window.0.handle);
-        match crate::platform::apply_window_layout(window.0.handle, layout) {
-            Err(error) => errors.push(WindowLayoutRestoreError {
-                window: layout.clone(),
-                details: format!("{error:#}"),
-            }),
-            Ok(()) => {
-                restored += 1;
-                // Only a window that really landed at its recorded rectangle may
-                // be collapsed again; skipped entries keep the legacy behaviour.
-                if let Some(request) =
-                    collapse_request_after_restore(layout, window.0.handle, &collapsed)
-                {
-                    crate::core::edge_hide::request_collapse(request);
-                }
-            }
-        }
-    }
-
-    Ok(WindowLayoutRestoreSummary {
-        restored,
-        skipped,
-        errors,
-    })
-}
-
-/// Re-collapse request for a layout entry that was just applied.
-///
-/// Windows the engine already tracks as collapsed are skipped: moving them
-/// here already breaks the controller's own state, and queueing another
-/// collapse would race its reconciliation.
-fn collapse_request_after_restore(
-    layout: &WindowLayout,
-    handle: crate::platform::WindowHandle,
-    collapsed: &HashMap<isize, crate::core::edge_hide::CollapsedWindow>,
-) -> Option<CollapseRequest> {
-    let edge_hidden = layout.edge_hidden.as_ref()?;
-    if collapsed.contains_key(&handle.0) {
-        return None;
-    }
-    Some(CollapseRequest {
-        handle,
-        edge: edge_hidden.edge,
-        restore_rect: layout.rect,
-        hidden_rect: edge_hidden.hidden_rect,
-    })
-}
-
 fn parse_window_layouts(data: &Value) -> Result<Vec<WindowLayout>, RuntimeError> {
     const MAX_LAYOUT_WINDOWS: usize = 512;
     let raw = data.get("windows").cloned().unwrap_or(Value::Null);
@@ -539,134 +428,6 @@ fn parse_window_layouts(data: &Value) -> Result<Vec<WindowLayout>, RuntimeError>
         ));
     }
     Ok(layouts)
-}
-
-#[cfg(test)]
-fn layouts_from_windows(windows: Vec<WindowInfo>) -> Vec<WindowLayout> {
-    let targets = windows
-        .into_iter()
-        .enumerate()
-        .map(|(z_index, window)| crate::platform::WindowLayoutTarget {
-            handle: window.handle,
-            z_index: z_index as u32,
-            rect: window.rect,
-            placement_rect: None,
-            title: window.title,
-            class_name: window.class_name,
-            process_name: window.process_name,
-            minimized: false,
-            maximized: window.maximized,
-            transient: window.transient,
-            topmost: window.topmost,
-        })
-        .collect();
-    layouts_from_layout_targets(targets, &HashMap::new())
-}
-
-fn layouts_from_layout_targets(
-    mut windows: Vec<crate::platform::WindowLayoutTarget>,
-    collapsed: &HashMap<isize, crate::core::edge_hide::CollapsedWindow>,
-) -> Vec<WindowLayout> {
-    // Occurrence assignment sorts duplicate identities by geometry, so
-    // edge-hidden windows must already be represented by their expanded
-    // rectangle here; otherwise capture order and restore order diverge.
-    for window in &mut windows {
-        if let Some(hidden) = collapsed.get(&window.handle.0) {
-            window.rect = hidden.restore_rect;
-            window.placement_rect = None;
-        }
-    }
-    windows_with_occurrences(windows)
-        .into_iter()
-        .map(|(window, occurrence)| {
-            let edge_hidden =
-                collapsed
-                    .get(&window.handle.0)
-                    .map(|hidden| crate::platform::EdgeHiddenLayout {
-                        edge: hidden.edge,
-                        restore_rect: hidden.restore_rect,
-                        hidden_rect: hidden.hidden_rect,
-                    });
-            WindowLayout {
-                process_name: window.process_name,
-                class_name: window.class_name,
-                title: window.title,
-                occurrence,
-                z_index: window.z_index,
-                rect: window.rect,
-                placement_rect: window.placement_rect,
-                minimized: window.minimized,
-                maximized: window.maximized,
-                topmost: window.topmost,
-                edge_hidden,
-            }
-        })
-        .collect()
-}
-
-fn windows_with_occurrences(
-    windows: Vec<crate::platform::WindowLayoutTarget>,
-) -> Vec<(crate::platform::WindowLayoutTarget, u32)> {
-    let mut windows: Vec<crate::platform::WindowLayoutTarget> = windows
-        .into_iter()
-        .filter(|window| !window.transient)
-        .collect();
-    // Enumeration order is usually z-order, which changes as soon as the
-    // user focuses a different window. Sorting duplicate identities by their
-    // captured geometry makes occurrence assignment stable across a restore
-    // round trip instead of swapping two otherwise identical windows.
-    windows.sort_by(|left, right| {
-        layout_identity(&left.process_name, &left.class_name, &left.title)
-            .cmp(&layout_identity(
-                &right.process_name,
-                &right.class_name,
-                &right.title,
-            ))
-            .then_with(|| {
-                layout_sort_rect(left)
-                    .left
-                    .cmp(&layout_sort_rect(right).left)
-            })
-            .then_with(|| layout_sort_rect(left).top.cmp(&layout_sort_rect(right).top))
-            .then_with(|| {
-                layout_sort_rect(left)
-                    .right
-                    .cmp(&layout_sort_rect(right).right)
-            })
-            .then_with(|| {
-                layout_sort_rect(left)
-                    .bottom
-                    .cmp(&layout_sort_rect(right).bottom)
-            })
-    });
-    let mut occurrences = HashMap::<(String, String, String), u32>::new();
-    windows
-        .into_iter()
-        .map(|window| {
-            let key = layout_identity(&window.process_name, &window.class_name, &window.title);
-            let occurrence = occurrences.entry(key).or_insert(0);
-            let value = *occurrence;
-            *occurrence = occurrence.saturating_add(1);
-            (window, value)
-        })
-        .collect()
-}
-
-fn layout_identity(process_name: &str, class_name: &str, title: &str) -> (String, String, String) {
-    (
-        process_name.to_lowercase(),
-        class_name.to_lowercase(),
-        title.to_string(),
-    )
-}
-
-fn layout_matches(window: &crate::platform::WindowLayoutTarget, layout: &WindowLayout) -> bool {
-    layout_identity(&window.process_name, &window.class_name, &window.title)
-        == layout_identity(&layout.process_name, &layout.class_name, &layout.title)
-}
-
-fn layout_sort_rect(window: &crate::platform::WindowLayoutTarget) -> crate::platform::Rect {
-    window.placement_rect.unwrap_or(window.rect)
 }
 
 async fn apply_config_update(
@@ -763,7 +524,10 @@ mod tests {
     use super::*;
     use crate::config::Edge;
     use crate::core::edge_hide::CollapsedWindow;
+    use crate::core::window_layout::{layouts_from_layout_targets, layouts_from_windows};
     use crate::platform::EdgeHiddenLayout;
+    use crate::platform::WindowInfo;
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -1030,27 +794,6 @@ mod tests {
         assert_eq!(serialized["zIndex"], 3);
     }
 
-    fn layout_with_edge_hidden(edge_hidden: Option<EdgeHiddenLayout>) -> WindowLayout {
-        WindowLayout {
-            process_name: "code.exe".into(),
-            class_name: "Chrome_WidgetWin_1".into(),
-            title: "Editor".into(),
-            occurrence: 0,
-            z_index: 0,
-            rect: crate::platform::Rect {
-                left: 0,
-                top: 120,
-                right: 600,
-                bottom: 700,
-            },
-            placement_rect: None,
-            minimized: false,
-            maximized: false,
-            topmost: false,
-            edge_hidden,
-        }
-    }
-
     #[test]
     fn layout_capture_injects_edge_hidden_and_records_the_expanded_rect() {
         let restore_rect = crate::platform::Rect {
@@ -1080,7 +823,7 @@ mod tests {
             minimized: false,
             maximized: false,
             transient: false,
-            topmost: false,
+            topmost: true,
         }];
         let collapsed = HashMap::from([(
             handle.0,
@@ -1089,11 +832,16 @@ mod tests {
                 edge: Edge::Left,
                 restore_rect,
                 hidden_rect,
+                original_topmost: false,
             },
         )]);
 
         let layouts = layouts_from_layout_targets(targets, &collapsed);
         assert_eq!(layouts.len(), 1);
+        assert!(
+            !layouts[0].topmost,
+            "capture must not persist the temporary edge-hide topmost bit"
+        );
         assert_eq!(layouts[0].rect, restore_rect);
         assert_eq!(layouts[0].placement_rect, None);
         assert_eq!(
@@ -1205,57 +953,6 @@ mod tests {
         });
         let error = parse_window_layouts(&invalid_edge).unwrap_err();
         assert_eq!(error.code, ErrorCode::WindowOperationFailed);
-    }
-
-    #[test]
-    fn restore_requests_a_recollapse_only_for_restored_edge_hidden_layouts() {
-        let edge_hidden = EdgeHiddenLayout {
-            edge: Edge::Left,
-            restore_rect: crate::platform::Rect {
-                left: 0,
-                top: 120,
-                right: 600,
-                bottom: 700,
-            },
-            hidden_rect: crate::platform::Rect {
-                left: -584,
-                top: 120,
-                right: 16,
-                bottom: 700,
-            },
-        };
-        let handle = crate::platform::WindowHandle(11);
-        let layout = layout_with_edge_hidden(Some(edge_hidden.clone()));
-        let mut collapsed = HashMap::new();
-
-        assert_eq!(
-            collapse_request_after_restore(&layout, handle, &collapsed),
-            Some(CollapseRequest {
-                handle,
-                edge: Edge::Left,
-                restore_rect: edge_hidden.restore_rect,
-                hidden_rect: edge_hidden.hidden_rect,
-            })
-        );
-        // Legacy snapshots without the field keep the old behaviour.
-        assert_eq!(
-            collapse_request_after_restore(&layout_with_edge_hidden(None), handle, &collapsed),
-            None
-        );
-        // Windows the engine already keeps collapsed are not requested again.
-        collapsed.insert(
-            handle.0,
-            CollapsedWindow {
-                handle,
-                edge: Edge::Left,
-                restore_rect: edge_hidden.restore_rect,
-                hidden_rect: edge_hidden.hidden_rect,
-            },
-        );
-        assert_eq!(
-            collapse_request_after_restore(&layout, handle, &collapsed),
-            None
-        );
     }
 
     #[test]

@@ -1,8 +1,10 @@
 # Release Process
 
-Version 0.6.8 is the current stable Windows x64 release. It was promoted in place on October 27, 2026 after user acceptance; the four assets and the tag retain their accepted identities, with build source `c4a43e5448feb82198cc07f7985292fbd51e5f29`. Later documentation commits do not change that source identity. All stable releases remain immutable; version 0.6.7 remains available as the previous stable release. See the [0.6.8 acceptance scope](testing.md#068-online-acceptance) and the [0.6.7 acceptance scope](testing.md#067-online-acceptance).
+Version 0.6.9 is the current stable Windows x64 release. It was promoted in place on October 30, 2026 after user acceptance; the installer, portable archive, manifest, checksums and tag retain their accepted identities, with build source `8e3f2d851d70782caf0d814df1915b8961bda3b2`. Later documentation commits do not change that source identity. All stable releases remain immutable; version 0.6.8 remains available for rollback. See the [0.6.9 release notes](release-notes/0.6.9.md) and the [0.6.8 acceptance scope](testing.md#068-online-acceptance).
 
-Version 0.6.5 remains available as the previous stable release with its own immutable assets and build source `57c52d8c4d3beed12fdc2b9ae1ba3a91bfa9fa16`.
+Version 0.6.10 is being prepared for candidate validation. Its source changes and [release notes](release-notes/0.6.10.md) do not establish that an installer has been published or accepted. Record the frozen source, asset identities and verification results before publishing a Pre-release; user acceptance is required before promotion to stable.
+
+Version 0.6.5 remains available as an older stable release with its own immutable assets and build source `57c52d8c4d3beed12fdc2b9ae1ba3a91bfa9fa16`.
 
 The standalone desktop has two user acceptance points:
 

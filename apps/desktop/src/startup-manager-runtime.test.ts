@@ -44,6 +44,8 @@ it("keeps startup mutations explicit, confirmed, localized and isolated from sta
       let component = mount(Harness, { target: document.body, props: { request, pickExecutable } });
       flushSync(); await settle();
       assert.equal(document.querySelectorAll('.startup-item').length, 4);
+      assert.equal(document.querySelector('.startup-heading p').textContent, 'Choose which apps open when you sign in to Windows.');
+      assert.equal(document.querySelector('.startup-heading h2'), null, 'the panel introduction must not repeat the App heading');
       assert.equal(toggle('system').disabled, true, 'system entries are read only');
       assert.equal(toggle('unknown').disabled, true, 'unknown states are never guessed');
       await click(button('Disabled'));
@@ -94,8 +96,11 @@ it("keeps startup mutations explicit, confirmed, localized and isolated from sta
       assert.equal(document.querySelector('.startup-draft'), null);
       assert.ok(row('added'));
       await click(document.querySelector('#language'));
-      assert.ok(document.querySelector('.startup-heading').textContent.includes('登录时启动'));
+      assert.equal(document.querySelector('.startup-heading p').textContent, '查看随 Windows 登录启动的应用，按需开启或关闭。', 'the retained description follows a live switch to Chinese');
+      assert.equal(document.querySelector('.startup-heading h2'), null, 'switching language must not restore a duplicate heading');
       await click(document.querySelector('#language'));
+      assert.equal(document.querySelector('.startup-heading p').textContent, 'Choose which apps open when you sign in to Windows.', 'the retained description switches back to English');
+      assert.equal(document.querySelector('.startup-heading h2'), null);
       assert.equal(/[\\u4e00-\\u9fff]/.test(document.querySelector('.startup-manager').textContent), false, 'labels and status translate on a live switch');
       items = items.filter(item => item.id !== 'added');
       window.dispatchEvent(new Event('focus')); await settle();

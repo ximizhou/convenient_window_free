@@ -256,8 +256,6 @@
 <section class="window-layouts-panel" aria-label={text("windowLayouts")}>
   <div class="window-layouts-intro">
     <div>
-      <span class="eyebrow">{text("windowLayouts")}</span>
-      <h2>{text("windowLayoutsHeading")}</h2>
       <p>{text("windowLayoutsDescription")}</p>
     </div>
     <button class="apply layout-capture" disabled={!connected || !supported || Boolean(busy)} on:click={captureLayout} type="button">
@@ -347,8 +345,7 @@
 <style>
   .window-layouts-panel { gap: 14px; }
   .window-layouts-intro { align-items: center; gap: 12px; }
-  .window-layouts-intro h2 { font-size: var(--fs-xl); letter-spacing: 0; }
-  .window-layouts-intro p { max-width: 32em; margin-top: 5px; line-height: 1.5; }
+  .window-layouts-intro p { max-width: 32em; margin: 0; line-height: 1.5; }
   .layout-capture, .layout-restore {
     border: 1px solid var(--accent-line);
     border-radius: var(--radius-sm);
