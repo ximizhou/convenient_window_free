@@ -60,12 +60,21 @@ pub fn foreground_window() -> Result<Option<super::WindowInfo>> {
     backend::foreground_window()
 }
 
+pub fn foreground_window_snapshot() -> Result<(Option<WindowHandle>, Option<super::WindowInfo>)> {
+    let window = foreground_window()?;
+    Ok((window.as_ref().map(|window| window.handle), window))
+}
+
 pub fn window_exists(handle: WindowHandle) -> bool {
     backend::window_exists(handle)
 }
 
 pub fn window_is_minimized(handle: WindowHandle) -> bool {
     backend::window_is_minimized(handle)
+}
+
+pub fn window_can_remain_foreground(handle: WindowHandle) -> bool {
+    !window_is_minimized(handle)
 }
 
 pub fn window_info_for_handle(handle: WindowHandle) -> Result<Option<super::WindowInfo>> {

@@ -31,12 +31,21 @@ pub fn lock_screen() -> Result<()> {
     Ok(())
 }
 
-pub fn foreground_window() -> Result<Option<WindowInfo>> {
-    let hwnd = unsafe { GetForegroundWindow() };
+pub fn foreground_window_snapshot() -> Result<(Option<WindowHandle>, Option<WindowInfo>)> {
+    foreground_snapshot_for_handle(unsafe { GetForegroundWindow() })
+}
+
+fn foreground_snapshot_for_handle(
+    hwnd: HWND,
+) -> Result<(Option<WindowHandle>, Option<WindowInfo>)> {
+    // Tray menus can activate a hidden owner. Keep its raw handle even though
+    // it is not a visible candidate, so its disappearance cannot look like a
+    // deliberate activation of an unrelated collapsed window.
+    let handle = (!hwnd.0.is_null()).then_some(WindowHandle(hwnd.0 as isize));
     // Screenshot and other capture surfaces often use WS_EX_TOOLWINDOW. They
     // are still useful foreground signals for edge-hide, but must not become
     // draggable/candidate windows.
-    window_info(hwnd, true)
+    Ok((handle, window_info(hwnd, true)?))
 }
 
 pub fn window_exists(handle: WindowHandle) -> bool {
@@ -45,6 +54,13 @@ pub fn window_exists(handle: WindowHandle) -> bool {
 
 pub fn window_is_minimized(handle: WindowHandle) -> bool {
     unsafe { IsIconic(HWND(handle.0 as *mut core::ffi::c_void)).as_bool() }
+}
+
+pub fn window_can_remain_foreground(handle: WindowHandle) -> bool {
+    let hwnd = HWND(handle.0 as *mut core::ffi::c_void);
+    unsafe {
+        IsWindow(hwnd).as_bool() && IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool()
+    }
 }
 
 fn window_info(hwnd: HWND, include_tool_window: bool) -> Result<Option<WindowInfo>> {
@@ -638,6 +654,29 @@ mod tests {
     };
 
     use super::super::native_test_windows::{IsolatedDesktop, TestWindow};
+
+    #[test]
+    fn foreground_snapshot_retains_hidden_tray_owner_without_making_it_a_candidate() {
+        let _desktop = IsolatedDesktop::new();
+        let window = TestWindow::new("Tray menu owner");
+        let handle = window.handle();
+        let hwnd = HWND(handle.0 as *mut _);
+        assert!(window_can_remain_foreground(handle));
+        let (raw, candidate) = foreground_snapshot_for_handle(hwnd).unwrap();
+        assert_eq!(raw, Some(handle));
+        assert!(candidate.is_some());
+
+        let _ = unsafe { ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_HIDE) };
+        let (raw, candidate) = foreground_snapshot_for_handle(hwnd).unwrap();
+        assert_eq!(raw, Some(handle));
+        assert!(candidate.is_none());
+        assert!(!window_can_remain_foreground(handle));
+        drop(window);
+        assert!(!window_can_remain_foreground(handle));
+        let (raw, candidate) = foreground_snapshot_for_handle(HWND::default()).unwrap();
+        assert_eq!(raw, None);
+        assert!(candidate.is_none());
+    }
 
     #[test]
     fn isolated_non_topmost_restore_does_not_inherit_topmost_from_neighbours() {

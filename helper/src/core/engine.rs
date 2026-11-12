@@ -120,15 +120,14 @@ impl Engine {
             if config.enabled {
                 let cursor = platform::cursor_position();
                 let monitors = refresh_monitors(now, &mut monitor_refresh, &mut cached_monitors);
-                let foreground = platform::foreground_window();
+                let foreground = platform::foreground_window_snapshot();
 
                 match (cursor, monitors, foreground) {
-                    (Ok(cursor), Ok(monitors), Ok(foreground)) => {
-                        let foreground_handle = foreground.as_ref().map(|window| window.handle);
+                    (Ok(cursor), Ok(monitors), Ok((foreground_handle, foreground))) => {
                         let suppress_foreground_restore = foreground_tracker.observe(
                             now,
                             foreground_handle,
-                            platform::window_is_minimized,
+                            foreground_fallback_required,
                         )
                             || platform::edge_hide_foreground_restore_suppressed()
                             || layout_restored;
@@ -1057,7 +1056,11 @@ fn classify_edge_hide_live_state(
     }
 }
 
-const MINIMIZED_FOREGROUND_GUARD: Duration = Duration::from_millis(250);
+const PASSIVE_FOREGROUND_GUARD: Duration = Duration::from_millis(250);
+
+fn foreground_fallback_required(handle: platform::WindowHandle) -> bool {
+    !platform::window_can_remain_foreground(handle)
+}
 
 #[derive(Default)]
 struct ForegroundTracker {
@@ -1070,7 +1073,7 @@ impl ForegroundTracker {
         &mut self,
         now: Instant,
         current: Option<platform::WindowHandle>,
-        mut is_minimized: impl FnMut(platform::WindowHandle) -> bool,
+        mut requires_fallback: impl FnMut(platform::WindowHandle) -> bool,
     ) -> bool {
         if self
             .passive_guard_until
@@ -1080,8 +1083,8 @@ impl ForegroundTracker {
         }
 
         if let (Some(previous), Some(current)) = (self.previous, current) {
-            if previous != current && is_minimized(previous) {
-                self.passive_guard_until = Some(now + MINIMIZED_FOREGROUND_GUARD);
+            if previous != current && requires_fallback(previous) {
+                self.passive_guard_until = Some(now + PASSIVE_FOREGROUND_GUARD);
             }
         }
 
@@ -2116,6 +2119,197 @@ mod tests {
         ));
         assert!(tracker.observe(start + Duration::from_millis(16), Some(target), |_| false,));
         assert!(!tracker.observe(start + Duration::from_millis(260), Some(target), |_| false,));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn passive_foreground_loss_does_not_expand_other_top_hidden_windows() {
+        use crate::config::{Edge, EdgeHideConfig};
+        use crate::platform::windows::native_test_windows::{IsolatedDesktop, TestWindow};
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+
+        let _desktop = IsolatedDesktop::new();
+        for destroy in [true, false] {
+            let mut left = Some(TestWindow::new("left edge window"));
+            let right = TestWindow::new("right edge window");
+            let left_handle = left.as_ref().unwrap().handle();
+            let config = EdgeHideConfig {
+                enabled: true,
+                ..Default::default()
+            };
+            let bounds = Rect {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            };
+            let monitors = [Monitor {
+                bounds,
+                work_area: bounds,
+                primary: true,
+                device_id: [0; 128],
+            }];
+            let start = Instant::now();
+            let mut controller = EdgeHideController::new();
+            for (handle, x) in [(left_handle, 100), (right.handle(), 1000)] {
+                let rect = Rect {
+                    left: x,
+                    top: 0,
+                    right: x + 600,
+                    bottom: 500,
+                };
+                platform::set_window_rect_topmost(handle, rect, false).unwrap();
+                let info = platform::window_info_for_handle(handle).unwrap().unwrap();
+                let hidden = Rect {
+                    top: config.strip_size - 500,
+                    bottom: config.strip_size,
+                    ..rect
+                };
+                let command = controller
+                    .collapse_now(start, &config, &monitors, &info, Edge::Top, rect, hidden)
+                    .unwrap();
+                execute_edge_hide_command(command, false, Duration::ZERO).unwrap();
+                controller.command_succeeded(command, edge_hide_live_state(handle), start);
+            }
+            let mut tracker = ForegroundTracker::default();
+            assert!(!tracker.observe(start, Some(left_handle), foreground_fallback_required));
+            let outside = Point { x: 1800, y: 900 };
+            let left_info = platform::window_info_for_handle(left_handle)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                controller.tick_with_live_state(
+                    start,
+                    &config,
+                    outside,
+                    &monitors,
+                    Some(&left_info),
+                    EdgeHideInput {
+                        suppress_foreground_restore: true,
+                        ..Default::default()
+                    },
+                    |handle, _| edge_hide_live_state(handle),
+                ),
+                None
+            );
+
+            if destroy {
+                drop(left.take());
+                assert!(!platform::window_exists(left_handle));
+            } else {
+                let _ = unsafe { ShowWindow(HWND(left_handle.0 as *mut _), SW_HIDE) };
+                assert!(platform::window_exists(left_handle));
+            }
+            // Neither tray exit nor hide-to-tray is a minimization.
+            assert!(!platform::window_is_minimized(left_handle));
+            controller.prune_invalid_windows(platform::window_exists);
+            assert!(!tracker.observe(
+                start + Duration::from_millis(8),
+                None,
+                foreground_fallback_required
+            ));
+            let right_info = platform::window_info_for_handle(right.handle())
+                .unwrap()
+                .unwrap();
+            for ms in [16, 32, 300, 1000] {
+                let now = start + Duration::from_millis(ms);
+                let suppress_foreground_restore =
+                    tracker.observe(now, Some(right.handle()), foreground_fallback_required);
+                assert_eq!(
+                    controller.tick_with_live_state(
+                        now,
+                        &config,
+                        outside,
+                        &monitors,
+                        Some(&right_info),
+                        EdgeHideInput {
+                            suppress_foreground_restore,
+                            ..Default::default()
+                        },
+                        |handle, _| edge_hide_live_state(handle),
+                    ),
+                    None,
+                    "destroy={destroy}, at {ms}ms: passive focus must not expand the right window"
+                );
+            }
+            assert!(controller
+                .collapsed_windows()
+                .iter()
+                .any(|w| w.handle == right.handle()));
+
+            // The guard only blocks activation-based restoration. Entering the
+            // exposed strip remains an explicit restore path even under guard.
+            let command = controller
+                .tick_with_live_state(
+                    start + Duration::from_millis(1010),
+                    &config,
+                    Point { x: 1200, y: 2 },
+                    &monitors,
+                    Some(&right_info),
+                    EdgeHideInput {
+                        suppress_foreground_restore: true,
+                        ..Default::default()
+                    },
+                    |handle, _| edge_hide_live_state(handle),
+                )
+                .expect("strip hover must restore even when foreground restore is suppressed");
+            assert!(
+                matches!(command, EdgeHideCommand::Restore { handle, .. } if handle == right.handle())
+            );
+            execute_edge_hide_command(command, false, Duration::ZERO).unwrap();
+            controller.command_succeeded(command, edge_hide_live_state(right.handle()), start);
+
+            let restored = platform::window_info_for_handle(right.handle())
+                .unwrap()
+                .unwrap();
+            let collapse = controller
+                .collapse_now(
+                    start,
+                    &config,
+                    &monitors,
+                    &restored,
+                    Edge::Top,
+                    restored.rect,
+                    right_info.rect,
+                )
+                .unwrap();
+            execute_edge_hide_command(collapse, false, Duration::ZERO).unwrap();
+            controller.command_succeeded(collapse, edge_hide_live_state(right.handle()), start);
+            let source = TestWindow::new("visible activation source");
+            let source_info = platform::window_info_for_handle(source.handle())
+                .unwrap()
+                .unwrap();
+            assert!(!foreground_fallback_required(source.handle()));
+            for (ms, foreground) in [(1100, &source_info), (1120, &right_info)] {
+                let now = start + Duration::from_millis(ms);
+                let suppressed =
+                    tracker.observe(now, Some(foreground.handle), foreground_fallback_required);
+                assert!(
+                    !suppressed,
+                    "a live visible source must not suppress deliberate activation"
+                );
+                let command = controller.tick_with_live_state(
+                    now,
+                    &config,
+                    outside,
+                    &monitors,
+                    Some(foreground),
+                    EdgeHideInput {
+                        suppress_foreground_restore: suppressed,
+                        ..Default::default()
+                    },
+                    |handle, _| edge_hide_live_state(handle),
+                );
+                if ms == 1100 {
+                    assert_eq!(command, None);
+                } else {
+                    assert!(
+                        matches!(command, Some(EdgeHideCommand::Restore { handle, .. }) if handle == right.handle())
+                    );
+                }
+            }
+        }
     }
 
     #[test]

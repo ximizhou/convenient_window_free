@@ -1,5 +1,11 @@
 # Testing
 
+## Passive foreground changes during edge hiding
+
+The Windows helper regression `passive_foreground_loss_does_not_expand_other_top_hidden_windows` creates two real top-edge windows on a private, undisplayed desktop. It hides or destroys the left window, passes an empty foreground sample, and replays fallback to the right window with the pointer away from both strips. The right window must stay collapsed beyond the 250 ms guard. The same test checks strip restoration under suppression and activation from a live visible source. `foreground_snapshot_retains_hidden_tray_owner_without_making_it_a_candidate` verifies raw HWND retention without making a hidden owner eligible for collapse.
+
+These tests do not operate existing user windows or establish behavior for every tray application. Native input acceptance should additionally cover ordinary Alt+Tab, taskbar selection and a tray menu's Open command, as a disappearing selection surface can also look like passive foreground loss. Foreground lifecycles that fall entirely between polling samples remain a limitation.
+
 ## 0.6.10 UI candidate
 
 The source candidate preserves the home screen and display preview, simplifies repeated panel headings, discloses advanced settings, and adds keyboard tabs, modal confirmations and save feedback. Tooltip stacking raises the hovered or keyboard-focused bubble and its stage; raising only the nested tooltip cannot escape a transformed ancestor's stacking context. Hit testing must temporarily enable pointer events on the tooltip and restore them afterwards, since normal tooltips intentionally allow pointer events to pass through.
