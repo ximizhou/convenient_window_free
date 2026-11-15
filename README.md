@@ -18,22 +18,22 @@
 
 </div>
 
-> Development 0.6.10 simplifies panel headings, adds independent switches to the window-enhancement tabs, keeps paused settings editable, and improves narrow-panel layouts and keyboard focus. It also fixes edge-hide restoration and temporary topmost state in window layouts. Candidate validation is pending; these source changes are not a new published release.
+> The current stable release is 0.6.10. Development sources use 0.6.11 and include fixes for passive foreground changes expanding edge-hidden windows, window-query races during app exit, and repeated gesture normalization while saving settings. These development changes have not been released; real-application tray and activation checks remain pending.
 
 
 ![Convenient Window overview](docs/images/running-center.png)
 
 Convenient Window is a small tray companion for Windows 11. Configure the four corners and four edges of every display, tuck windows away at the screen edge, draw one-stroke mouse gestures, keep screenshots floating above other windows, and save the current desktop as a **window layout** you can restore in one click. Settings apply live, the interface is bilingual, and everything runs locally.
 
-## What's new in 0.6.9
+## What's new in 0.6.10
 
-The Windows 11 x64 0.6.9 release was accepted and promoted to stable on October 30, 2026. The 0.6.8 stable downloads remain available for rollback.
+The Windows 11 x64 0.6.10 release was accepted and promoted to stable on November 4, 2026. The 0.6.9 stable downloads remain available for rollback.
 
-- **Startup apps** — search regular Windows sign-in entries, toggle supported current-user entries and select an executable to add an app. System entries remain read-only.
-- **Local diagnostics** — preview, copy or save a report with versions, connection state and error categories, excluding personal paths, tokens and raw logs.
-- **Offline displays** — inspect saved profiles for disconnected displays and remove one after confirmation; connected display settings stay protected.
+- **Settings panels** — clearer headings, expandable advanced settings, resizable panes, keyboard navigation and independent window-enhancement switches; paused settings remain editable.
+- **Window layouts** — restore saved geometry and edge-hidden state while preserving the original topmost state. Re-record previously affected layouts after correcting the windows' topmost state.
+- **Multi-window restoration** — restore all hidden windows when disabling edge hiding or stopping the helper, allowing other windows to continue if one fails.
 
-[Release notes](docs/release-notes/0.6.9.md) · [All releases](https://github.com/ximizhou/convenient_window_free/releases)
+[Release notes](docs/release-notes/0.6.10.md) · [All releases](https://github.com/ximizhou/convenient_window_free/releases)
 
 ## A closer look
 

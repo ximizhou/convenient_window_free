@@ -14,7 +14,13 @@ The Windows helper regression `passive_foreground_loss_does_not_expand_other_top
 
 These tests do not operate existing user windows or establish behavior for every tray application. Native input acceptance should additionally cover ordinary Alt+Tab, taskbar selection and a tray menu's Open command, as a disappearing selection surface can also look like passive foreground loss. Foreground lifecycles that fall entirely between polling samples remain a limitation.
 
-## 0.6.10 UI candidate
+## 0.6.10 Online Acceptance
+
+The Windows x64 0.6.10 release was accepted by the user and promoted in place to stable / Latest on November 4, 2026. The [desktop release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.10) and [helper release](https://github.com/ximizhou/convenient-window-helper-releases/releases/tag/v0.6.10) retain their accepted assets and build source `c977f5eeebd61aeed8ad2a9c2eb22bc48d7a4a30`; neither was rebuilt or re-uploaded. Version 0.6.9 remains available for rollback.
+
+Windows CI run [41655483976](https://github.com/ximizhou/convenient_window_free/actions/runs/41655483976) passed frontend tests (378), helper tests (312 passed, 3 ignored), desktop host tests (42), portable lifecycle checks, NSIS installation/upgrade/uninstallation and artifact audits. User acceptance does not supply individual records for every UAC, sign-in, mixed-DPI, multi-monitor or taskbar-restoration scenario. Non-Windows builds did not pass and no macOS/Linux 0.6.10 assets were published.
+
+### UI and candidate verification
 
 The source candidate preserves the home screen and display preview, simplifies repeated panel headings, discloses advanced settings, and adds keyboard tabs, modal confirmations and save feedback. Tooltip stacking raises the hovered or keyboard-focused bubble and its stage; raising only the nested tooltip cannot escape a transformed ancestor's stacking context. Hit testing must temporarily enable pointer events on the tooltip and restore them afterwards, since normal tooltips intentionally allow pointer events to pass through.
 

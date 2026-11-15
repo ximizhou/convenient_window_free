@@ -1,8 +1,8 @@
 # Release Process
 
-Version 0.6.9 is the current stable Windows x64 release. It was promoted in place on October 30, 2026 after user acceptance; the installer, portable archive, manifest, checksums and tag retain their accepted identities, with build source `8e3f2d851d70782caf0d814df1915b8961bda3b2`. Later documentation commits do not change that source identity. All stable releases remain immutable; version 0.6.8 remains available for rollback. See the [0.6.9 release notes](release-notes/0.6.9.md) and the [0.6.8 acceptance scope](testing.md#068-online-acceptance).
+Version 0.6.10 is the current stable Windows x64 release. It was promoted in place on November 4, 2026 after user acceptance; the installer, portable archive, manifest, checksums and tag retain their accepted identities, with build source `c977f5eeebd61aeed8ad2a9c2eb22bc48d7a4a30`. Later source or documentation commits do not change that source identity. All stable releases remain immutable; version 0.6.9 remains available for rollback. See the [0.6.10 release notes](release-notes/0.6.10.md) and [acceptance scope](testing.md#0610-online-acceptance).
 
-Version 0.6.10 is being prepared for candidate validation. Its source changes and [release notes](release-notes/0.6.10.md) do not establish that an installer has been published or accepted. Record the frozen source, asset identities and verification results before publishing a Pre-release; user acceptance is required before promotion to stable.
+Development sources use version 0.6.11. Local helper and frontend checks do not establish a published or accepted installer. Record the frozen source, asset identities and verification results before publishing a Pre-release; user acceptance is required before promotion to stable.
 
 Version 0.6.5 remains available as an older stable release with its own immutable assets and build source `57c52d8c4d3beed12fdc2b9ae1ba3a91bfa9fa16`.
 
