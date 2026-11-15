@@ -1,6 +1,56 @@
-import { describe, expect, it } from "vitest";
-import { defaultSettings } from "./settings-store";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { defaultSettings, normalizeSettings } from "./settings-store";
+import * as gestureAlgorithm from "./gesture-algorithm";
 import { prepareSettingsUpdate } from "./settings-sync";
+
+afterEach(() => vi.restoreAllMocks());
+
+it("reuses unchanged samples across edits while invalidating in-place and replacement changes", () => {
+  const resample = vi.spyOn(gestureAlgorithm, "resampleGesture");
+  let draft = structuredClone(defaultSettings);
+  draft.mouseGestures.gestures[0].samples = [[{ x: 0, y: 0 }, { x: 0.8, y: 0.5 }, { x: 1, y: 1 }]];
+  const first = prepareSettingsUpdate(draft);
+  draft = first.editable;
+  resample.mockClear();
+  for (let index = 0; index < 20; index++) {
+    draft.mouseGestures.sensitivity = 35 + index;
+    const next = prepareSettingsUpdate(draft);
+    expect(next.normalized.mouseGestures.sensitivity).toBe(35 + index);
+    expect(next.normalized.mouseGestures.gestures[0].samples).toEqual(first.normalized.mouseGestures.gestures[0].samples);
+    draft = next.editable;
+  }
+  expect(resample.mock.calls.length).toBe(0);
+
+  const sample = draft.mouseGestures.gestures[0].samples[0];
+  sample[1].x = 0.1;
+  const changed = prepareSettingsUpdate(draft);
+  expect(resample).toHaveBeenCalledTimes(1);
+  expect(changed.normalized).toEqual(normalizeSettings(structuredClone(draft)));
+  expect(changed.normalized.mouseGestures.gestures[0].samples).not.toEqual(first.normalized.mouseGestures.gestures[0].samples);
+
+  resample.mockClear();
+  sample.push({ x: 0.2, y: 0.4 });
+  prepareSettingsUpdate(draft);
+  expect(resample).toHaveBeenCalledTimes(1);
+  resample.mockClear();
+  draft.mouseGestures.gestures[0].samples = [[{ x: 1, y: 0 }, { x: 0, y: 1 }]];
+  const replaced = prepareSettingsUpdate(draft);
+  expect(resample).toHaveBeenCalledTimes(1);
+  expect(replaced.normalized).toEqual(normalizeSettings(structuredClone(draft)));
+});
+
+it("isolates cached samples from callers and revalidates mutated imported coordinates", () => {
+  const draft = structuredClone(defaultSettings);
+  const sample = draft.mouseGestures.gestures[0].samples[0];
+  const expected = prepareSettingsUpdate(draft).normalized;
+  const returned = prepareSettingsUpdate(draft).normalized;
+  returned.mouseGestures.gestures[0].samples[0][0].x = 99;
+  expect(prepareSettingsUpdate(draft).normalized).toEqual(expected);
+  for (const x of [NaN, Infinity, -2, 2]) {
+    sample[0].x = x;
+    expect(prepareSettingsUpdate(draft).normalized).toEqual(normalizeSettings(structuredClone(draft)));
+  }
+});
 
 describe("prepareSettingsUpdate", () => {
   it("normalizes the persisted snapshot without rewriting in-progress input", () => {

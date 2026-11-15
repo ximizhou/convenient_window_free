@@ -64,6 +64,14 @@ pub fn window_can_remain_foreground(handle: WindowHandle) -> bool {
 }
 
 fn window_info(hwnd: HWND, include_tool_window: bool) -> Result<Option<WindowInfo>> {
+    window_info_with_rect_reader(hwnd, include_tool_window, window_rect)
+}
+
+fn window_info_with_rect_reader(
+    hwnd: HWND,
+    include_tool_window: bool,
+    read_rect: impl FnOnce(HWND) -> Result<AppRect>,
+) -> Result<Option<WindowInfo>> {
     if hwnd.0.is_null() || !unsafe { IsWindowVisible(hwnd).as_bool() } {
         return Ok(None);
     }
@@ -74,7 +82,16 @@ fn window_info(hwnd: HWND, include_tool_window: bool) -> Result<Option<WindowInf
         return Ok(None);
     }
 
-    let rect = window_rect(hwnd)?;
+    let rect = match read_rect(hwnd) {
+        Ok(rect) => rect,
+        // A window may exit or hide between the visibility check and the
+        // rectangle query. This is an empty observation, not an input failure.
+        // Foreground snapshots still retain the raw HWND for fallback tracking.
+        Err(_) if !unsafe { IsWindow(hwnd).as_bool() && IsWindowVisible(hwnd).as_bool() } => {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
     if rect.width() <= 0 || rect.height() <= 0 {
         return Ok(None);
     }
@@ -654,6 +671,71 @@ mod tests {
     };
 
     use super::super::native_test_windows::{IsolatedDesktop, TestWindow};
+
+    #[test]
+    fn window_destroyed_during_foreground_read_is_an_empty_observation() {
+        let _desktop = IsolatedDesktop::new();
+        for _ in 0..32 {
+            let window = TestWindow::new("Closing foreground");
+            let hwnd = HWND(window.handle().0 as *mut _);
+            let result = window_info_with_rect_reader(hwnd, true, |handle| {
+                // The production visibility check has succeeded. Destroy the
+                // real window at the race boundary, before GetWindowRect.
+                drop(window);
+                let result = window_rect(handle);
+                assert!(
+                    result.is_err(),
+                    "the native rectangle query must observe destruction"
+                );
+                result
+            });
+            assert!(
+                result.unwrap().is_none(),
+                "normal exit must not abort the engine input cycle"
+            );
+        }
+    }
+
+    #[test]
+    fn foreground_query_errors_remain_errors_for_live_visible_windows() {
+        let _desktop = IsolatedDesktop::new();
+        let window = TestWindow::new("Live foreground query failure");
+        let hwnd = HWND(window.handle().0 as *mut _);
+        let error =
+            window_info_with_rect_reader(hwnd, true, |_| anyhow::bail!("rectangle query failure"))
+                .unwrap_err();
+        assert!(window_can_remain_foreground(window.handle()));
+        assert_eq!(error.to_string(), "rectangle query failure");
+    }
+
+    #[test]
+    fn window_hidden_during_failed_foreground_read_is_an_empty_observation() {
+        let _desktop = IsolatedDesktop::new();
+        let window = TestWindow::new("Hiding foreground");
+        let hwnd = HWND(window.handle().0 as *mut _);
+        let result = window_info_with_rect_reader(hwnd, true, |handle| {
+            // Avoid activation handoffs between parallel native tests while
+            // still exercising the real Win32 visibility query on this HWND.
+            unsafe {
+                SetWindowPos(
+                    handle,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    windows::Win32::UI::WindowsAndMessaging::SWP_HIDEWINDOW
+                        | SWP_NOACTIVATE
+                        | SWP_NOMOVE
+                        | SWP_NOSIZE
+                        | SWP_NOZORDER,
+                )?;
+            }
+            anyhow::bail!("query failed while the target hid")
+        });
+        assert!(window_exists(window.handle()));
+        assert!(result.unwrap().is_none());
+    }
 
     #[test]
     fn foreground_snapshot_retains_hidden_tray_owner_without_making_it_a_candidate() {

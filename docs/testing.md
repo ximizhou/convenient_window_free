@@ -1,5 +1,11 @@
 # Testing
 
+## 0.6.11 settings and window-query regression
+
+`settings-sync.test.ts` verifies unchanged samples avoid resampling, coordinate/length/replacement edits invalidate the cache, and normalized output cannot mutate the draft or cached samples. Existing storage tests retain immediate persistence, coordinate rounding and capacity limits. Desktop apply-controller tests preserve persistence-before-application and revision ordering; runtime language tests exercise Chinese/English switching.
+
+On Windows, `window_destroyed_during_foreground_read_is_an_empty_observation` destroys a real isolated window after the visibility check and before `GetWindowRect`, repeating 32 times. The old implementation returns invalid-window-handle error 0x80070578; the corrected path returns no candidate. Adjacent tests check an invisible target and propagation of genuine query failures for still-visible windows. Test windows never operate the user's existing desktop windows.
+
 ## Passive foreground changes during edge hiding
 
 Development sources use version 0.6.11 for this fix. Version declarations and package lockfiles advance together; published 0.6.10 assets retain their existing identities.

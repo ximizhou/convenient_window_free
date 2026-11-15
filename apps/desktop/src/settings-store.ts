@@ -1,12 +1,12 @@
 import { migrateGestureName } from "./gesture-names";
 import { normalizeHotzoneGeometry } from "./hotzone-geometry";
 import type {
-  AppSettings, GesturePoint, GestureTemplate, GestureTriggerButton, HotzoneAction,
+  AppSettings, GestureTemplate, GestureTriggerButton, HotzoneAction,
   HotzoneId, HotzoneSetting, ModifierAction, ModifierKey, MouseButton, OcrLanguage,
   ScreenshotResultMode, TriggerAction, TriggerKind
 } from "./types";
 import { getOptionalHostBridge } from "./host-bridge";
-import { resampleGesture } from "./gesture-algorithm";
+import { normalizeGestureSample } from "./gesture-sample";
 
 export const SETTINGS_SCHEMA_VERSION = 9;
 export const MAX_GESTURE_TEMPLATES = 64;
@@ -381,16 +381,6 @@ function normalizeGesture(value: unknown, fallback?: GestureTemplate, sourceSche
     modifierActions: normalizeModifierActions(raw.modifierActions),
     samples: samples.length ? samples : fallback ? fallback.samples.map((sample) => sample.map((point) => ({ ...point }))) : []
   };
-}
-
-function normalizeGestureSample(value: unknown): GesturePoint[] {
-  if (!Array.isArray(value)) return [];
-  const points = value
-    .filter((point) => point && typeof point === "object")
-    .map((point) => point as Partial<GesturePoint>)
-    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
-    .map((point) => ({ x: Math.min(1, Math.max(0, Number(point.x))), y: Math.min(1, Math.max(0, Number(point.y))) }));
-  return resampleGesture(points);
 }
 
 function normalizeModifierActions(value: unknown): ModifierAction[] {

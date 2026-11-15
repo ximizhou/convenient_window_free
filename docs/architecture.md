@@ -1,5 +1,9 @@
 # Architecture
 
+## Settings normalization and application
+
+Settings continue to persist on every edit. Gesture-sample normalization uses a weak cache keyed by the sample array, with a full coordinate comparison before reuse; in-place edits, changed lengths and replaced samples cannot reuse stale output. Returned points are copied so neither the editor nor a consumer can mutate the cached result. Invalid imports still take the validation path. The host's storage size limit and coordinate rounding remain unchanged, and helper application uses the successfully saved snapshot after the existing debounce.
+
 ## Startup applications and local maintenance (0.6.9 development)
 
 [Startup applications](startup-apps.md) use an ordinary short-lived helper process
@@ -162,6 +166,8 @@ Edge-hide state keeps the target edge and restore geometry across monitor change
 Window-drag admission is split into a read-only low-level hook check and an engine-side resolver. The hook checks the pointer target against `windowDrag.pausedApps` before consuming the configured modifier+mouse press; a blocked target receives the original press, motion, and release unchanged. Only an allowed target reaches the engine resolver, which may restore a maximized window and start the drag session. The hook check must never mutate window geometry.
 
 On Windows, one foreground snapshot retains both the raw HWND and the filtered visible window information. Hidden tray-menu owners are excluded from window candidates but remain available to the activation tracker. When the previous foreground window is destroyed, hidden or minimized, activation-based edge restoration is suppressed for the existing 250 ms fallback interval, including intermediate or empty foreground samples. The controller records the new foreground during suppression so an expired guard cannot trigger a delayed expansion. Hovering the exposed strip still restores normally; activation from a visible live window remains supported. This polling guard cannot identify a complete foreground lifecycle that occurs between samples; actual application and shell activation sequences require native acceptance.
+
+Windows window-info queries treat a rectangle-read failure as an empty observation only when a fresh native check confirms the HWND is destroyed or invisible. Errors for live visible targets still propagate. This handles normal exit between visibility and geometry reads without entering the engine's input-failure cleanup; the foreground snapshot retains its raw HWND for passive activation tracking.
 
 ## Brightness Controls
 
