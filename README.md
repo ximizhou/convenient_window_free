@@ -18,7 +18,7 @@
 
 </div>
 
-> The current stable release is 0.6.10. Development sources use 0.6.11 and include fixes for passive foreground changes expanding edge-hidden windows, window-query races during app exit, and repeated gesture normalization while saving settings. These development changes have not been released; real-application tray and activation checks remain pending.
+> The current stable release is 0.6.10. Development sources use 0.6.11 and include fixes for passive foreground changes expanding edge-hidden windows, window-query races during app exit, repeated gesture normalization while saving settings, and edge-hide strips appearing on the wrong virtual desktop. These development changes have not been released; real-application tray and activation checks remain pending.
 
 
 ![Convenient Window overview](docs/images/running-center.png)

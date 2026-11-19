@@ -805,8 +805,10 @@ impl Engine {
             ) {
                 Ok((kind, rect)) => {
                     let handle = edge_hide_command_handle(command);
+                    // Confirm the move even if Explorer cloaked the target mid-command.
+                    // Strip rendering needs a fresh visibility check after the move.
                     let live_state = edge_hide_live_state(handle);
-                    live_states.insert(handle, live_state);
+                    live_states.remove(&handle);
                     if let Some(cleanup) = edge_hide.command_succeeded(command, live_state, now) {
                         match execute_edge_hide_command(
                             cleanup,
@@ -816,12 +818,10 @@ impl Engine {
                             Ok(_) => {
                                 let cleanup_live_state = edge_hide_live_state(handle);
                                 edge_hide.command_succeeded(cleanup, cleanup_live_state, now);
-                                live_states.insert(handle, cleanup_live_state);
                             }
                             Err(error) => {
                                 edge_hide.command_failed(cleanup, now);
                                 self.report_runtime_error(ErrorCode::WindowOperationFailed, error);
-                                live_states.insert(handle, edge_hide_live_state(handle));
                             }
                         }
                     }
@@ -1035,7 +1035,12 @@ fn cached_edge_hide_live_state(
 ) -> EdgeHideLiveState {
     *states
         .entry(handle)
-        .or_insert_with(|| edge_hide_live_state(handle))
+        .or_insert_with(|| match edge_hide_live_state(handle) {
+            EdgeHideLiveState::Visible(_) if platform::window_is_cloaked(handle) => {
+                EdgeHideLiveState::Cloaked
+            }
+            state => state,
+        })
 }
 
 fn edge_hide_live_state(handle: platform::WindowHandle) -> EdgeHideLiveState {
@@ -2119,6 +2124,248 @@ mod tests {
         ));
         assert!(tracker.observe(start + Duration::from_millis(16), Some(target), |_| false,));
         assert!(!tracker.observe(start + Duration::from_millis(260), Some(target), |_| false,));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "interactive Windows shell: starts with one virtual desktop and briefly creates another"]
+    fn virtual_desktop_shell_smoke() {
+        use crate::config::{Edge, EdgeHideConfig};
+        use windows::core::w;
+        use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+        use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+        use windows::Win32::System::Threading::GetCurrentProcessId;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, DispatchMessageW, EnumWindows, GetWindowRect,
+            GetWindowThreadProcessId, IsWindowVisible, PeekMessageW, TranslateMessage, PM_REMOVE,
+            WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        };
+
+        // The launcher verifies one initial Explorer desktop. Keep all window and
+        // hint assertions scoped to this test process.
+        assert_eq!(
+            std::env::var("CW_VIRTUAL_DESKTOP_SMOKE").as_deref(),
+            Ok("1")
+        );
+        fn cloak(hwnd: HWND) -> u32 {
+            let mut flags = 0u32;
+            unsafe {
+                DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, (&mut flags as *mut u32).cast(), 4)
+            }
+            .unwrap();
+            flags
+        }
+        fn pump() {
+            let mut msg = Default::default();
+            unsafe {
+                while PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+        }
+        fn wait_for(mut probe: impl FnMut() -> bool) -> bool {
+            let until = Instant::now() + Duration::from_secs(4);
+            loop {
+                pump();
+                if probe() {
+                    return true;
+                }
+                if Instant::now() >= until {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        fn hint_count(rect: Rect) -> usize {
+            unsafe extern "system" fn count(hwnd: HWND, data: LPARAM) -> BOOL {
+                let (rect, total) = &mut *(data.0 as *mut (Rect, usize));
+                let mut pid = 0;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                let mut actual = RECT::default();
+                if pid == GetCurrentProcessId()
+                    && IsWindowVisible(hwnd).as_bool()
+                    && GetWindowRect(hwnd, &mut actual).is_ok()
+                    && (actual.left, actual.top, actual.right, actual.bottom)
+                        == (rect.left, rect.top, rect.right, rect.bottom)
+                    && cloak(hwnd) == 0
+                {
+                    *total += 1;
+                }
+                true.into()
+            }
+            let mut data = (rect.inflate(1), 0usize);
+            unsafe {
+                EnumWindows(
+                    Some(count),
+                    LPARAM((&mut data as *mut (Rect, usize)) as isize),
+                )
+            }
+            .unwrap();
+            data.1
+        }
+
+        let monitors = platform::monitors().unwrap();
+        let work = monitors
+            .iter()
+            .find(|monitor| monitor.primary)
+            .unwrap()
+            .work_area;
+        let rect = Rect {
+            left: work.left + 100,
+            right: work.left + 420,
+            top: work.top,
+            bottom: work.top + 260,
+        };
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!("Convenient Window virtual desktop test"),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                rect.left,
+                rect.top,
+                rect.width(),
+                rect.height(),
+                HWND::default(),
+                None,
+                None,
+                None,
+            )
+        }
+        .unwrap();
+        let handle = platform::WindowHandle(hwnd.0 as isize);
+        let mut controller = EdgeHideController::new();
+        let config = EdgeHideConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let hidden = Rect {
+            top: work.top + config.strip_size - rect.height(),
+            bottom: work.top + config.strip_size,
+            ..rect
+        };
+        let expected_strip = Rect {
+            top: work.top,
+            ..hidden
+        };
+        let window = platform::window_info_for_handle(handle).unwrap().unwrap();
+        let now = Instant::now();
+        let command = controller
+            .collapse_now(now, &config, &monitors, &window, Edge::Top, rect, hidden)
+            .unwrap();
+        execute_edge_hide_command(command, false, Duration::ZERO).unwrap();
+        controller.command_succeeded(command, edge_hide_live_state(handle), now);
+        let strips = |controller: &EdgeHideController| {
+            let mut states = HashMap::new();
+            controller.collapsed_strips_with_live_state(&monitors, |handle, _| {
+                cached_edge_hide_live_state(&mut states, handle)
+            })
+        };
+        let step = |controller: &mut EdgeHideController, cursor, foreground| {
+            let mut states = HashMap::new();
+            controller.tick_with_live_state(
+                Instant::now(),
+                &config,
+                cursor,
+                &monitors,
+                foreground,
+                EdgeHideInput::default(),
+                |handle, _| cached_edge_hide_live_state(&mut states, handle),
+            )
+        };
+        assert_eq!(strips(&controller), [expected_strip]);
+        let hotzone = Rect {
+            left: work.right - 32,
+            right: work.right,
+            top: work.top,
+            bottom: work.top + 32,
+        };
+        platform::update_hotzone_hints(Some(hotzone));
+        platform::update_strip_hints(&strips(&controller));
+        assert!(
+            wait_for(|| hint_count(expected_strip) == 1),
+            "hint visible on the original desktop"
+        );
+        // Hotzone hints use the exact rectangle (strips inflate theirs by 1 px).
+        let hotzone_probe = hotzone.inflate(-1);
+        assert!(
+            wait_for(|| hint_count(hotzone_probe) == 1),
+            "hotzone visible on the original desktop"
+        );
+        platform::send_shortcut_with_modifiers("Win+Ctrl+D", 0).unwrap();
+        let switched = wait_for(|| cloak(hwnd) != 0);
+        let flags = cloak(hwnd);
+        let still_visible = unsafe { IsWindowVisible(hwnd).as_bool() };
+        let old_rect = platform::window_info_for_handle(handle)
+            .unwrap()
+            .map(|window| window.rect);
+        let hint_on_second_desktop = hint_count(expected_strip);
+        let second_desktop_strips = strips(&controller);
+        platform::update_strip_hints(&second_desktop_strips);
+        let ghost_hint = !wait_for(|| hint_count(expected_strip) == 0);
+        let pointer = Point {
+            x: rect.left + 80,
+            y: work.top + 5,
+        };
+        let other_desktop_restore = step(&mut controller, pointer, None);
+        let hotzone_on_second_desktop = hint_count(hotzone_probe);
+        if switched {
+            platform::send_shortcut_with_modifiers("Win+Ctrl+F4", 0).unwrap();
+        }
+        let returned = wait_for(|| cloak(hwnd) == 0);
+        let strips_after_return = strips(&controller);
+        platform::update_strip_hints(&strips_after_return);
+        let hint_after_return = wait_for(|| hint_count(expected_strip) == 1);
+        let returned_window = platform::window_info_for_handle(handle).unwrap();
+        let outside = Point {
+            x: work.left + 20,
+            y: work.top + 70,
+        };
+        let focus_after_return = step(&mut controller, outside, returned_window.as_ref());
+        let restore_after_return = step(&mut controller, pointer, returned_window.as_ref());
+        let restored_rect = restore_after_return.and_then(|command| {
+            execute_edge_hide_command(command, false, Duration::ZERO).ok()?;
+            platform::window_info_for_handle(handle)
+                .ok()?
+                .map(|window| window.rect)
+        });
+        platform::hide_hotzone_hints();
+        unsafe { DestroyWindow(hwnd) }.unwrap();
+
+        println!("shell switch={switched} target_cloak={flags} target_style_visible={still_visible} target_rect={old_rect:?} initial_hint_on_second_desktop={hint_on_second_desktop} ghost_hint={ghost_hint}");
+        assert!(switched && returned, "shell must switch away and back");
+        assert_eq!(
+            flags & 2,
+            2,
+            "Explorer must cloak the window on another virtual desktop"
+        );
+        assert!(
+            second_desktop_strips.is_empty() && !ghost_hint,
+            "stale hint on another desktop"
+        );
+        assert_eq!(
+            other_desktop_restore, None,
+            "the other desktop must not activate the strip"
+        );
+        assert_eq!(
+            hotzone_on_second_desktop, 1,
+            "hotzone hint remains visible on the second desktop"
+        );
+        assert_eq!(strips_after_return, [expected_strip]);
+        assert_eq!(
+            focus_after_return, None,
+            "restored foreground on desktop return keeps the window tucked"
+        );
+        assert!(hint_after_return);
+        assert!(
+            matches!(restore_after_return, Some(EdgeHideCommand::Restore { handle: target, .. }) if target == handle)
+        );
+        assert_eq!(
+            restored_rect,
+            Some(rect),
+            "hover restores the actual window rectangle"
+        );
     }
 
     #[cfg(target_os = "windows")]

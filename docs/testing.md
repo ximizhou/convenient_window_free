@@ -6,6 +6,8 @@
 
 On Windows, `window_destroyed_during_foreground_read_is_an_empty_observation` destroys a real isolated window after the visibility check and before `GetWindowRect`, repeating 32 times. The old implementation returns invalid-window-handle error 0x80070578; the corrected path returns no candidate. Adjacent tests check an invisible target and propagation of genuine query failures for still-visible windows. Test windows never operate the user's existing desktop windows.
 
+`virtual_desktop_shell_smoke` exercises a real Explorer desktop switch with an owned test window and native overlays. Windows 11 build 26200 reproduced the stale strip before the fix. After the fix, the strip and its pointer target disappear on the new desktop, the hot-zone hint remains visible, and returning restores the strip without opening the window. Windows 10 field validation is pending. To repeat this opt-in smoke, start with a single desktop in an interactive session, set `CW_VIRTUAL_DESKTOP_SMOKE=1`, then run `cargo test virtual_desktop_shell_smoke -- --ignored --nocapture` from `helper/`. The test creates and closes a temporary virtual desktop using Explorer shortcuts.
+
 ## Passive foreground changes during edge hiding
 
 Development sources use version 0.6.11 for this fix. Version declarations and package lockfiles advance together; published 0.6.10 assets retain their existing identities.

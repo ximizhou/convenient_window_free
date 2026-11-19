@@ -73,6 +73,10 @@ pub fn window_is_minimized(handle: WindowHandle) -> bool {
     backend::window_is_minimized(handle)
 }
 
+pub fn window_is_cloaked(_: WindowHandle) -> bool {
+    false
+}
+
 pub fn window_can_remain_foreground(handle: WindowHandle) -> bool {
     !window_is_minimized(handle)
 }

@@ -22,6 +22,7 @@ pub enum EdgeHideCommand {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EdgeHideLiveState {
     Visible(Rect),
+    Cloaked,
     Minimized,
     Unavailable,
 }
@@ -717,7 +718,9 @@ impl EdgeHideController {
                             self.states.remove(&handle);
                             self.relocation_retry_after.remove(&handle);
                         }
-                        EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => {
+                        EdgeHideLiveState::Cloaked
+                        | EdgeHideLiveState::Minimized
+                        | EdgeHideLiveState::Unavailable => {
                             self.relocation_retry_after
                                 .insert(handle, now + RELOCATION_RETRY_DELAY);
                         }
@@ -765,7 +768,9 @@ impl EdgeHideController {
                             self.states.remove(&handle);
                             self.relocation_retry_after.remove(&handle);
                         }
-                        EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => {
+                        EdgeHideLiveState::Cloaked
+                        | EdgeHideLiveState::Minimized
+                        | EdgeHideLiveState::Unavailable => {
                             self.states.insert(
                                 handle,
                                 EdgeHideState::Expanding {
@@ -832,7 +837,9 @@ impl EdgeHideController {
                             topmost: original_topmost,
                         })
                     }
-                    EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => None,
+                    EdgeHideLiveState::Cloaked
+                    | EdgeHideLiveState::Minimized
+                    | EdgeHideLiveState::Unavailable => None,
                 },
                 Some(EdgeHideState::Relocating {
                     edge,
@@ -1148,6 +1155,7 @@ impl EdgeHideController {
             foreground,
             !input.suppress_foreground_restore,
             &active_collapsed,
+            &mut window_state,
         ) {
             return Some(command);
         }
@@ -1277,6 +1285,7 @@ impl EdgeHideController {
         foreground: Option<&WindowInfo>,
         allow_foreground_restore: bool,
         active_collapsed: &[WindowHandle],
+        window_state: &mut impl FnMut(WindowHandle, Rect) -> EdgeHideLiveState,
     ) -> Option<EdgeHideCommand> {
         let manually_moved = foreground.and_then(|window| {
             let EdgeHideState::Collapsed {
@@ -1313,7 +1322,10 @@ impl EdgeHideController {
             {
                 let is_foreground = foreground_handle == Some(*handle);
                 if !active_collapsed.contains(handle) {
-                    *was_foreground = is_foreground;
+                    // Explorer can restore the window's foreground status when we
+                    // return to its desktop. Keep that transition from opening it.
+                    *was_foreground = is_foreground
+                        || window_state(*handle, *hidden_rect) == EdgeHideLiveState::Cloaked;
                     continue;
                 }
                 if allow_foreground_restore && is_foreground && !*was_foreground {
@@ -1664,7 +1676,9 @@ impl EdgeHideController {
                     EdgeHideLiveState::Visible(_) => {
                         self.states.remove(&handle);
                     }
-                    EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => {}
+                    EdgeHideLiveState::Cloaked
+                    | EdgeHideLiveState::Minimized
+                    | EdgeHideLiveState::Unavailable => {}
                 },
                 Some(EdgeHideState::Collapsing {
                     edge,
@@ -1701,7 +1715,9 @@ impl EdgeHideController {
                             topmost: original_topmost,
                         });
                     }
-                    EdgeHideLiveState::Minimized | EdgeHideLiveState::Unavailable => {}
+                    EdgeHideLiveState::Cloaked
+                    | EdgeHideLiveState::Minimized
+                    | EdgeHideLiveState::Unavailable => {}
                 },
                 Some(EdgeHideState::CleaningUp {
                     rect,

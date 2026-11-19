@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use windows::core::{w, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, POINT, RECT};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
@@ -54,6 +55,22 @@ pub fn window_exists(handle: WindowHandle) -> bool {
 
 pub fn window_is_minimized(handle: WindowHandle) -> bool {
     unsafe { IsIconic(HWND(handle.0 as *mut core::ffi::c_void)).as_bool() }
+}
+
+pub fn window_is_cloaked(handle: WindowHandle) -> bool {
+    let mut flags = 0u32;
+    let hwnd = HWND(handle.0 as *mut core::ffi::c_void);
+    // Explorer leaves WS_VISIBLE and the window rectangle intact across virtual
+    // desktops. DWM reports whether the window is actually composed.
+    let result = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            (&mut flags as *mut u32).cast(),
+            std::mem::size_of_val(&flags) as u32,
+        )
+    };
+    result.is_ok() && flags != 0
 }
 
 pub fn window_can_remain_foreground(handle: WindowHandle) -> bool {
