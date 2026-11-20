@@ -71,7 +71,7 @@ jobs:
         shell: pwsh
         env:
           SEVEN_ZIP: C:\Program Files\7-Zip\7z.exe
-        run: npm run desktop:audit
+        run: ./scripts/audit-desktop-artifacts.ps1
 
       - name: Preserve the verified release candidate
         uses: actions/upload-artifact@v4
