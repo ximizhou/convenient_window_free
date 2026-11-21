@@ -18,14 +18,24 @@
 
 </div>
 
-> The current stable release is 0.6.10. Development sources use 0.6.11 and include fixes for passive foreground changes expanding edge-hidden windows, window-query races during app exit, repeated gesture normalization while saving settings, and edge-hide strips appearing on the wrong virtual desktop. These development changes have not been released; real-application tray and activation checks remain pending.
+> The current stable release is 0.6.11 for Windows 11 x64. The user accepted the helper and desktop releases on November 20, 2026. See the [release notes](docs/release-notes/0.6.11.md); version 0.6.10 remains available for rollback.
 
 
 ![Convenient Window overview](docs/images/running-center.png)
 
 Convenient Window is a small tray companion for Windows 11. Configure the four corners and four edges of every display, tuck windows away at the screen edge, draw one-stroke mouse gestures, keep screenshots floating above other windows, and save the current desktop as a **window layout** you can restore in one click. Settings apply live, the interface is bilingual, and everything runs locally.
 
-## What's new in 0.6.10
+## What's new in 0.6.11
+
+The Windows 11 x64 0.6.11 release was accepted and promoted to stable on November 20, 2026.
+
+- **Edge hiding** — prevent other edge-hidden windows from reopening when an app exits, and show restore strips only on the window's virtual desktop. Hot corners remain available across desktops.
+- **Window queries** — tolerate a target closing or hiding during foreground inspection.
+- **Settings** — reduce repeated gesture processing when saving larger configurations.
+
+[Release notes](docs/release-notes/0.6.11.md) · [All releases](https://github.com/ximizhou/convenient_window_free/releases)
+
+## Previous release: 0.6.10
 
 The Windows 11 x64 0.6.10 release was accepted and promoted to stable on November 4, 2026. The 0.6.9 stable downloads remain available for rollback.
 

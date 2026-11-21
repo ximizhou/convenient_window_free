@@ -1,8 +1,6 @@
 # Release Process
 
-Version 0.6.10 is the current stable Windows x64 release. It was promoted in place on November 4, 2026 after user acceptance; the installer, portable archive, manifest, checksums and tag retain their accepted identities, with build source `c977f5eeebd61aeed8ad2a9c2eb22bc48d7a4a30`. Later source or documentation commits do not change that source identity. All stable releases remain immutable; version 0.6.9 remains available for rollback. See the [0.6.10 release notes](release-notes/0.6.10.md) and [acceptance scope](testing.md#0610-online-acceptance).
-
-Development sources use version 0.6.11. Local helper and frontend checks do not establish a published or accepted installer. Record the frozen source, asset identities and verification results before publishing a Pre-release; user acceptance is required before promotion to stable.
+Version 0.6.11 is the current stable Windows 11 x64 release. The user accepted the helper and desktop releases on November 20, 2026; the existing assets were promoted without rebuilding or re-uploading. Version 0.6.10 remains available for rollback. See the [0.6.11 release notes](release-notes/0.6.11.md) and [acceptance scope](testing.md#0611-online-acceptance).
 
 Version 0.6.5 remains available as an older stable release with its own immutable assets and build source `57c52d8c4d3beed12fdc2b9ae1ba3a91bfa9fa16`.
 
