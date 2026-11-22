@@ -1,0 +1,29 @@
+{
+  "version": "0.6.11",
+  "sourceRepository": "https://github.com/ximizhou/convenient_window_free",
+  "sourceCommit": "aa26835bfc5c59968c288737fa9ea2a454f7b829",
+  "release": "https://github.com/ximizhou/convenient-window-helper-releases/releases/tag/v0.6.11",
+  "platform": "win32-x64",
+  "files": [
+    {
+      "name": "magic-corners-helper.exe",
+      "bytes": 3857920,
+      "sha256": "681679f5055493f36220d39ce3e85a264e37394c1595e56f10b0fb5382ae208c"
+    },
+    {
+      "name": "libunwind.dll",
+      "bytes": 90624,
+      "sha256": "13bf4e99b0193634ebdeb0bbdeff9753b39f1d04799183f664111014aabf4c2c"
+    },
+    {
+      "name": "std-1439d7de5ba07eaa.dll",
+      "bytes": 5323776,
+      "sha256": "c7f190b9237e136ff73501f70aa4fb97feafa4914b37d362bab3dc9f9e30ebba"
+    },
+    {
+      "name": "HELPER-LICENSE.txt",
+      "bytes": 4763,
+      "sha256": "dca8d91b9ec4cca210d13aa0eb66a03aaa996197b031c65177f2430193523f17"
+    }
+  ]
+}

@@ -18,7 +18,9 @@
 
 </div>
 
-> 当前正式版为 0.6.10。开发源码版本为 0.6.11，包含被动前台切换导致贴边窗口误展开、应用退出时窗口读取竞态的修复，以及贴边条跨虚拟桌面显示的修复，并减少设置保存时手势重复归一化。这些开发改动尚未发布，真实应用的托盘退出与主动激活仍待验收。
+**使用 DeepSeek Harness？** 可查看 [DSH 侧栏插件（Windows 测试版，安装和试用说明）](apps/dsh-plugin/README.md)。它是独立包，不包含在现有桌面安装包中，目前仅提供本机测试文件。
+
+> [0.6.11 桌面正式版](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11)与 DSH 本地测试包分开分发，不替换已发布的资产。
 
 
 ![便捷窗口概览](docs/images/running-center.png)

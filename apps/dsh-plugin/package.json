@@ -1,0 +1,79 @@
+{
+  "name": "dsh-plugin-convenient-window",
+  "version": "0.1.0-beta.1",
+  "productVersion": "0.6.11",
+  "description": "Convenient Window: Windows edge hiding and hot corners in a DeepSeek Harness panel",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ximizhou/convenient_window_free.git",
+    "directory": "apps/dsh-plugin"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "windows",
+    "hot-corners",
+    "window-management",
+    "便捷窗口",
+    "触发角",
+    "贴边隐藏"
+  ],
+  "engines": {
+    "dsh": "0.2.2-rc.5"
+  },
+  "exports": {
+    ".": "./host/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "platforms": [
+        "win32"
+      ]
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "files": [
+    "LICENSE",
+    "host/*.js",
+    "lib/client.js",
+    "lib/defaults.json",
+    "lib/THIRD-PARTY.txt",
+    "runtime-assets.json",
+    "payload/*",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/build.mjs && node --test test/*.test.mjs",
+    "stage:helper": "node scripts/stage-helper.mjs",
+    "prepack": "node scripts/build.mjs && node scripts/check-package.mjs",
+    "test:native": "node scripts/test-native.mjs",
+    "test:desktop": "node scripts/test-desktop.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "playwright-core": "1.55.0",
+    "prettier": "3.6.2",
+    "prettier-plugin-svelte": "3.4.0",
+    "svelte": "5.56.8"
+  },
+  "homepage": "https://github.com/ximizhou/convenient_window_free",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ]
+}

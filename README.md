@@ -18,7 +18,9 @@
 
 </div>
 
-> The current stable release is 0.6.10. Development sources use 0.6.11 and include fixes for passive foreground changes expanding edge-hidden windows, window-query races during app exit, repeated gesture normalization while saving settings, and edge-hide strips appearing on the wrong virtual desktop. These development changes have not been released; real-application tray and activation checks remain pending.
+**Using DeepSeek Harness?** A Windows-only beta [sidebar plugin and installation guide](apps/dsh-plugin/README.md) is available for local testing; it is a separate package, not part of this desktop installer or yet a public download.
+
+> The [0.6.11 desktop release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11) and the DSH preview are distributed separately. The DSH preview does not replace any existing release asset.
 
 
 ![Convenient Window overview](docs/images/running-center.png)

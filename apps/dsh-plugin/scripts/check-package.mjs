@@ -1,0 +1,33 @@
+import { Script } from 'node:vm';
+import { readFile, access } from 'node:fs/promises';
+import { join } from 'node:path';
+import { root, verifyPayload, metadata } from '../host/assets.js';
+await verifyPayload();
+new Script(await readFile(join(root, 'lib/client.js'), 'utf8')); // Syntax only: no evaluation or simulated DSH.
+await access(join(root, 'LICENSE'));
+for (const f of [
+  'lib/client.js',
+  'lib/defaults.json',
+  'lib/THIRD-PARTY.txt',
+  'host/index.js',
+  'cordis.patch.yml',
+  'README.md',
+])
+  await access(join(root, f));
+if (
+  metadata.dependencies ||
+  metadata.optionalDependencies ||
+  ['install', 'preinstall', 'postinstall', 'prepare'].some(
+    (k) => k in metadata.scripts,
+  )
+)
+  throw Error('Install must not require extra dependencies or scripts.');
+if (
+  !String(await readFile(join(root, 'lib/client.js'))).includes(
+    'sidebar.panellist',
+  )
+)
+  throw Error('DSH sidebar entry missing');
+console.log(
+  'Package: bundled payload verified; no install dependencies or hooks.',
+);

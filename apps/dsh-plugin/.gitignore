@@ -1,0 +1,5 @@
+/lib/
+/payload/
+/node_modules/
+/*.tgz
+/LICENSE

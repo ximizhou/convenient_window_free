@@ -1,0 +1,27 @@
+name: DSH adapter checks
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/dsh-plugin/**'
+      - 'apps/desktop/src/**'
+      - 'helper/src/**'
+      - '.github/workflows/dsh-plugin.yml'
+permissions:
+  contents: read
+jobs:
+  adapter:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: apps/dsh-plugin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: npm
+          cache-dependency-path: apps/dsh-plugin/package-lock.json
+      - run: npm ci
+      - run: npm test
+      # No helper fetch, installation, or publishing is performed in CI.
