@@ -1,39 +1,10 @@
 import { isAbsolute, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { Helper } from './helper.js';
-import {
-  initial,
-  readPrefs,
-  writePrefs,
-  runtimeConfig,
-  validate,
-} from './settings.js';
-import { metadata, assets } from './assets.js';
-
+import { readFile } from 'node:fs/promises';
+import { PanelController } from './panel-controller.js';
+import { root } from './assets.js';
 export const name = 'convenient-window';
 export const inject = ['webServer', 'connection', 'profileContext'];
 export const ROUTE = '/convenient-window/control';
-const errors = new Set([
-  'unsupported-platform',
-  'payload-invalid',
-  'settings-unreadable',
-  'invalid-settings',
-  'helper-in-use',
-  'ordinary-host-required',
-  'owner-unavailable',
-  'helper-start-failed',
-  'incompatible-helper',
-  'helper-timeout',
-  'helper-disconnected',
-  'helper-exited',
-  'apply-failed',
-  'apply-busy',
-  'stop-failed',
-  'stale',
-  'invalid-command',
-  'unloaded',
-  'settings-write-failed',
-]);
 const loopIP = (a) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(a);
 export function permitted(req, connection) {
   if (!loopIP(req.socket.remoteAddress) || !loopIP(req.socket.localAddress))
@@ -62,130 +33,76 @@ export function dataDir(profile) {
     throw Error('Missing local DSH profile');
   return join(profile.dir, 'convenient-window'); // Never guess the default profile or another host's paths.
 }
-export class Controller {
-  constructor(dir, helper = new Helper(join(dir, 'runtime'))) {
-    this.dir = dir;
-    this.helper = helper;
-    this.session = randomUUID();
-    this.queue = Promise.resolve();
-    this.disposed = false;
-  }
-  serial(fn) {
-    const p = this.queue.then(fn);
-    this.queue = p.catch(() => {});
-    return p;
-  }
-  snapshot(v) {
-    return {
-      ...v,
-      session: this.session,
-      running: !!this.helper.running,
-      fault: this.helper.fault,
-      product: metadata.productVersion,
-      adapter: metadata.version,
-      helper: assets.version,
-    };
-  }
-  async current() {
-    try {
-      return await readPrefs(this.dir);
-    } catch {
-      return { rev: null, prefs: initial(), blocked: 'settings-unreadable' };
-    }
-  }
-  request(body) {
-    return this.serial(async () => {
-      if (this.disposed) throw Error('unloaded');
-      const v = await this.current();
-      if (body === null) return this.snapshot(v);
-      if (!body || !['start', 'stop', 'save'].includes(body.action))
-        throw Error('invalid-command');
-      if (body.session !== this.session) throw Error('stale');
-      // Even a damaged settings file must not trap a running helper.
-      if (body.action === 'stop') {
-        await this.helper.stop();
-        return this.snapshot(v);
-      }
-      if (v.blocked) throw Error(v.blocked);
-      if (body.rev !== v.rev) throw Error('stale');
-      const next =
-        body.action === 'save'
-          ? { rev: v.rev + 1, prefs: validate(body.prefs) }
-          : v;
-      if (body.action === 'save')
-        await writePrefs(this.dir, next).catch(() => {
-          throw Error('settings-write-failed');
-        });
-      if (body.action === 'start') await this.helper.start();
-      if (this.helper.running) {
-        try {
-          await this.helper.apply(await runtimeConfig(next.prefs), next.rev);
-        } catch (e) {
-          await this.helper.stop();
-          throw e;
-        }
-      }
-      return this.snapshot(next);
-    });
-  }
-  dispose() {
-    this.disposed = true;
-    return this.serial(() => this.helper.stop());
-  }
-}
 export function handler(ctl, connection) {
   return async (req, res) => {
-    const send = (status, data) => {
-      res.writeHead(status, {
+    const abort = new AbortController();
+    res.once('close', () => abort.abort());
+    const send = (s, v) => {
+      if (res.destroyed) return;
+      res.writeHead(s, {
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
         'x-content-type-options': 'nosniff',
       });
-      res.end(JSON.stringify(data));
+      res.end(JSON.stringify(v));
     };
     try {
       if (!permitted(req, connection))
         return send(403, { error: 'local-only' });
-      let command = null;
-      if (req.method === 'POST') {
-        if (
-          req.headers['x-convenient-window'] !== 'panel' ||
-          req.headers['content-type']?.split(';')[0] !== 'application/json'
-        )
-          return send(415, { error: 'invalid-command' });
-        let len = 0;
-        const chunks = [];
-        for await (const c of req) {
-          len += c.length;
-          if (len > 8192) return send(413, { error: 'invalid-command' });
-          chunks.push(c);
-        }
-        try {
-          command = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        } catch {
-          return send(400, { error: 'invalid-command' });
-        }
-        if (!command || typeof command !== 'object' || Array.isArray(command))
-          return send(400, { error: 'invalid-command' });
-      } else if (req.method !== 'GET')
-        return send(405, { error: 'invalid-command' });
-      return send(200, await ctl.request(command));
+      if (req.method === 'GET') return send(200, await ctl.request(null));
+      if (req.method !== 'POST') return send(405, { error: 'invalid-command' });
+      if (
+        req.headers['x-convenient-window'] !== 'panel' ||
+        req.headers['content-type']?.split(';')[0] !== 'application/json'
+      )
+        return send(415, { error: 'invalid-command' });
+      const chunks = [];
+      let len = 0;
+      for await (const chunk of req) {
+        len += chunk.length;
+        if (len > 1024 * 1024) return send(413, { error: 'invalid-settings' });
+        chunks.push(chunk);
+      }
+      let body;
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString());
+      } catch {
+        return send(400, { error: 'invalid-command' });
+      }
+      if (!body || typeof body !== 'object' || Array.isArray(body))
+        return send(400, { error: 'invalid-command' });
+      return send(200, await ctl.request(body, abort.signal));
     } catch (e) {
-      const error = errors.has(e.message) ? e.message : 'host-failed';
+      const known =
+        /^(stale|local-only|invalid-(?:command|settings)|cancelled|entry-changed|pick-again|invalid-state|missing-(?:dsh|profile)|native-(?:busy|disconnected|failed)|admin[A-Z]\w+|settings-unreadable|helper-(?:in-use|disconnected|start-failed|timeout)|stream-expired|stream-busy|owner-unavailable|ordinary-host-required|incompatible-helper|payload-invalid|unsupported-platform|apply-failed|stop-failed|power-off|startup-unavailable|unloaded)$/;
+      const code = known.test(e.message) ? e.message : 'host-failed';
       return send(
-        ['stale', 'helper-in-use'].includes(error)
+        code === 'stale' || code === 'helper-in-use'
           ? 409
-          : error.startsWith('invalid-')
+          : code.startsWith('invalid-')
             ? 400
             : 503,
-        { error },
+        { error: code },
       );
     }
   };
 }
+const files = {
+  'panel.html': 'text/html; charset=utf-8',
+  'panel.css': 'text/css; charset=utf-8',
+  'panel.js': 'text/javascript; charset=utf-8',
+  'app-icon.png': 'image/png',
+};
 export function apply(ctx) {
-  const ctl = new Controller(dataDir(ctx.profileContext));
-  ctx.effect(() => () => ctl.dispose());
+  const ctl = new PanelController(dataDir(ctx.profileContext));
+  ctx.effect(() => {
+    void ctl
+      .activate(process.env.CW_DSH_LOGIN_DIR, process.env.CW_DSH_LOGIN_ADMIN)
+      .catch((error) => {
+        ctl.helper.fault = error.message;
+      });
+    return () => ctl.dispose();
+  });
   ctx.effect(() =>
     ctx.webServer.register({
       kind: 'exact',
@@ -193,4 +110,33 @@ export function apply(ctx) {
       handler: handler(ctl, ctx.connection),
     }),
   );
+  for (const [file, mime] of Object.entries(files))
+    ctx.effect(() =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: '/convenient-window/' + file,
+        handler: async (req, res) => {
+          if (!permitted(req, ctx.connection) || req.method !== 'GET') {
+            res.writeHead(403);
+            res.end();
+            return;
+          }
+          try {
+            const bytes = await readFile(join(root, 'lib', file));
+            res.writeHead(200, {
+              'content-type': mime,
+              'cache-control': 'no-store',
+              'x-content-type-options': 'nosniff',
+              'referrer-policy': 'no-referrer',
+              'content-security-policy':
+                "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; form-action 'none'; base-uri 'none'",
+            });
+            res.end(bytes);
+          } catch {
+            res.writeHead(503);
+            res.end();
+          }
+        },
+      }),
+    );
 }

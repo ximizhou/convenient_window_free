@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-convenient-window",
-  "version": "0.1.0-beta.1",
+  "version": "0.2.0-beta.2",
   "productVersion": "0.6.11",
-  "description": "Convenient Window: Windows edge hiding and hot corners in a DeepSeek Harness panel",
+  "description": "Convenient Window desktop control panel for DeepSeek Harness on Windows",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -46,9 +46,7 @@
   "files": [
     "LICENSE",
     "host/*.js",
-    "lib/client.js",
-    "lib/defaults.json",
-    "lib/THIRD-PARTY.txt",
+    "lib/*",
     "runtime-assets.json",
     "payload/*",
     "cordis.patch.yml",
@@ -57,12 +55,14 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node scripts/build.mjs && node --test test/*.test.mjs",
+    "build:native": "node scripts/build-native.mjs",
     "stage:helper": "node scripts/stage-helper.mjs",
     "prepack": "node scripts/build.mjs && node scripts/check-package.mjs",
     "test:native": "node scripts/test-native.mjs",
     "test:desktop": "node scripts/test-desktop.mjs"
   },
   "devDependencies": {
+    "@tauri-apps/api": "2.11.1",
     "esbuild": "0.25.12",
     "playwright-core": "1.55.0",
     "prettier": "3.6.2",

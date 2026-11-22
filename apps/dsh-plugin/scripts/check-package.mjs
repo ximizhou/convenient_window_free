@@ -2,11 +2,32 @@ import { Script } from 'node:vm';
 import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { root, verifyPayload, metadata } from '../host/assets.js';
+const { verifyNative } = await import('../host/native-service.js');
 await verifyPayload();
+const identity = await verifyNative();
+const { nativeInputs } = await import('./native-inputs.mjs');
+const { createHash } = await import('node:crypto');
+if (
+  identity.inputs !== (await nativeInputs()) ||
+  identity.notices !==
+    createHash('sha256')
+      .update(await readFile(join(root, 'lib/NATIVE-NOTICES.txt')))
+      .digest('hex')
+)
+  throw Error('Rebuild the DSH native host and notices before packing.');
+new Script(await readFile(join(root, 'lib/panel.js'), 'utf8'));
 new Script(await readFile(join(root, 'lib/client.js'), 'utf8')); // Syntax only: no evaluation or simulated DSH.
 await access(join(root, 'LICENSE'));
 for (const f of [
   'lib/client.js',
+  'lib/panel.js',
+  'lib/panel.css',
+  'lib/panel.html',
+  'lib/app-icon.png',
+  'lib/model.mjs',
+  'host/panel-controller.js',
+  'host/native-service.js',
+  'lib/NATIVE-NOTICES.txt',
   'lib/defaults.json',
   'lib/THIRD-PARTY.txt',
   'host/index.js',

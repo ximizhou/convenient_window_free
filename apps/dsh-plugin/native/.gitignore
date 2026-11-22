@@ -1,0 +1,4 @@
+# Generated from the desktop HUD sources by scripts/build-native.mjs.
+/ui/
+/target/
+/gen/

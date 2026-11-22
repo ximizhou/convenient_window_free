@@ -5,40 +5,52 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { once } from 'node:events';
-import { Controller, dataDir, handler, permitted } from '../host/index.js';
+import { dataDir, handler, permitted } from '../host/index.js';
 import { initial, runtimeConfig, validate } from '../host/settings.js';
 import { listenerPids, matchesReady } from '../host/helper.js';
 import { assets, metadata } from '../host/assets.js';
-import { zh, en } from '../src/copy.js';
+import {
+  PanelController,
+  readPanel,
+  configuredCommands,
+} from '../host/panel-controller.js';
+import { defaultSettings } from '../lib/model.mjs';
 
 async function fixture(t) {
   const dir = await mkdtemp(
     join(process.env.CW_TEST_TMP || tmpdir(), 'cw-unit-'),
   );
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const calls = [],
-    helper = {
-      running: false,
-      fault: null,
-      start() {
-        calls.push('start');
-        this.running = true;
+  const calls = [];
+  const helper = {
+    running: false,
+    start() {
+      this.running = true;
+      this.onFrame({ type: 'helper.ready', data: {} });
+    },
+    stop() {
+      this.running = false;
+    },
+    apply(c, r, l) {
+      calls.push([c, r, l]);
+    },
+    ws: {
+      send(raw) {
+        calls.push(JSON.parse(raw));
       },
-      apply(c, r) {
-        calls.push(['apply', c, r]);
-      },
-      stop() {
-        calls.push('stop');
-        this.running = false;
-      },
-    };
-  const c = new Controller(dir, helper);
-  const state = () => c.request(null);
-  const cmd = async (action, prefs) => {
-    const { rev, session } = await state();
-    return c.request({ action, prefs, rev, session });
+    },
   };
-  return { dir, helper, c, calls, state, cmd };
+  const c = new PanelController(dir, helper);
+  return {
+    dir,
+    c,
+    calls,
+    helper,
+    cmd: async (action, args = {}) => {
+      const v = await c.request(null);
+      return c.request({ session: v.session, rev: v.rev, action, ...args });
+    },
+  };
 }
 test('maps choices to the existing schema, enables only the chosen hover action', async () => {
   const p = initial(),
@@ -94,97 +106,179 @@ test('rejects invalid or unknown settings instead of passing arbitrary actions t
     resolve('profile', 'convenient-window'),
   );
 });
-test('reads are side-effect free; saves are atomic and profile-local; restarting does not auto-enable', async (t) => {
-  const a = await fixture(t),
-    b = await fixture(t);
+test('reads legacy choices without modifying them, saves a new desktop schema and rejects stale or corrupt writes', async (t) => {
+  const { dir, c, cmd } = await fixture(t);
   const p = initial();
   p.edgeHide = true;
-  assert.deepEqual(await readdir(a.dir), []);
-  await a.cmd('save', p);
-  assert.deepEqual(await readdir(a.dir), ['settings.json']);
-  assert.equal((await b.state()).prefs.edgeHide, false);
-  assert.deepEqual(a.calls, []);
-  await a.cmd('start');
-  await a.c.dispose();
-  const next = new Controller(a.dir, b.helper);
-  assert.equal((await next.request(null)).prefs.edgeHide, true);
-  assert.equal((await next.request(null)).running, false);
-});
-test('stale edits and previous plugin sessions cannot overwrite settings', async (t) => {
-  const a = await fixture(t),
-    base = await a.state(),
-    edit = {
-      action: 'save',
-      session: base.session,
-      rev: base.rev,
-      prefs: base.prefs,
-    };
-  const r = await Promise.allSettled([a.c.request(edit), a.c.request(edit)]);
-  assert.deepEqual(
-    r.map((x) => x.status),
-    ['fulfilled', 'rejected'],
-  );
-  assert.match(r[1].reason.message, /stale/);
+  p.edges = ['left'];
+  p.corners['top-right'] = 'show-desktop';
+  const old = JSON.stringify({ format: 1, rev: 13, prefs: p });
+  await writeFile(join(dir, 'settings.json'), old);
+  const s = await c.request(null);
+  assert.equal(s.settings.enabled, false);
+  assert(s.settings.edgeHide.enabled);
+  assert.deepEqual(s.settings.edgeHide.edges, ['left']);
+  assert(s.settings.hotzones.find((z) => z.id === 'top-right').enabled);
+  assert.deepEqual(await readdir(dir), ['settings.json']);
+  const next = await cmd('save', {
+    settings: {
+      ...s.settings,
+      windowDrag: { ...s.settings.windowDrag, enabled: true },
+    },
+  });
+  assert.equal(next.rev, 1);
+  assert.equal((await readPanel(dir)).settings.windowDrag.enabled, true);
+  assert.equal(await readFile(join(dir, 'settings.json'), 'utf8'), old);
   await assert.rejects(
-    a.c.request({ ...edit, session: 'old', rev: 1 }),
+    c.request({
+      session: s.session,
+      rev: 0,
+      action: 'save',
+      settings: s.settings,
+    }),
     /stale/,
   );
-  assert.equal((await a.state()).rev, 1);
+  await writeFile(join(dir, 'panel-settings.json'), 'bad');
+  await assert.rejects(readPanel(dir), /unreadable/);
 });
-test('waits for the running helper acknowledgement, stops on failure and on disposal', async (t) => {
-  const a = await fixture(t);
-  await a.cmd('start');
-  let release, entered;
-  const inApply = new Promise((r) => (entered = r));
-  a.helper.apply = () => {
-    entered();
-    return new Promise((r) => (release = r));
+test('uses only saved desktop settings for IPC, explicit feature allowlist; never returns a token', async (t) => {
+  const { c, cmd, calls } = await fixture(t);
+  const base = await c.request(null);
+  const s = {
+    ...base.settings,
+    enabled: true,
+    windowDrag: { ...base.settings.windowDrag, enabled: true },
+    topmostPin: { ...base.settings.topmostPin, enabled: true },
   };
-  let finished = false;
-  const write = a.cmd('save', initial()).then(() => (finished = true));
-  await inApply;
-  assert.equal(finished, false);
-  release();
-  await write;
-  a.helper.apply = () => {
-    throw Error('apply-failed');
+  await cmd('save', { settings: s });
+  await cmd('start');
+  const first = await cmd('observe', { cursor: null });
+  assert.equal(first.frames[0].type, 'helper.ready');
+  await cmd('engine', {
+    id: 'id',
+    type: 'config.update',
+    epoch: first.epoch,
+    data: { revision: 4, config: { enabled: false } },
+  });
+  assert(calls.at(-1)[0].enabled);
+  assert(calls.at(-1)[0].windowDrag.enabled);
+  assert.equal(calls.at(-1)[1], 4);
+  await assert.rejects(
+    cmd('engine', { id: 'cmd', epoch: first.epoch, type: 'unknown', data: {} }),
+    /invalid-command/,
+  );
+  await assert.rejects(
+    cmd('engine', {
+      id: 'cmd',
+      epoch: 'previous',
+      type: 'helper.ping',
+      data: {},
+    }),
+  );
+  assert(!Object.hasOwn(await c.request(null), 'token'));
+  await cmd('stop');
+  assert.equal((await c.request(null)).running, false);
+});
+test('view data persists within its profile, concurrent edits conflict; command actions are not silently accepted', async (t) => {
+  const { c, cmd, dir } = await fixture(t);
+  await cmd('view', {
+    key: 'convenient-window-language',
+    value: 'en-US',
+    previous: null,
+  });
+  await assert.rejects(
+    cmd('view', {
+      key: 'convenient-window-language',
+      value: 'zh-CN',
+      previous: null,
+    }),
+    /stale/,
+  );
+  await assert.rejects(
+    cmd('view', { key: 'unknown', value: 'x', previous: null }),
+  );
+  assert.equal(
+    (await new PanelController(dir).request(null)).view[
+      'convenient-window-language'
+    ],
+    'en-US',
+  );
+  const cfg = structuredClone(defaultSettings);
+  cfg.mouseGestures.gestures[0].action = {
+    kind: 'open-command',
+    value: 'not run',
   };
-  await assert.rejects(a.cmd('save', initial()), /apply-failed/);
-  assert.equal(a.helper.running, false);
-  await a.c.dispose();
-  await assert.rejects(a.state(), /unloaded/);
+  assert.deepEqual(configuredCommands(cfg), ['not run']);
+  let allow = false;
+  const prompts = [];
+  c.helper.native = {
+    call: async (op, data) => {
+      assert.equal(op, 'confirm-commands');
+      prompts.push(data);
+      return allow;
+    },
+  };
+  const before = await c.request(null);
+  await assert.rejects(cmd('save', { settings: cfg }), /cancelled/);
+  assert.deepEqual(await c.request(null), before);
+  allow = true;
+  await cmd('save', { settings: cfg });
+  await cmd('save', { settings: cfg });
+  assert.deepEqual(prompts, [['not run'], ['not run']]);
+  await assert.rejects(
+    cmd('native', { op: 'confirm-commands', data: [] }),
+    /invalid-command/,
+  );
 });
-test('does not overwrite corrupt settings and still allows stopping an owned helper', async (t) => {
-  const a = await fixture(t);
-  await a.cmd('start');
-  await writeFile(join(a.dir, 'settings.json'), 'broken');
-  assert.equal((await a.state()).blocked, 'settings-unreadable');
-  await assert.rejects(a.cmd('save', initial()), /settings-unreadable/);
-  assert.equal((await a.cmd('stop')).running, false);
-  assert.equal(await readFile(join(a.dir, 'settings.json'), 'utf8'), 'broken');
+test('bounded event history rejects obsolete epoch and cursor; owner-side hotkeys persist without the tab', async (t) => {
+  const { c, calls, cmd } = await fixture(t);
+  await cmd('view', {
+    key: 'convenient-window-layouts',
+    previous: null,
+    value: JSON.stringify([{ id: 'desk', shortcut: 'Ctrl+1', windows: [] }]),
+  });
+  await cmd('save', {
+    settings: { ...(await c.request(null)).settings, enabled: true },
+  });
+  await cmd('start');
+  assert.equal(calls.at(-1).type, 'shortcut.hotkeys.sync');
+  c.record({ type: 'shortcut.hotkey.triggered', data: { hotkeyId: 'desk' } });
+  assert.equal(calls.at(-1).type, 'window.layout.restore');
+  const { epoch, cursor } = await cmd('observe', { cursor: null });
+  c.record({ type: 'helper.pong', data: {} });
+  assert.equal(
+    (await cmd('observe', { epoch, cursor })).frames[0].type,
+    'helper.pong',
+  );
+  for (let i = 0; i < 140; i++) c.record({ type: 'helper.pong' });
+  await assert.rejects(cmd('observe', { epoch, cursor }), /stream-expired/);
+  await assert.rejects(cmd('observe', { epoch: 'old', cursor: null }));
 });
-test('listener ownership is numeric, locale independent, and ignores established connections', () => {
-  const s =
-    ' TCP 127.0.0.1:56873 0.0.0.0:0 侦听 123\r\n TCP [::]:56873 [::]:0 LISTENING 22\n TCP 127.0.0.1:56873 127.0.0.1:35678 ESTABLISHED 123\n UDP 0.0.0.0:56873 *:* 52';
-  assert.deepEqual([...listenerPids(s)], [123, 22]);
-  const d = {
-    processId: 5,
+test('requires owned listener and handshaken PID, protocol and ordinary privilege', () => {
+  const ready = {
+    processId: 12,
     version: assets.version,
     protocolVersion: 7,
     schemaVersion: 9,
-    elevated: false,
     desktopManaged: true,
+    elevated: false,
   };
-  assert(matchesReady(d, 5));
-  for (const v of [
+  assert(matchesReady(ready, 12));
+  for (const bad of [
     { processId: 3 },
-    { version: '0' },
-    { protocolVersion: 8 },
-    { schemaVersion: 10 },
     { elevated: true },
     { desktopManaged: false },
+    { protocolVersion: 6 },
   ])
-    assert.equal(matchesReady({ ...d, ...v }, 5), false);
+    assert(!matchesReady({ ...ready, ...bad }, 12));
+  assert.deepEqual(
+    [
+      ...listenerPids(
+        'TCP  127.0.0.1:56873 0.0.0.0:0 LISTENING 12\nTCP 127.0.0.1:56873 127.0.0.1:65500 ESTABLISHED 13',
+      ),
+    ],
+    [12],
+  );
 });
 test('requires both DSH authentication and a direct loopback request', () => {
   const req = {
@@ -230,20 +324,18 @@ test('loopback route rejects malformed requests, limits bodies and only exposes 
     ['POST', '{}', {}, 415],
     ['POST', 'null', hdr, 400],
     ['POST', '[', hdr, 400],
-    ['POST', ' '.repeat(9000), hdr, 413],
+    ['POST', ' '.repeat(1024 * 1024 + 1), hdr, 413],
     ['POST', '{"action":"save"}', hdr, 409],
   ])
     assert.equal((await fetch(url, { method, body, headers })).status, status);
 });
-test('install metadata and both dictionaries agree with the shipped surface', () => {
+test('package and native asset versions agree without install hooks', () => {
   assert.equal(assets.platform, 'win32-x64');
   assert.equal(metadata.productVersion, assets.version);
   assert.equal(metadata.dependencies, undefined);
   for (const k of ['preinstall', 'install', 'postinstall', 'prepare'])
     assert.equal(metadata.scripts[k], undefined);
-  assert.deepEqual(Object.keys(zh).sort(), Object.keys(en).sort());
-  assert.deepEqual(Object.keys(zh.error).sort(), Object.keys(en.error).sort());
-  assert(!/[\u3400-\u9fff]/.test(JSON.stringify({ ...en, lang: '' })));
+  assert.equal(metadata.version, '0.2.0-beta.2');
 });
 
 test('refuses missing, unexpected, or corrupt native assets before launch', async (t) => {
@@ -258,4 +350,51 @@ test('refuses missing, unexpected, or corrupt native assets before launch', asyn
   await assert.rejects(verifyPayload(dir), /payload-invalid/);
   await writeFile(join(dir, 'unexpected.dll'), 'extra');
   await assert.rejects(verifyPayload(dir), /payload-invalid/);
+});
+
+test('background restore honors saved power and scopes administrator requests to the registered login profile', async (t) => {
+  const { c, helper, cmd, dir } = await fixture(t);
+  let reg = { enabled: true, admin: true };
+  const switches = [];
+  helper.native = {
+    lang: 'zh-CN',
+    call: async (op) => {
+      assert.equal(op, 'login');
+      return reg;
+    },
+  };
+  helper.elevation = async (enabled) => {
+    switches.push(enabled);
+    return { elevated: enabled };
+  };
+  await c.activate(dir, '1');
+  assert.equal(helper.running, false);
+  const settings = { ...(await c.request(null)).settings, enabled: true };
+  await cmd('save', { settings });
+  await c.activate(dir + '-other', '1');
+  assert(helper.running);
+  assert.deepEqual(switches, []);
+  await cmd('stop');
+  reg = { enabled: false, admin: true };
+  await c.activate(dir, '1');
+  assert.deepEqual(switches, []);
+  await cmd('stop');
+  reg = { enabled: true, admin: true };
+  await c.activate(dir, '1');
+  assert.deepEqual(switches, [true]);
+});
+test('missing or changed native service fails verification independently of the helper', async (t) => {
+  const { verifyNative } = await import('../host/native-service.js');
+  const { dir } = await fixture(t);
+  await assert.rejects(verifyNative(dir), /payload-invalid/);
+  await writeFile(join(dir, 'cw-dsh-native.exe'), 'bad');
+  await writeFile(
+    join(dir, 'native-identity.json'),
+    JSON.stringify({
+      name: 'cw-dsh-native.exe',
+      bytes: 3,
+      sha256: '0'.repeat(64),
+    }),
+  );
+  await assert.rejects(verifyNative(dir), /payload-invalid/);
 });

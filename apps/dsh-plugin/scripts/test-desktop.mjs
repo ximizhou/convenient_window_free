@@ -2,7 +2,7 @@
 // Real drag-to-edge and show-desktop observations are deliberately left to a human.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -12,7 +12,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { _electron } from 'playwright-core';
 import { assets, metadata, verifyPayload } from '../host/assets.js';
 
-const [appPath, packagePath] = process.argv.slice(2);
+const [appPath, packagePath, oldPackagePath] = process.argv.slice(2);
 if (process.platform !== 'win32' || !appPath || !packagePath)
   throw Error(
     'Provide the installed Windows DSH executable and a prebuilt .tgz.',
@@ -163,30 +163,16 @@ async function panelPage(app) {
   }
   await dismissWelcome();
   await sidebar.click();
-  await panel.locator('[data-cw-power]').waitFor();
+  const frame = page.frameLocator('[data-cw-panel]');
+  await frame
+    .locator('html[data-app-ready="true"] .app-shell')
+    .waitFor({ timeout: 25000 });
   await dismissWelcome();
-  if ((await panel.locator('button.lang').innerText()) !== 'English')
-    await panel.locator('button.lang').click();
-  const button = (name) => panel.getByRole('button', { name, exact: true });
-  const tab = (name) =>
-    panel.locator('nav').getByRole('button', { name, exact: true });
-  const post = async (el) => {
-    const [r] = await Promise.all([
-      page.waitForResponse(
-        (r) =>
-          r.url().endsWith('/convenient-window/control') &&
-          r.request().method() === 'POST',
-        { timeout: 40000 },
-      ),
-      el.click(),
-    ]);
-    return { code: r.status(), data: await r.json() };
-  };
   const state = () =>
     page.evaluate(
       async () => await (await fetch('/convenient-window/control')).json(),
     );
-  return { page, panel, sidebar, tab, button, post, state };
+  return { page, frame, sidebar, state };
 }
 const claim = async () => {
   const s = createServer();
@@ -216,6 +202,47 @@ try {
   );
   await app.close();
   app = null;
+  let oldBytes;
+  if (oldPackagePath) {
+    const old = resolve(oldPackagePath);
+    assert.equal(
+      basename(old),
+      'dsh-plugin-convenient-window-0.1.0-beta.1.tgz',
+    );
+    assert.equal(
+      createHash('sha256')
+        .update(await readFile(old))
+        .digest('hex'),
+      '1aabb145f7072df6d223878e9390be0c4885ff2f2883b38a1c0a2b550c244272',
+    );
+    await cli([
+      'plugin',
+      '--profile',
+      'desktop',
+      'add',
+      `file:${old}`,
+      '--offline',
+      '--ignore-scripts',
+    ]);
+    const dir = join(profile, 'convenient-window');
+    await mkdir(dir, { recursive: true });
+    oldBytes = JSON.stringify({
+      format: 1,
+      rev: 6,
+      prefs: {
+        edgeHide: true,
+        edges: ['left'],
+        hoverDelayMs: 620,
+        corners: {
+          'top-left': 'show-desktop',
+          'top-right': 'none',
+          'bottom-left': 'none',
+          'bottom-right': 'none',
+        },
+      },
+    });
+    await writeFile(join(dir, 'settings.json'), oldBytes);
+  }
   const installed = await cli([
     'plugin',
     '--profile',
@@ -238,6 +265,16 @@ try {
     'host/helper.js',
     'host/index.js',
     'host/settings.js',
+    'host/panel-controller.js',
+    'host/native-service.js',
+    'lib/cw-dsh-native.exe',
+    'lib/native-identity.json',
+    'lib/NATIVE-NOTICES.txt',
+    'lib/model.mjs',
+    'lib/panel.html',
+    'lib/panel.css',
+    'lib/panel.js',
+    'lib/app-icon.png',
     'lib/client.js',
     'lib/defaults.json',
     'lib/THIRD-PARTY.txt',
@@ -267,88 +304,213 @@ try {
   );
 
   app = await boot();
-  const { page, panel, sidebar, tab, button, post, state } =
-    await panelPage(app);
+  const { page, frame, sidebar, state } = await panelPage(app);
+  const master = frame.locator('.master input'),
+    connected = frame.locator('.connection.connected');
   assert.equal((await state()).running, false);
+  if (oldBytes) {
+    const v = await state();
+    assert(v.settings.edgeHide.enabled);
+    assert.deepEqual(v.settings.edgeHide.edges, ['left']);
+    assert.equal(v.settings.hoverDelayMs, 620);
+    assert.equal(
+      v.settings.hotzones
+        .find((z) => z.id === 'top-left')
+        .actions.find((a) => a.trigger === 'hover').action.kind,
+      'show-desktop',
+    );
+  }
+  const toggle = () => frame.locator('.master').click();
   const busy = await claim();
   try {
-    const conflict = await post(panel.locator('[data-cw-power]'));
-    assert.equal(conflict.code, 409);
-    assert.equal(conflict.data.error, 'helper-in-use');
+    const response = page.waitForResponse(
+      (r) =>
+        r.url().endsWith('/control') &&
+        r.request().postDataJSON()?.action === 'start',
+    );
+    await toggle();
+    assert.equal((await response).status(), 409);
     assert(busy.listening);
   } finally {
     await release(busy);
   }
-  await tab('窗口增强').click();
-  await panel.getByRole('checkbox', { name: '贴边隐藏', exact: true }).check();
-  for (const name of ['右边', '上边', '下边']) await button(name).click();
-  assert.equal((await post(button('保存设置'))).code, 200);
-  await tab('触发角').click();
-  await panel.getByRole('combobox').selectOption('show-desktop');
-  assert.equal((await post(button('保存设置'))).code, 200);
-  await tab('运行中心').click();
+  await lookup(
+    async () => !(await master.isChecked()) && !(await master.isDisabled()),
+  );
+  await toggle();
+  await connected.waitFor({ timeout: 35000 });
+  const nativeState = () =>
+    page.evaluate(async () => {
+      const ctrl = '/convenient-window/control';
+      const { session } = await (await fetch(ctrl)).json();
+      return (
+        await fetch(ctrl, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-convenient-window': 'panel',
+          },
+          body: JSON.stringify({ action: 'diagnostics', session }),
+        })
+      ).json();
+    });
   assert.equal(
-    (await post(panel.locator('[data-cw-power]'))).data.running,
+    (await nativeState()).loginTargetValid,
     true,
+    'native login points at the installed DSH executable',
   );
-  const live = JSON.parse(
-    await readFile(
-      join(profile, 'convenient-window', 'runtime', 'config.json'),
-      'utf8',
-    ),
-  );
-  assert.deepEqual(live.edgeHide.edges, ['left']);
-  assert.equal(live.edgeHide.enabled, true);
   assert.equal(
-    live.hotzones
-      .find((z) => z.id === 'top-left')
-      .actions.find((a) => a.trigger === 'hover').action.kind,
-    'show-desktop',
+    (await nativeState()).installedProfile,
+    true,
+    'login launcher resolves this installed profile',
   );
-  await button('English').click();
-  for (const label of ['Control center', 'Hot corners', 'Window controls']) {
-    await tab(label).click();
-    assert(
-      !/[\u3400-\u9fff]/.test((await panel.innerText()).replace('中文', '')),
-    );
+  const feature = (id) => frame.locator(`.mode-nav [data-feature-id="${id}"]`);
+  for (const id of [
+    'power',
+    'hotzones',
+    'edge-hide',
+    'gestures',
+    'beautification',
+  ]) {
+    await feature(id).click();
+    await frame.locator('.drawer h2').first().waitFor();
+    assert.equal(await feature(id).getAttribute('aria-current'), 'page');
   }
-  await button('中文').click();
-  await tab('触发角').click();
-  await panel.getByRole('slider').focus();
-  await page.keyboard.press('ArrowRight');
-  assert.equal((await post(button('保存设置'))).data.running, true);
-  const alt = page
-    .getByRole('button', {
-      name: /^(聊天|对话|会话|新会话|Chat|插件|Plugins)$/,
-    })
-    .first();
-  await alt.click();
-  await panel.waitFor({ state: 'detached' });
+  await frame.locator('.theme-toggle.settings-toggle').click();
+  await frame.locator('.language-setting select').selectOption('en-US');
+  await frame.locator('html[lang="en-US"]').waitFor();
+  await lookup(
+    async () =>
+      !/[\u3400-\u9fff]/.test(
+        (await frame.locator('body').innerText()).replace(/简体中文|中文/g, ''),
+      ),
+  );
+  for (const id of ['window-layouts', 'startup']) {
+    await frame.locator(`.drawer [data-feature-id="${id}"]`).first().click();
+    await frame
+      .locator(id === 'startup' ? '.startup-filters' : '.drawer h2')
+      .first()
+      .waitFor();
+    if (id === 'startup') await frame.locator('.startup-list').waitFor();
+    await frame.locator('.theme-toggle.settings-toggle').click();
+  }
+  await lookup(
+    async () => (await nativeState()).hudTitle === 'Volume / Brightness',
+  );
+  // Read the chosen test file through the browser's actual file chooser and verify the owned helper's disk snapshot.
+  const change = (await state()).settings;
+  change.edgeHide.stripSize = 23;
+  const selected = page.waitForEvent('filechooser');
+  await frame.locator('.config-actions button').nth(1).click();
+  await (
+    await selected
+  ).setFiles({
+    name: 'panel-import.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(change)),
+  });
+  await lookup(async () => {
+    try {
+      const c = JSON.parse(
+        await readFile(
+          join(profile, 'convenient-window', 'runtime', 'config.json'),
+          'utf8',
+        ),
+      );
+      return c.edgeHide.stripSize === 23;
+    } catch {
+      return false;
+    }
+  });
+  await frame.locator('.language-setting select').selectOption('zh-CN');
+  await frame.locator('html[lang="zh-CN"]').waitFor();
+  await frame.locator('.theme-toggle:not(.settings-toggle)').click();
+  await feature('edge-hide').click();
+  await frame.locator('.drawer').waitFor();
+  await wait(400);
+  await page.screenshot({ path: join(qa, 'dsh-desktop-panel.png') });
+  await lookup(async () => !!(await state()).view['convenient-window-theme']);
+  await feature('power').click();
+  await frame.locator('.diagnostics-heading button').click();
+  const report = JSON.parse(
+    await frame.locator('.diagnostics-panel textarea').inputValue(),
+  );
+  assert.equal(report.host, 'dsh');
+  assert.equal(report.adapterVersion, metadata.version);
+  assert.equal(report.runtime.helperRunning, true);
+  assert.equal(report.runtime.installed, true);
+  const ping = frame.locator('.connection-test');
+  await ping.click();
+  await frame.locator('.connection-test.success').waitFor({ timeout: 5000 });
+  const other = page.getByRole('button', { name: /^(插件|Plugins)$/ }).first();
+  await other.click();
+  await lookup(
+    async () => !(await page.locator('[data-cw-panel]').isVisible()),
+  );
   assert.equal((await state()).running, true);
+  await sidebar.click();
+  await connected.waitFor();
   const win = await app.browserWindow(page);
   await win.evaluate((w) => w.minimize());
   await lookup(() => win.evaluate((w) => w.isMinimized()));
   assert.equal((await state()).running, true);
   await win.evaluate((w) => w.restore());
-  await sidebar.click();
-  const power = panel.locator('[data-cw-power]');
-  assert.equal((await post(power)).data.running, false);
-  assert.equal((await post(power)).data.running, true);
+  await other.click();
+  await lookup(
+    async () => !(await page.locator('[data-cw-panel]').isVisible()),
+  );
+  // Exit with power ON, then check the engine BEFORE opening its tab again.
   await app.close();
   app = null;
   await release(await claim());
   app = await boot();
-  const restored = await (await panelPage(app)).state();
-  assert.equal(restored.running, false);
-  assert.deepEqual(restored.prefs.edges, ['left']);
-  assert.equal(restored.prefs.corners['top-left'], 'show-desktop');
+  await lookup(async () => {
+    for (const shellPage of app.windows()) {
+      if (shellPage.isClosed()) continue;
+      const restoredInBackground = await shellPage
+        .evaluate(async () => {
+          try {
+            if (document.querySelector('[data-cw-panel]')) return false;
+            const v = await (await fetch('/convenient-window/control')).json();
+            return v.running === true && v.settings?.edgeHide?.stripSize === 23;
+          } catch {
+            return false;
+          }
+        })
+        .catch(() => false);
+      if (restoredInBackground) return true;
+    }
+    return false;
+  });
+  const restored = await panelPage(app);
+  await restored.frame.locator('.connection.connected').waitFor();
+  await restored.frame.locator('.master').click();
+  await lookup(async () => !(await restored.state()).running);
+  await app.close();
+  app = null;
+  await release(await claim());
+  app = await boot();
+  const next = await panelPage(app);
+  assert.equal((await next.state()).settings.enabled, false);
+  if (oldBytes)
+    assert.equal(
+      await readFile(
+        join(profile, 'convenient-window', 'settings.json'),
+        'utf8',
+      ),
+      oldBytes,
+    );
+  assert.equal(
+    (await next.state()).view['convenient-window-language'],
+    'zh-CN',
+  );
   await app.close();
   app = null;
   await cli(['plugin', '--profile', 'desktop', 'remove', metadata.name]);
   await assert.rejects(stat(moduleDir), { code: 'ENOENT' });
-  await stat(join(profile, 'convenient-window', 'settings.json'));
+  await stat(join(profile, 'convenient-window', 'panel-settings.json'));
   console.log(
-    `PASS: clean offline desktop install, sidebar, native apply, both languages, conflict, minimize, stop/restart, quit, persistence and removal.\nSHA-256: ${createHash(
+    `PASS: actual installed desktop panel, navigation, locale, minimized helper, restart/removal. Evidence: ${qa}; SHA-256 ${createHash(
       'sha256',
     )
       .update(await readFile(tgz))

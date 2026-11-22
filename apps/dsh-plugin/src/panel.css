@@ -1,0 +1,16 @@
+/* Only adapter errors, not a competing theme. The full desktop sheet sets all layout tokens. */
+#panel-message:empty {
+  display: none;
+}
+#panel-message:not(:empty) {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 100;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  padding: 10px 14px;
+}

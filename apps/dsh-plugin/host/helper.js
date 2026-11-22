@@ -1,10 +1,11 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
+import { join, dirname } from 'node:path';
+import { NativeService } from './native-service.js';
+
 import { promisify } from 'node:util';
-import { assets, root, verifyPayload } from './assets.js';
+import { assets, verifyPayload } from './assets.js';
 import { atomicJSON, initial, runtimeConfig } from './settings.js';
 
 const exec = promisify(execFile);
@@ -49,24 +50,7 @@ async function checkListener(expectedPid) {
   if (pids.size !== 1 || !pids.has(expectedPid)) throw Error('helper-in-use');
   return true;
 }
-async function ownerBirth() {
-  const script = `$ErrorActionPreference='Stop'; $p=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()); if($p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){'elevated'}else{(Get-Process -Id ${process.pid}).StartTime.ToUniversalTime().ToFileTimeUtc().ToString([Globalization.CultureInfo]::InvariantCulture)}`;
-  let value;
-  try {
-    const { stdout } = await exec(
-      join(system, 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-      ['-NoProfile', '-NonInteractive', '-Command', script],
-      commandOptions,
-    );
-    value = stdout.trim();
-  } catch {
-    throw Error('owner-unavailable');
-  }
-  if (value === 'elevated') throw Error('ordinary-host-required');
-  if (!/^\d{16,20}$/.test(value)) throw Error('owner-unavailable');
-  return value; // FILETIME is a 64-bit integer: pass decimal text without rounding.
-}
-export function matchesReady(d, pid) {
+export function matchesReady(d, pid, elevated = false) {
   return (
     !!d &&
     d.processId === pid &&
@@ -74,129 +58,117 @@ export function matchesReady(d, pid) {
     d.protocolVersion === 7 &&
     d.schemaVersion === 9 &&
     d.desktopManaged === true &&
-    d.elevated === false
+    d.elevated === elevated
   );
-}
-function endWithin(done, ms) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), ms);
-    done.then(() => {
-      clearTimeout(timer);
-      resolve(true);
-    });
-  });
 }
 export class Helper {
   constructor(dir) {
     this.dir = dir;
+    this.native = new NativeService(dirname(dir));
+    this.native.onExit = () => {
+      if (this.child) this.fault = 'native-disconnected';
+      this.invalidate();
+    };
     this.child = this.ws = this.pending = this.fault = null;
-    this.ready = this.stopping = false;
+    this.ready = false;
   }
   get running() {
-    return this.ready && this.ws?.readyState === 1 && !!this.child;
+    return !!(this.ready && this.ws?.readyState === 1 && this.child);
+  }
+  invalidate() {
+    this.ready = false;
+    this.child = null;
+    const ws = this.ws;
+    this.ws = null;
+    ws?.close();
+    this.pending?.fail('helper-disconnected');
+    this.onEnd?.();
   }
   async start() {
-    if (this.running) return;
-    if (this.child) await this.stop();
+    if (this.running) return { alreadyRunning: true, elevated: this.elevated };
     if (process.platform !== 'win32' || process.arch !== 'x64')
       throw Error('unsupported-platform');
     await verifyPayload().catch(() => {
       throw Error('payload-invalid');
     });
     await checkListener(null);
-    const birth = await ownerBirth();
-    // The helper reads its last snapshot before IPC is ready. Start inert, even after a previous crash.
-    // Only touch our private runtime directory; never modify an existing host's configuration.
     const inert = await runtimeConfig(initial());
     inert.enabled = false;
     await atomicJSON(this.dir, 'config.json', inert);
-    const dir = join(root, 'payload');
-    const child = spawn(
-      join(dir, 'magic-corners-helper.exe'),
-      ['--data-dir', this.dir, '--desktop-owner', String(process.pid), birth],
-      { cwd: dir, windowsHide: true, stdio: 'ignore', shell: false },
-    );
-    this.child = child;
-    this.stopping = this.ready = false;
-    this.fault = null;
-    this.done = new Promise((resolve) => {
-      const finish = () => {
-        if (this.child === child) {
-          this.child = null;
-          this.ready = false;
-          if (!this.stopping) this.fault = 'helper-exited';
-          this.pending?.fail('helper-disconnected');
-          this.ws?.close();
-        }
-        resolve();
-      };
-      child.once('exit', finish);
-      child.once('error', finish);
-    });
+    return this.launch('start', null);
+  }
+  async elevation(enabled) {
+    if (!this.running) throw Error('helper-disconnected');
+    this.invalidate();
+    return this.launch('elevation', { enabled });
+  }
+  async launch(op, data) {
+    const session = await this.native.open();
+    let info;
     try {
-      const deadline = Date.now() + 18000;
-      let owned = false;
-      while (this.child === child && Date.now() < deadline) {
-        if (await checkListener(child.pid)) {
-          owned = true;
-          break;
-        }
-        await sleep(150);
-      }
-      if (!owned || this.child !== child) throw Error('helper-start-failed');
+      info = await this.native.send(session, op, data);
+      if (!Number.isInteger(info.pid) || !(await checkListener(info.pid)))
+        throw Error('owner-unavailable');
       const token = (
         await readFile(join(this.dir, 'auth-token'), 'utf8')
       ).trim();
-      if (!/^[0-9a-f]{64}$/i.test(token) || this.child !== child)
-        throw Error('helper-start-failed');
+      if (!/^[a-f0-9]{64}$/i.test(token)) throw Error('helper-start-failed');
+      this.child = { pid: info.pid };
+      this.elevated = !!info.elevated;
+      this.fault = null;
       const ws = new WebSocket(`ws://127.0.0.1:${PORT}`, token);
       this.ws = ws;
-      await new Promise((resolve, reject) => {
-        const fail = (code) => {
+      await new Promise((ok, no) => {
+        const fail = () => {
           clearTimeout(timer);
-          reject(Error(code));
+          no(Error('helper-disconnected'));
         };
-        const timer = setTimeout(() => fail('helper-timeout'), 7000);
-        ws.addEventListener('error', () => fail('helper-disconnected'));
+        const timer = setTimeout(() => no(Error('helper-timeout')), 7000);
+        ws.addEventListener('error', fail);
         ws.addEventListener('close', () => {
           if (this.ws === ws) {
-            this.ready = false;
-            this.pending?.fail('helper-disconnected');
-            if (!this.stopping && this.child === child) {
-              this.fault = 'helper-disconnected';
-              child.kill();
-            }
+            this.fault = 'helper-disconnected';
+            this.invalidate();
+            void this.native.send(session, 'stop').catch(() => {});
           }
-          fail('helper-disconnected');
+          fail();
         });
         ws.addEventListener('message', (event) => {
-          if (this.ws !== ws || this.child !== child) return;
+          if (this.ws !== ws) return;
           let m;
           try {
             m = JSON.parse(event.data);
           } catch {
             return;
           }
-          if (m.type === 'helper.ready' && !this.ready) {
-            if (!matchesReady(m.data, child.pid))
-              return fail('incompatible-helper');
+          if (!this.ready && m.type === 'helper.ready') {
+            if (!matchesReady(m.data, info.pid, info.elevated)) {
+              clearTimeout(timer);
+              no(Error('incompatible-helper'));
+              return;
+            }
             clearTimeout(timer);
             this.ready = true;
-            resolve();
+            this.onFrame?.(m);
+            ok();
             return;
           }
+          if (!this.ready) return;
+          this.onFrame?.(m);
           const p = this.pending;
-          if (!this.ready || !p || m.data?.requestId !== p.id) return;
+          if (!p || m.data?.requestId !== p.id) return;
           if (m.type === 'config.applied' && m.data.revision === p.rev) p.ok();
           else if (m.type === 'runtime.error') p.fail('apply-failed');
         });
       });
-    } catch (error) {
-      await this.stop();
-      throw error;
+      return info;
+    } catch (e) {
+      this.invalidate();
+      await this.native.send(session, 'stop').catch(() => {});
+      throw e;
     }
   }
-  async apply(config, rev) {
+  async apply(config, rev, labels) {
     if (!this.running) throw Error('helper-disconnected');
     if (this.pending) throw Error('apply-busy');
     const id = randomUUID();
@@ -215,7 +187,12 @@ export class Helper {
             id,
             type: 'config.update',
             time: Date.now(),
-            data: { protocolVersion: 7, revision: rev, config },
+            data: {
+              protocolVersion: 7,
+              revision: rev,
+              config,
+              gestureLabels: labels,
+            },
           }),
         );
       } catch {
@@ -224,32 +201,14 @@ export class Helper {
     });
   }
   async stop() {
-    this.stopping = true;
-    const child = this.child,
-      done = this.done,
-      ws = this.ws,
-      ownedReady = this.running;
-    this.ready = false;
-    this.pending?.fail('helper-disconnected');
-    if (child) {
-      if (ownedReady) {
-        try {
-          ws.send(
-            JSON.stringify({
-              id: randomUUID(),
-              type: 'helper.stop',
-              time: Date.now(),
-              data: {},
-            }),
-          );
-        } catch {}
-      }
-      if (!ownedReady || !(await endWithin(done, 4000))) {
-        if (this.child === child) child.kill(); // ChildProcess handle, never a discovered PID or process name.
-        if (!(await endWithin(done, 3500))) throw Error('stop-failed');
-      }
-    }
-    this.ws = this.fault = null;
-    ws?.close();
+    this.invalidate();
+    if (this.native.session)
+      await this.native.send(this.native.session, 'stop');
+    this.elevated = false;
+    this.fault = null;
+  }
+  async dispose() {
+    this.invalidate();
+    await this.native.close();
   }
 }

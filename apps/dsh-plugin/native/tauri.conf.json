@@ -1,0 +1,1 @@
+{"productName":"Convenient Window for DSH","version":"0.6.11","identifier":"com.ximizhou.convenientwindow.dsh","build":{"frontendDist":"ui"},"app":{"windows":[],"security":{"csp":"default-src 'self'; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"}},"bundle":{"active":false,"icon":["../../desktop/src-tauri/icons/icon.ico"]}}

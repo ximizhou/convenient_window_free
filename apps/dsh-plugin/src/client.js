@@ -1,20 +1,22 @@
 import React from 'react';
-import { mount, unmount } from 'svelte';
-import Panel from './Panel.svelte';
 export const name = 'convenient-window';
 export const inject = ['slots', 'locale'];
 const ID = 'convenient-window';
-function Shell() {
-  const ref = React.useRef(null);
-  React.useEffect(() => {
-    const instance = mount(Panel, { target: ref.current });
-    return () => {
-      void unmount(instance);
-    };
-  }, []);
-  return React.createElement('div', {
-    ref,
-    style: { height: '100%', minHeight: 0, width: '100%', overflow: 'auto' },
+function Shell({ title }) {
+  const url = new URL('convenient-window/panel.html', document.baseURI);
+  url.searchParams.set('lang', title === '便捷窗口' ? 'zh-CN' : 'en-US');
+  return React.createElement('iframe', {
+    title,
+    'data-cw-panel': 'desktop',
+    src: url.href,
+    style: {
+      display: 'block',
+      width: '100%',
+      height: '100%',
+      minHeight: 0,
+      border: 0,
+    },
+    allow: 'clipboard-write',
   });
 }
 function Mark({ size = 20 }) {
@@ -43,7 +45,9 @@ export function apply(ctx) {
   );
   const t = ctx.locale.bind(ns);
   ctx.slots.inject('main', () =>
-    ctx.slots.register({ name: 'main', key: ID, locale: ns }, Shell),
+    ctx.slots.register({ name: 'main', key: ID, locale: ns }, () =>
+      React.createElement(Shell, { title: t('title') }),
+    ),
   );
   ctx.slots.inject('sidebar.panellist', () =>
     ctx.slots.register(
