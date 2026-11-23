@@ -84,7 +84,10 @@ fn installed_profile() -> io::Result<PathBuf> {
         .ok_or_else(|| io::Error::other("missing-profile"))
 }
 fn package_launcher(profile: &Path) -> PathBuf {
-    profile.join("node_modules/dsh-plugin-convenient-window/lib/cw-dsh-native.exe")
+    profile
+        .join("node_modules")
+        .join(env!("CW_DSH_PACKAGE_NAME"))
+        .join("lib/cw-dsh-native.exe")
 }
 fn login_executable() -> io::Result<PathBuf> {
     match installed_profile() {

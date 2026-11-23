@@ -5,7 +5,13 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { once } from 'node:events';
-import { dataDir, handler, permitted } from '../host/index.js';
+import { runInNewContext } from 'node:vm';
+import {
+  dataDir,
+  handler,
+  name as hostName,
+  permitted,
+} from '../host/index.js';
 import { initial, runtimeConfig, validate } from '../host/settings.js';
 import { listenerPids, matchesReady } from '../host/helper.js';
 import { assets, metadata } from '../host/assets.js';
@@ -335,7 +341,49 @@ test('package and native asset versions agree without install hooks', () => {
   assert.equal(metadata.dependencies, undefined);
   for (const k of ['preinstall', 'install', 'postinstall', 'prepare'])
     assert.equal(metadata.scripts[k], undefined);
-  assert.equal(metadata.version, '0.2.0-beta.2');
+  assert.equal(metadata.name, 'dsh-convenient-window');
+  assert.equal(metadata.version, '0.2.0-beta.3');
+});
+
+test('publishes the same name in the lockfile, Cordis backend and compiled sidebar', async () => {
+  const text = (path) => readFile(new URL(path, import.meta.url), 'utf8');
+  const lock = JSON.parse(await text('../package-lock.json'));
+  assert.equal(lock.name, metadata.name);
+  assert.equal(lock.packages[''].name, metadata.name);
+  assert.equal(lock.packages[''].version, metadata.version);
+  assert.equal(hostName, metadata.name);
+  const patch = await text('../cordis.patch.yml');
+  assert.deepEqual(
+    [...patch.matchAll(/^\s+name: (.+?)\s*$/gm)].map((m) => m[1]),
+    [metadata.name],
+  );
+
+  let client;
+  const loader = {
+    load({ id, factory }) {
+      assert.equal(id, metadata.name);
+      client = factory((module) => {
+        assert.equal(module, 'react');
+        return {};
+      });
+    },
+  };
+  runInNewContext(await text('../lib/client.js'), {
+    window: { __ModuleLoader__: loader },
+  });
+  assert.equal(client.name, metadata.name);
+  const labels = [];
+  client.apply({
+    effect: (fn) => fn(),
+    locale: { register() {}, bind: () => () => 'zh-CN' },
+    slots: {
+      inject: (_, register) => register(),
+      register(slot) {
+        if (slot.name === 'sidebar.panellist') labels.push(slot.label());
+      },
+    },
+  });
+  assert.deepEqual(labels, [metadata.name]);
 });
 
 test('refuses missing, unexpected, or corrupt native assets before launch', async (t) => {

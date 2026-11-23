@@ -28,7 +28,12 @@ if (
   throw Error(
     'Review third-party notices for the changed native dependency lock.',
   );
-await import('./build.mjs');
+// Let the Svelte compiler and esbuild release their memory before starting Rust.
+execFileSync(process.execPath, [join(root, 'scripts/build.mjs')], {
+  cwd: root,
+  stdio: 'inherit',
+  windowsHide: true,
+});
 const target = resolve(process.env.CARGO_TARGET_DIR || join(native, 'target'));
 const env = { ...process.env, CARGO_TARGET_DIR: target };
 const paths = [

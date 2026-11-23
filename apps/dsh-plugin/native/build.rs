@@ -4,6 +4,19 @@ use std::{env, fs, path::PathBuf};
 fn main() {
     println!("cargo:rerun-if-changed=ui/hud.html");
     println!("cargo:rerun-if-changed=ui/hud.js");
+    println!("cargo:rerun-if-changed=../package.json");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read("../package.json").expect("DSH package manifest"))
+            .expect("valid package.json");
+    let name = manifest["name"].as_str().expect("DSH package name");
+    assert!(
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+        "DSH package name must be one unscoped path component"
+    );
+    println!("cargo:rustc-env=CW_DSH_PACKAGE_NAME={name}");
     let source = "../../desktop/src-tauri/src/windows_autostart.rs";
     println!("cargo:rerun-if-changed={source}");
     let mut code = fs::read_to_string(source).expect("desktop autostart source");

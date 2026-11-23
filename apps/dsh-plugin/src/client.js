@@ -1,12 +1,13 @@
 import React from 'react';
-export const name = 'convenient-window';
+import { name } from '../package.json';
+export { name };
 export const inject = ['slots', 'locale'];
 const ID = 'convenient-window';
-function Shell({ title }) {
+function Shell({ language }) {
   const url = new URL('convenient-window/panel.html', document.baseURI);
-  url.searchParams.set('lang', title === '便捷窗口' ? 'zh-CN' : 'en-US');
+  url.searchParams.set('lang', language);
   return React.createElement('iframe', {
-    title,
+    title: name,
     'data-cw-panel': 'desktop',
     src: url.href,
     style: {
@@ -39,14 +40,14 @@ export function apply(ctx) {
   const ns = 'convenient-window-panel';
   ctx.effect(() =>
     ctx.locale.register(ns, {
-      en: { title: 'Convenient Window' },
-      zh: { title: '便捷窗口' },
+      en: { language: 'en-US' },
+      zh: { language: 'zh-CN' },
     }),
   );
   const t = ctx.locale.bind(ns);
   ctx.slots.inject('main', () =>
     ctx.slots.register({ name: 'main', key: ID, locale: ns }, () =>
-      React.createElement(Shell, { title: t('title') }),
+      React.createElement(Shell, { language: t('language') }),
     ),
   );
   ctx.slots.inject('sidebar.panellist', () =>
@@ -56,7 +57,7 @@ export function apply(ctx) {
         id: ID,
         order: 20,
         locale: ns,
-        label: () => t('title'),
+        label: () => name,
       },
       Mark,
     ),

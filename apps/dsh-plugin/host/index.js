@@ -1,8 +1,8 @@
 import { isAbsolute, join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { PanelController } from './panel-controller.js';
-import { root } from './assets.js';
-export const name = 'convenient-window';
+import { metadata, root } from './assets.js';
+export const name = metadata.name;
 export const inject = ['webServer', 'connection', 'profileContext'];
 export const ROUTE = '/convenient-window/control';
 const loopIP = (a) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(a);

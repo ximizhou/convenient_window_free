@@ -1,6 +1,6 @@
 {
-  "name": "dsh-plugin-convenient-window",
-  "version": "0.2.0-beta.2",
+  "name": "dsh-convenient-window",
+  "version": "0.2.0-beta.3",
   "productVersion": "0.6.11",
   "description": "Convenient Window desktop control panel for DeepSeek Harness on Windows",
   "type": "module",

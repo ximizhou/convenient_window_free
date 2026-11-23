@@ -18,7 +18,7 @@
 
 </div>
 
-**Using DeepSeek Harness?** A Windows-only beta [sidebar plugin and installation guide](apps/dsh-plugin/README.md) is available for local testing; it is a separate package, not part of this desktop installer or yet a public download.
+**Using DeepSeek Harness on Windows?** The sidebar plugin is called `dsh-convenient-window`. The [installation guide](apps/dsh-plugin/README.md) covers local beta packages and upgrades from the previous name.
 
 > The [0.6.11 desktop release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11) and the DSH preview are distributed separately. The DSH preview does not replace any existing release asset.
 

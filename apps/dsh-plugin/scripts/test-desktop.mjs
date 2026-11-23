@@ -104,7 +104,7 @@ async function lookup(fn) {
   }
   throw Error('Timed out waiting for the DSH shell.');
 }
-async function panelPage(app) {
+async function panelPage(app, label = metadata.name) {
   const page = await lookup(async () => {
     for (const p of app.windows()) {
       if (p.isClosed()) continue;
@@ -132,7 +132,7 @@ async function panelPage(app) {
       }
       if (
         await p
-          .getByRole('button', { name: /^(便捷窗口|Convenient Window)$/ })
+          .getByRole('button', { name: label, exact: true })
           .first()
           .isVisible()
           .catch(() => false)
@@ -141,9 +141,12 @@ async function panelPage(app) {
     }
   });
   const sidebar = page
-    .getByRole('button', { name: /^(便捷窗口|Convenient Window)$/ })
+    .getByRole('button', { name: label, exact: true })
     .first();
-  const panel = page.locator('[data-cw-panel]');
+  assert.equal(
+    await page.getByRole('button', { name: label, exact: true }).count(),
+    1,
+  );
   async function dismissWelcome() {
     for (let i = 0; i < 12; i++) {
       const cont = page
@@ -203,17 +206,26 @@ try {
   await app.close();
   app = null;
   let oldBytes;
+  const savedFiles = new Map();
+  const legacyPackage = 'dsh-plugin-convenient-window';
+  const legacyV2 = `${legacyPackage}-0.2.0-beta.2.tgz`;
   if (oldPackagePath) {
     const old = resolve(oldPackagePath);
+    const known = new Map([
+      [
+        `${legacyPackage}-0.1.0-beta.1.tgz`,
+        '1aabb145f7072df6d223878e9390be0c4885ff2f2883b38a1c0a2b550c244272',
+      ],
+      [
+        legacyV2,
+        'c713a4815860e5f0c1c6d404a91d28ef017080eebd8175bbd49195be00bc1b25',
+      ],
+    ]);
     assert.equal(
-      basename(old),
-      'dsh-plugin-convenient-window-0.1.0-beta.1.tgz',
-    );
-    assert.equal(
+      known.get(basename(old)),
       createHash('sha256')
         .update(await readFile(old))
         .digest('hex'),
-      '1aabb145f7072df6d223878e9390be0c4885ff2f2883b38a1c0a2b550c244272',
     );
     await cli([
       'plugin',
@@ -242,6 +254,48 @@ try {
       },
     });
     await writeFile(join(dir, 'settings.json'), oldBytes);
+    if (basename(old) === legacyV2) {
+      // Exercise the previous package itself, including the old host's persistence rules.
+      app = await boot();
+      const oldPanel = await panelPage(app, /^(便捷窗口|Convenient Window)$/);
+      await oldPanel.page.evaluate(async () => {
+        const path = '/convenient-window/control';
+        const snapshot = await (await fetch(path)).json();
+        const post = async (command) => {
+          const res = await fetch(path, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-convenient-window': 'panel',
+            },
+            body: JSON.stringify({ ...command, session: snapshot.session }),
+          });
+          if (!res.ok)
+            throw Error(`Legacy settings save failed (${res.status})`);
+        };
+        snapshot.settings.edgeHide.stripSize = 19;
+        await post({
+          action: 'save',
+          rev: snapshot.rev,
+          settings: snapshot.settings,
+        });
+        const key = 'convenient-window-layout-exclusions';
+        await post({
+          action: 'view',
+          key,
+          previous: snapshot.view[key] ?? null,
+          value: '["rename-check.exe"]',
+        });
+      });
+      await app.close();
+      app = null;
+      for (const name of ['panel-settings.json', 'panel-view.json'])
+        savedFiles.set(name, await readFile(join(dir, name)));
+    }
+    await cli(['plugin', '--profile', 'desktop', 'remove', legacyPackage]);
+    await assert.rejects(stat(join(profile, 'node_modules', legacyPackage)), {
+      code: 'ENOENT',
+    });
   }
   const installed = await cli([
     'plugin',
@@ -254,6 +308,16 @@ try {
   ]);
   assert(!/downloaded [1-9]\d*/i.test(installed.stdout));
   const moduleDir = join(profile, 'node_modules', metadata.name);
+  const manifest = JSON.parse(
+    await readFile(join(profile, 'package.json'), 'utf8'),
+  );
+  assert(!Object.hasOwn(manifest.dependencies ?? {}, legacyPackage));
+  assert(Object.hasOwn(manifest.dependencies ?? {}, metadata.name));
+  for (const [name, bytes] of savedFiles)
+    assert.deepEqual(
+      await readFile(join(profile, 'convenient-window', name)),
+      bytes,
+    );
   await verifyPayload(join(moduleDir, 'payload'));
   // Compare the archive to the installed bytes, not the working tree or the package manager's cache.
   const tar = join(process.env.SystemRoot, 'System32', 'tar.exe');
@@ -310,6 +374,13 @@ try {
   assert.equal((await state()).running, false);
   if (oldBytes) {
     const v = await state();
+    if (savedFiles.size) {
+      assert.equal(v.settings.edgeHide.stripSize, 19);
+      assert.equal(
+        v.view['convenient-window-layout-exclusions'],
+        '["rename-check.exe"]',
+      );
+    }
     assert(v.settings.edgeHide.enabled);
     assert.deepEqual(v.settings.edgeHide.edges, ['left']);
     assert.equal(v.settings.hoverDelayMs, 620);

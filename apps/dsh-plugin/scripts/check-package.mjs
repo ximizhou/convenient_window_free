@@ -3,6 +3,11 @@ import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { root, verifyPayload, metadata } from '../host/assets.js';
 const { verifyNative } = await import('../host/native-service.js');
+const patch = await readFile(join(root, 'cordis.patch.yml'), 'utf8');
+if (
+  !patch.split(/\r?\n/).some((line) => line.trim() === `name: ${metadata.name}`)
+)
+  throw Error('DSH patch package name must match the published npm name.');
 await verifyPayload();
 const identity = await verifyNative();
 const { nativeInputs } = await import('./native-inputs.mjs');

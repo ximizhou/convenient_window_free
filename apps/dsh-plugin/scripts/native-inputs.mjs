@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { root } from '../host/assets.js';
+import { metadata, root } from '../host/assets.js';
 // A stale sidecar (especially its embedded HUD) must not pass a fresh frontend-only pack.
 export async function nativeInputs() {
   const files = [
@@ -25,7 +25,7 @@ export async function nativeInputs() {
       'adjustment_hud',
     ].map((name) => '../desktop/src-tauri/src/' + name + '.rs'),
   ];
-  const hash = createHash('sha256');
+  const hash = createHash('sha256').update('package-name\0' + metadata.name + '\0');
   for (const name of files) {
     const bytes = await readFile(join(root, name));
     hash.update(name + '\0' + bytes.length + '\0').update(bytes);
