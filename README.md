@@ -18,9 +18,7 @@
 
 </div>
 
-**Using DeepSeek Harness on Windows?** The sidebar plugin is called `dsh-convenient-window`. The [installation guide](apps/dsh-plugin/README.md) covers local beta packages and upgrades from the previous name.
-
-> The [0.6.11 desktop release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11) and the DSH preview are distributed separately. The DSH preview does not replace any existing release asset.
+**Using DeepSeek Harness on Windows?** Install the `dsh-convenient-window` beta from npm or a GitHub release download. See the [DSH release and installation instructions](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3) and the [plugin maintenance guide](apps/dsh-plugin/README.md).
 
 
 ![Convenient Window overview](docs/images/running-center.png)

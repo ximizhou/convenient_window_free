@@ -18,9 +18,7 @@
 
 </div>
 
-**在 Windows 上使用 DeepSeek Harness？** 侧栏插件名为 `dsh-convenient-window`。本地测试包的安装和从旧包名升级的方法见[插件指南](apps/dsh-plugin/README.md)。
-
-> [0.6.11 桌面正式版](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11)与 DSH 本地测试包分开分发，不替换已发布的资产。
+**在 Windows 上使用 DeepSeek Harness？** `dsh-convenient-window` beta 支持从 npm 或 GitHub 下载包安装。命令和旧包升级步骤见 [DSH 发布页](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3)，构建和兼容测试见[维护指南](apps/dsh-plugin/README.md)。
 
 
 ![便捷窗口概览](docs/images/running-center.png)
