@@ -1,15 +1,23 @@
 # Release Process
 
-Version 0.6.10 is the current stable Windows x64 release. It was promoted in place on November 4, 2026 after user acceptance; the installer, portable archive, manifest, checksums and tag retain their accepted identities, with build source `c977f5eeebd61aeed8ad2a9c2eb22bc48d7a4a30`. Later source or documentation commits do not change that source identity. All stable releases remain immutable; version 0.6.9 remains available for rollback. See the [0.6.10 release notes](release-notes/0.6.10.md) and [acceptance scope](testing.md#0610-online-acceptance).
-
-Development sources use version 0.6.11. Local helper and frontend checks do not establish a published or accepted installer. Record the frozen source, asset identities and verification results before publishing a Pre-release; user acceptance is required before promotion to stable.
+Version 0.6.11 is the current stable Windows 11 x64 release. The user accepted the helper and desktop releases on November 20, 2026; the existing assets were promoted without rebuilding or re-uploading. Version 0.6.10 remains available for rollback. See the [0.6.11 release notes](release-notes/0.6.11.md) and [acceptance scope](testing.md#0611-online-acceptance).
 
 Version 0.6.5 remains available as an older stable release with its own immutable assets and build source `57c52d8c4d3beed12fdc2b9ae1ba3a91bfa9fa16`.
 
-The standalone desktop has two user acceptance points:
+DSH packages follow an independent [release process](#dsh-plugin-releases). The standalone desktop has two user acceptance points:
 
 1. During daily `develop` work, acceptance normally stays in the host integration for faster iteration. Only when the user explicitly requests desktop synchronization, port the applicable shared behavior, preserve desktop-specific lifecycle and UI differences, build the current NSIS package, and give the user its absolute local path. Do not publish this build.
 2. Before release, freeze a clean `main`, build the final version, publish those exact assets as a GitHub Pre-release, and have the user download and test the public installer and portable archive. While it remains a Pre-release, an explicitly requested same-version candidate refresh may replace the complete asset set; after promotion, the release is immutable.
+
+## DSH plugin releases
+
+The DSH package is released as `dsh-convenient-window` under its own version and `dsh-v<version>` GitHub tag. The accepted `0.2.0-beta.3` bundles engine `0.6.11` and declares the tested DSH `0.2.2-rc.5`. Keep the desktop stable release as Latest while DSH is in beta; do not point DSH downloads at the repository-wide `releases/latest`.
+
+Build and test the adapter, native host and final tarball using the [plugin guide](../apps/dsh-plugin/README.md#维护者). Publish the exact accepted tarball to GitHub and npm, then compare anonymous downloads and verify installation in a fresh DSH profile. A published npm version cannot be replaced, including a beta: changed package contents require a new version. Documentation-only improvements do not require repacking, moving tags or republishing.
+
+The release-page body is maintained in [DSH 0.2.0-beta.3 notes](release-notes/dsh-0.2.0-beta.3.md). Its main-branch links must resolve before updating the online body. Use an explicit version or `@beta` in npm instructions; the unqualified npm `latest` tag was still a placeholder when checked on November 24, 2026.
+
+Market submission is separate from package publication. The community directory accepts a monorepo subdirectory and a pinned GitHub tarball, but its storefront prefers a verified npm mapping and its format-1 discovery index reads npm latest. A tarball field alone does not fix an unusable npm default or guarantee inclusion in that index. Verify the generated install target and accepted host/profile, not just the submitted URL. Changing npm latest affects default installs and must be an explicit release decision; it does not remove a package version's beta suffix. Update the pinned directory entry with each accepted plugin release and recheck the actual market install. See [market guidance](../apps/dsh-plugin/README.md#发布与市场收录).
 
 ## Develop Acceptance
 

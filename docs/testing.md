@@ -1,5 +1,19 @@
 # Testing
 
+## DSH 0.2.0-beta.3 acceptance
+
+Accepted package source: `9021bdc9ed346492f9bbfdd1ea23e3e823173d96` (`dsh-v0.2.0-beta.3`). The Windows 11 x64 / DSH 0.2.2-rc.5 package contains engine 0.6.11. On November 24, 2026, the adapter suite passed 14 tests; native lifecycle checks and an isolated DSH installation/old-name migration passed. The 26 installed files matched the accepted archive byte-for-byte. A fresh profile installed the npm beta from the official registry; GitHub and npm downloads matched the accepted 6,352,237-byte tarball with SHA-256 `c06691a5a736e455c2c26486e6f030d62cf78bc64f8585c876183d68c14aae2e`.
+
+The user reported local acceptance. Automated checks covered settings acknowledgements, language switching, tab/minimize persistence, restart behavior, ownership and cleanup, with cancelled native confirmation dialogs. They do not certify actual login/UAC approval, every multi-monitor/DPI arrangement or all taskbar/OCR effects. Other DSH versions and live market installation need separate evidence.
+
+`docs/images/dsh-panel.png` is an unmodified screenshot from that isolated final-package test, with an empty workspace and no user conversation content. Later documentation commits do not change package provenance. Test commands and upgrade handling are in the [DSH guide](../apps/dsh-plugin/README.md#维护者).
+
+## 0.6.11 Online Acceptance
+
+The user accepted the 0.6.11 helper and Windows x64 desktop releases on November 20, 2026. Both GitHub releases were promoted in place; assets were not rebuilt or replaced. The [desktop release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11) uses source commit `aa26835bfc5c59968c288737fa9ea2a454f7b829`; the [helper release](https://github.com/ximizhou/convenient-window-helper-releases/releases/tag/v0.6.11) contains the matching build. Windows CI [44665915235](https://github.com/ximizhou/convenient_window_free/actions/runs/44665915235) passed build, portable runtime, installer, upgrade and artifact audit gates. The user reported the candidate passed testing. The recorded Windows 11 native desktop-switch smoke passed; separate Windows 10 field evidence is not recorded here.
+
+UPXS export identity and per-step install evidence were not supplied, and the uTools market submission and live verification remain incomplete.
+
 ## 0.6.11 settings and window-query regression
 
 `settings-sync.test.ts` verifies unchanged samples avoid resampling, coordinate/length/replacement edits invalidate the cache, and normalized output cannot mutate the draft or cached samples. Existing storage tests retain immediate persistence, coordinate rounding and capacity limits. Desktop apply-controller tests preserve persistence-before-application and revision ordering; runtime language tests exercise Chinese/English switching.
@@ -10,7 +24,7 @@ On Windows, `window_destroyed_during_foreground_read_is_an_empty_observation` de
 
 ## Passive foreground changes during edge hiding
 
-Development sources use version 0.6.11 for this fix. Version declarations and package lockfiles advance together; published 0.6.10 assets retain their existing identities.
+Version declarations and package lockfiles advanced together for 0.6.11; published assets are recorded in the release acceptance section above.
 
 The Windows helper regression `passive_foreground_loss_does_not_expand_other_top_hidden_windows` creates two real top-edge windows on a private, undisplayed desktop. It hides or destroys the left window, passes an empty foreground sample, and replays fallback to the right window with the pointer away from both strips. The right window must stay collapsed beyond the 250 ms guard. The same test checks strip restoration under suppression and activation from a live visible source. `foreground_snapshot_retains_hidden_tray_owner_without_making_it_a_candidate` verifies raw HWND retention without making a hidden owner eligible for collapse.
 

@@ -1,0 +1,58 @@
+name: Bug report / 问题反馈
+description: Report a desktop or DSH plugin problem / 反馈桌面版或 DSH 插件问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Include the versions and steps below. Do not attach tokens, passwords or private configuration.
+        请填写版本与复现步骤；截图和诊断信息中请勿包含令牌、密码或私人配置。安全问题请阅读仓库 SECURITY.md，勿公开提交。
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition / 使用版本
+      options:
+        - Standalone desktop / 独立桌面版
+        - DSH plugin / DSH 插件版
+    validations:
+      required: true
+  - type: input
+    id: product-version
+    attributes:
+      label: App or plugin version / 软件或插件版本
+      placeholder: "Desktop 0.6.11 / dsh-convenient-window 0.2.0-beta.3"
+    validations:
+      required: true
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH version / DSH 宿主版本
+      description: Required for DSH reports; otherwise enter N/A / DSH 用户请填写，桌面用户填 N/A
+      placeholder: "0.2.2-rc.5"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows and displays / Windows 与显示器
+      placeholder: "Windows 11 25H2, x64; 2 displays, 100% / 150%"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      placeholder: "1. Open… / 打开…"
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior / 预期与实际表现
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or sanitized diagnostics / 截图或已脱敏诊断
+      description: Optional. Include relevant install errors as text. / 选填；安装报错可粘贴相关文字。

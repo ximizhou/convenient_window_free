@@ -1,180 +1,136 @@
 <div align="center">
 
-<img src="docs/images/app-icon.png" width="88" alt="Convenient Window icon">
+<img src="docs/images/app-icon.png" width="80" alt="Convenient Window icon">
 
 <h1>Convenient Window</h1>
 
-<p><strong>Turn screen edges, windows, and mouse gestures into faster controls.</strong></p>
-
-<p>Windows 11 x64 · Tauri 2 · Rust · Svelte</p>
+<p><strong>Tuck windows away. Keep everyday actions within reach.</strong></p>
+<p>Hot corners, edge hiding, mouse gestures and window layouts, in one settings panel.</p>
 
 <p>
-  <a href="https://github.com/ximizhou/convenient_window_free/releases/latest"><img src="https://img.shields.io/github/v/release/ximizhou/convenient_window_free?label=stable&color=3f6ee4&style=flat-square" alt="Stable release"></a>
-  <a href="#platform-support"><img src="https://img.shields.io/badge/platform-Windows%2011%20x64-3f6ee4?style=flat-square" alt="Platform"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-15915c?style=flat-square" alt="License"></a>
+  <a href="https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11"><img src="https://img.shields.io/badge/Desktop-0.6.11-3f6ee4?style=flat-square" alt="Desktop stable 0.6.11"></a>
+  <a href="https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3"><img src="https://img.shields.io/badge/DSH-0.2.0--beta.3-8250df?style=flat-square" alt="DSH beta 0.2.0-beta.3"></a>
+  <img src="https://img.shields.io/badge/Windows_11-x64-59636e?style=flat-square" alt="Windows 11 x64">
 </p>
 
 <p><a href="README.zh-CN.md">简体中文</a> · <strong>English</strong></p>
 
 </div>
 
-**Using DeepSeek Harness on Windows?** Install the `dsh-convenient-window` beta from npm or a GitHub release download. See the [DSH release and installation instructions](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3) and the [plugin maintenance guide](apps/dsh-plugin/README.md).
+## Choose your edition
 
-
-![Convenient Window overview](docs/images/running-center.png)
-
-Convenient Window is a small tray companion for Windows 11. Configure the four corners and four edges of every display, tuck windows away at the screen edge, draw one-stroke mouse gestures, keep screenshots floating above other windows, and save the current desktop as a **window layout** you can restore in one click. Settings apply live, the interface is bilingual, and everything runs locally.
-
-## What's new in 0.6.10
-
-The Windows 11 x64 0.6.10 release was accepted and promoted to stable on November 4, 2026. The 0.6.9 stable downloads remain available for rollback.
-
-- **Settings panels** — clearer headings, expandable advanced settings, resizable panes, keyboard navigation and independent window-enhancement switches; paused settings remain editable.
-- **Window layouts** — restore saved geometry and edge-hidden state while preserving the original topmost state. Re-record previously affected layouts after correcting the windows' topmost state.
-- **Multi-window restoration** — restore all hidden windows when disabling edge hiding or stopping the helper, allowing other windows to continue if one fails.
-
-[Release notes](docs/release-notes/0.6.10.md) · [All releases](https://github.com/ximizhou/convenient_window_free/releases)
-
-## A closer look
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/images/window-layouts.png" alt="Window layout snapshots and one-click restore" /></td>
-    <td width="50%"><img src="docs/images/feature-entries.png" alt="Composing bottom tabs from feature-entry bubbles" /></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Window layouts</strong><br/><sub>Save the desktop you have, restore it in one click.</sub></td>
-    <td align="center"><strong>Feature entries</strong><br/><sub>Compose the bottom tabs with drag-and-drop bubbles.</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/images/hot-zones.png" alt="Per-monitor hot-zone configuration" /></td>
-    <td width="50%"><img src="docs/images/window-enhancement.png" alt="Window edge-hiding configuration" /></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Hot zones</strong><br/><sub>Every corner and edge of every display is configurable.</sub></td>
-    <td align="center"><strong>Edge hiding</strong><br/><sub>Tuck windows away and restore them from a visible strip.</sub></td>
-  </tr>
-  <tr>
-    <td colspan="2"><img src="docs/images/mouse-gestures.png" alt="Mouse gesture workbench with screenshot and local OCR actions" /></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><strong>Gestures, screenshots, and local OCR</strong><br/><sub>Built-in gestures, custom samples, and editable actions.</sub></td>
-  </tr>
-  <tr>
-    <td colspan="2"><img src="docs/images/dark-theme.png" alt="Convenient Window dark theme" /></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><strong>Light and dark</strong><br/><sub>Follows the system appearance or a manual choice.</sub></td>
-  </tr>
-</table>
-
-## Features
-
-**Window control**
-- **Window layouts**: snapshot and restore ordinary windows, including maximized, minimized and topmost state, with per-window identity checks and skipped-window summaries.
-- **Anywhere move and resize**: move or resize the active window with configurable modifier-and-mouse combinations.
-- **Topmost controls**: keep a window above others; a red in-window pin releases it with a click.
-- **Per-monitor profiles**: independent settings for each display, including signed virtual-desktop coordinates.
-
-**Screen edges**
-- **Hot zones**: the four corners and four edges of each monitor, with hover, mouse-button, wheel and edge-movement triggers. The translucent hover hint can be disabled without disabling actions.
-- **Zone geometry**: per-display corner width/height with ratio lock, edge thickness, centered length, live preview and per-zone reset.
-- **Edge hiding**: move windows partly off-screen and restore them from the visible strip; multi-window and multi-monitor aware. Restore outline and animation can be disabled independently.
-
-**Gestures and capture**
-- **Global mouse gestures**: bind one-stroke gestures to shortcuts, system actions, commands and window controls; create and manage custom samples (up to 64 gestures, 8 samples each).
-- **Screenshots and pinned images**: capture an area, keep it above other windows, move, resize, adjust opacity, copy or save as PNG.
-- **Local OCR**: recognize text through local Windows APIs and copy it without uploading the screenshot.
-
-**Comfort**
-- **Brightness and volume**: adjust the triggering display or output from hot zones and gestures, with a passive on-screen indicator.
-- **Live settings**: most changes save and apply immediately.
-- **Themes and language**: light/dark themes and a Chinese/English interface, switchable any time.
-
-## Download
-
-| Package | Use it when |
+| Standalone desktop | DSH plugin |
 | --- | --- |
-| [Installer (`setup.exe`)](https://github.com/ximizhou/convenient_window_free/releases/latest) | Recommended for a normal per-user installation. |
-| Portable ZIP | Extract and run from any folder; the archive contains `ConvenientWindow-portable`. |
-| Requirements | Windows 11 x64 for the published packages. |
+| **Install and use it from the system tray. No other host required.** | **Already using DeepSeek Harness? Open it in the sidebar.** |
+| Stable **0.6.11**, with an installer and portable ZIP. | Beta **0.2.0-beta.3**, tested with DSH **0.2.2-rc.5**. |
+| [**Download desktop**](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11) · [Get started](#desktop-quick-start) | [**Install DSH plugin**](#use-it-in-dsh) · [Release and downloads](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3) |
 
-The current release assets are **unsigned**, so Windows may show an unknown-publisher or Microsoft Defender SmartScreen warning. Each release ships `SHA256SUMS` and an `artifact-manifest.json` so the download can be verified. If security software blocks `magic-corners-helper.exe`, verify the checksum first, then check the quarantine area or report a false positive rather than disabling protection.
+Both editions use the same settings UI and Rust window engine. The helper is bundled, so no second download is required. Settings are stored separately; run the window helper from only one host at a time.
 
-**Updating the portable build**: extract the newer archive over the existing `ConvenientWindow-portable` directory. Settings stay in Local AppData rather than inside the portable folder, so they survive the replacement.
+## Use it in DSH
 
-## Quick start
+![Convenient Window in the DSH sidebar, showing edge-hide settings](docs/images/dsh-panel.png)
 
-1. Download and install the app, or extract the portable archive.
-2. Open Convenient Window from the system tray.
-3. Turn on the main switch and enable the features you want in the bottom tabs: hot zones, edge hiding, gestures, window layouts, or appearance.
-4. In Settings (gear icon), choose light/dark theme, the interface language, startup behavior, and the poll interval.
+*An actual DSH tab, shown in Chinese; the plugin UI also supports English. The enabled helper keeps running when you switch tabs or minimize DSH.*
 
-Closing the settings window keeps the tray app running; use the tray menu to reopen it or quit.
+Open DSH once to initialize its desktop profile, then quit it from the system tray. Run this in PowerShell:
 
-### How edge hiding works
+```powershell
+dsh plugin --profile desktop add dsh-convenient-window@0.2.0-beta.3 --ignore-scripts --registry=https://registry.npmjs.org/
+```
 
-1. Drag a window toward a screen edge until the blue line appears.
-2. Release to tuck the window away. For the top edge, wait until the line fills before releasing; releasing early keeps native Snap.
-3. Move the pointer back to the exposed strip to restore the window.
+Reopen DSH, select **dsh-convenient-window** in the sidebar, and turn on the main switch when ready. If `dsh` is not on PATH, invoke `resources/runtime/cli/bin/dsh.cmd` inside your DSH installation directory.
 
-## Privacy and security
+For the old package name `dsh-plugin-convenient-window`, turn off its login startup first if enabled, quit DSH, remove the old package, then install the new one. Existing settings remain in the same profile. [Detailed installation and migration guide (Chinese)](apps/dsh-plugin/README.md#安装) · [Report a problem](https://github.com/ximizhou/convenient_window_free/issues/new/choose)
 
-- OCR runs through local Windows APIs; screenshots are never uploaded for recognition.
-- Configuration, tokens, usage data and logs stay in the local application data directory.
-- Local IPC is protected by a random token and a single-instance lock.
-- The helper is a separate component that is installed explicitly, verified by size and SHA-256, and can be stopped or removed at any time.
+## What you can do
 
-Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
-
-## Platform support
-
-| Platform | Status | Notes |
-| --- | --- | --- |
-| **Windows 11 x64** | Release-accepted | Full feature set, NSIS installer and portable archive. |
-| macOS (x64 / arm64) | Unverified | Native helper boundary for input, window control, monitors and capture; Accessibility and Screen Recording permissions required. OCR, edge hiding and arbitrary-window topmost unavailable. Release assets are not published. |
-| Linux X11 (x64) | Unverified | Native helper supports input, window control, monitors, capture and EWMH topmost. OCR and edge hiding unavailable. Release assets are not published. |
-| Linux Wayland | Capability detection only | Reports unavailable instead of pretending to support global input or arbitrary-window control. |
-
-The installer and executable are not code-signed, and automatic updates are not implemented. Taskbar material is an off-by-default Windows 11 x64 experiment with transparent, acrylic and tinted modes; the panel keeps the Explorer risk note.
-
-## For developers
+| Feature | Everyday use |
+| --- | --- |
+| **Edge hiding** | Tuck an ordinary window against a screen edge; point at its exposed strip to bring it back. |
+| **Hot corners and zones** | Assign actions to each display's four corners and edges, such as showing the desktop, changing volume or sending shortcuts. |
+| **Mouse gestures** | Use one-stroke gestures for window controls, shortcuts and custom actions. |
+| **Window layouts** | Save a window arrangement and restore its positions, sizes and supported window states. |
+| **Screenshots, pinned images and OCR** | Capture an area, float it above other windows, and recognize text using local Windows APIs. |
+| **Window controls and preferences** | Move and resize from anywhere, pin windows, manage startup applications, and switch language or theme. |
 
 <details>
-<summary><strong>Build and test from source</strong></summary>
+<summary><strong>See the desktop edition and more screenshots</strong></summary>
 
-This repository is the source of truth for `apps/desktop/` (Tauri 2 host and Svelte UI), `helper/` (shared Rust helper), and `scripts/` (build, packaging, smoke-test and artifact-audit entry points). Host integrations consume this repository as a submodule and provide only their own host adapters.
+### Standalone desktop
 
-Prerequisites: Node.js `24.14.0` (see `.node-version`), Windows 11 x64 for the release build, and Rust `1.96.0`/newer stable. The Windows helper build also needs Visual Studio C++ Build Tools and a Windows SDK with C++/WinRT headers; `scripts/windows-toolchain.ps1` handles discovery and `VSINSTALLDIR` can point at an existing installation.
+![Desktop running center](docs/images/running-center.png)
 
-```powershell
-npm ci
-npm run desktop:test
-npm run desktop:check
-npm run desktop:frontend
-npm run desktop:build
-```
+### Hot corners and window layouts
 
-`scripts/build-desktop.ps1 -ArtifactsDir artifacts/<candidate>` preserves previous outputs; the path must stay inside `artifacts/`. Packaged lifecycle and artifact gates are described in [Testing](docs/testing.md); see [Architecture](docs/architecture.md) for the helper protocol and window-state machine.
+![Per-display hot-corner settings](docs/images/hot-zones.png)
 
-For helper-only work on Windows:
+![Saving and restoring window layouts](docs/images/window-layouts.png)
 
-```powershell
-rustup run 1.96.0-x86_64-pc-windows-gnullvm cargo fmt --check
-rustup run 1.96.0-x86_64-pc-windows-gnullvm cargo test
-```
+### Mouse gestures
+
+![Mouse gesture settings](docs/images/mouse-gestures.png)
 
 </details>
 
-## Release integrity
+## Desktop quick start
+
+1. Download the `setup.exe` installer from the [desktop release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11). Choose the portable ZIP if you prefer extracting and running the app.
+2. Open Convenient Window from the system tray, turn on the main switch, and enable the features you want.
+3. Drag an ordinary, non-maximized window to an enabled edge. Release when the blue hint appears; at the top edge, wait for the line to fill.
+4. Point at the exposed strip to restore the window. Use the gear button to change language, theme and feature entries.
+
+Closing settings leaves the desktop app running in the tray; use the tray menu to quit. To update the portable edition, replace the program files. Settings remain in the local application data directory.
+
+## Recent changes
+
+**DSH 0.2.0-beta.3**
+
+A DSH sidebar entry using the desktop settings UI, native modules and bundled 0.6.11 helper. The package is named `dsh-convenient-window` and is available through npm and a GitHub release download. [Installation and old-name migration](apps/dsh-plugin/README.md)
+
+**Desktop 0.6.11**
+
+Fixed edge-hidden windows reopening when another app closes and restore strips appearing on the wrong virtual desktop. Settings with many gesture samples save faster. [Full release notes](docs/release-notes/0.6.11.md)
+
+[All releases](https://github.com/ximizhou/convenient_window_free/releases) · [Desktop 0.6.10 rollback](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.10)
+
+## Before you start
+
+- **Support:** Published and accepted packages target Windows 11 x64. The DSH plugin declares only the tested DSH 0.2.2-rc.5 version. Other host versions need separate verification. macOS/Linux implementation boundaries exist, but there are no accepted packages for this release.
+- **Local processing:** Window operations, settings and OCR stay on your machine. OCR does not upload screenshots and depends on installed Windows language packs.
+- **Updates:** Download desktop updates manually. The DSH adapter and window engine have separate versions so host compatibility can be updated independently.
+- **Settings:** Desktop and DSH settings are separate; DSH stores them per profile. Enable only one host's window helper at a time.
+- **Experimental features:** Taskbar material is off by default; appearance and restoration need verification on the target system.
+- **Download integrity:** Executables are currently unsigned. Windows may show an unknown-publisher prompt. Desktop releases include checksums and a manifest; the DSH release lists its package hash. Check the source and checksum if a download is blocked.
+
+## Feedback and development
+
+When [reporting a problem](https://github.com/ximizhou/convenient_window_free/issues/new/choose), include the edition, DSH/plugin/Windows versions, and steps to reproduce. Report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 <details>
-<summary><strong>How releases are built and verified</strong></summary>
+<summary><strong>Source layout, builds and verification</strong></summary>
 
-A clean `main` build is published as a replaceable Pre-release candidate; after user acceptance the exact same assets are promoted to stable without replacement. Every release includes `SHA256SUMS` and an artifact manifest tied to the source commit. Stable assets are immutable: replacing a stable binary requires a new patch version and tag.
+- `apps/desktop/`: standalone host and shared Svelte settings UI.
+- `apps/dsh-plugin/`: DSH integration, native adapter, packaging and regression tests.
+- `helper/`: the single Rust window engine source.
+- `scripts/`: desktop build, audit and release tooling.
+
+Desktop builds use Node.js 24.14.0 and the repository's pinned Rust toolchains. Windows native builds require Visual Studio C++ Build Tools and a Windows SDK.
+
+```powershell
+npm ci
+npm run desktop:install
+npm run desktop:test
+npm run desktop:check
+npm run desktop:build
+```
+
+[Architecture](docs/architecture.md) · [Testing](docs/testing.md) · [Desktop releases](docs/release.md) · [DSH builds and releases (Chinese)](apps/dsh-plugin/README.md#维护者)
+
+Desktop stable assets remain immutable. npm and GitHub distribute the same accepted DSH package. Documentation-only changes do not replace published packages.
 
 </details>
 
 ## License
 
-This project is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may view, study, modify and use the software for personal and other noncommercial purposes under the license terms; commercial use requires a separate written license from the copyright holder. Earlier versions published under the MIT License remain available under the license granted with those versions.
+Source is available under [PolyForm Noncommercial 1.0.0](LICENSE); see the license for its terms. Earlier versions released under MIT retain their original license.

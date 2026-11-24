@@ -1,25 +1,89 @@
 # dsh-convenient-window · 便捷窗口
 
-在 Windows 11 x64 的 DeepSeek Harness 侧栏打开 `dsh-convenient-window`，即可设置触发角、贴边隐藏、鼠标手势和窗口布局。设置页使用独立桌面版的界面，插件包内置 Windows 助手。本版面向 DSH `0.2.2-rc.5`。
+在 DeepSeek Harness 侧栏管理触发角、贴边隐藏、鼠标手势和窗口布局。设置页直接复用独立桌面版，Windows 助手已装在插件包里，无需再下载一次。
 
-### 安装与更名升级
+| 插件 | 内置窗口引擎 | 已验收环境 |
+| --- | --- | --- |
+| **0.2.0-beta.3** | **0.6.11** | Windows 11 x64、DSH **0.2.2-rc.5** |
 
-从 npm 按包名安装和下载 `.tgz` 的说明见 [DSH 发布页](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3)。以下步骤用于安装本地 `.tgz` 和从旧名称升级。
+[查看发布与下载](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3) · [项目首页](../../README.zh-CN.md) · [反馈问题](https://github.com/ximizhou/convenient_window_free/issues/new/choose)
 
-1. 准备 `dsh-convenient-window-0.2.0-beta.3.tgz`。旧包名为 `dsh-plugin-convenient-window`。如果此前开启了旧包的 Windows 登录自启，先在旧页签的运行中心关闭它，切换完成后可在新页签重新开启。
-2. 从系统托盘退出 DSH，在安装包所在目录打开 PowerShell。第一次使用 DSH 时先打开一次，创建 `desktop` 配置。已装旧名的用户先执行 `dsh plugin --profile desktop remove dsh-plugin-convenient-window`。卸载成功后继续。首次安装直接继续。
-3. 安装预构建包。若系统找不到 `dsh`，改用 DSH 安装目录内 `resources/runtime/cli/bin/dsh.cmd` 的完整路径。
+## 安装
+
+### 第一次安装：推荐从 npm 获取
+
+1. 先打开一次 DSH，让它创建 `desktop` 配置，然后从系统托盘**退出 DSH**。
+2. 打开 PowerShell，粘贴下面的命令并回车。安装时保持联网。
 
    ```powershell
-   $pkg = (Resolve-Path '.\dsh-convenient-window-0.2.0-beta.3.tgz').Path
-   dsh plugin --profile desktop add "file:$pkg" --ignore-scripts
+   dsh plugin --profile desktop add dsh-convenient-window@0.2.0-beta.3 --ignore-scripts --registry=https://registry.npmjs.org/
    ```
 
-4. 打开 DSH，点击左侧 `dsh-convenient-window`。旧名插件保存的界面偏好、窗口布局和功能配置继续使用当前 profile 中的 `convenient-window/`。最初的 `0.1.0-beta.1` 首次迁移时总开关默认关闭。
+3. 安装成功后重新打开 DSH，点击左侧 **dsh-convenient-window**。
+4. 按需开启右上角的功能总开关，再打开需要的功能。首次安装默认关闭总开关。
 
-日常安装保持联网，DSH 可能要核对原有插件依赖。使用本地包安装后请保留 `.tgz`。切页和最小化时助手继续运行。回退时先移除当前包，再用同样的安装命令指定保存的旧版包。卸载命令为 `dsh plugin --profile desktop remove dsh-convenient-window`。
+这里固定安装已验收的版本。想获取 beta 渠道时，可把 `@0.2.0-beta.3` 换成 `@beta`；先检查新版本的宿主兼容说明。请保留版本号或 `@beta`：2026-11-24 核对时，无标签的 npm `latest` 仍指向占位版。
 
-### 对齐了什么？
+<details>
+<summary><strong>PowerShell 提示找不到 dsh，怎么办？</strong></summary>
+
+找到 DSH 的安装目录，再打开其中的 `resources\runtime\cli\bin` 文件夹，找到 `dsh.cmd`。在 PowerShell 中用其完整路径替换命令开头的 `dsh`。下面的路径是占位示例，需要换成你自己的安装位置：
+
+```powershell
+& "你的 DSH 安装目录\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-convenient-window@0.2.0-beta.3 --ignore-scripts --registry=https://registry.npmjs.org/
+```
+
+</details>
+
+### 也可以安装 GitHub 下载包
+
+从[本版 Release](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3)下载 `dsh-convenient-window-0.2.0-beta.3.tgz`。退出 DSH，在下载目录打开 PowerShell：
+
+```powershell
+$pkg = (Resolve-Path -LiteralPath '.\dsh-convenient-window-0.2.0-beta.3.tgz').Path
+dsh plugin --profile desktop add "file:$pkg" --ignore-scripts
+```
+
+保留这个文件，便于重装或回退。此包与 npm 上的同版本包相同。日常安装不加 `--offline`，因为 DSH 可能还需核对当前配置中其他插件的依赖。
+
+## 升级、旧名称迁移和卸载
+
+**已经是新名称：** 安装前退出 DSH，再执行目标版本的安装命令；使用同一个 profile 保留设置。先阅读目标版本的兼容与迁移说明。
+
+**装过旧名 `dsh-plugin-convenient-window`：**
+
+1. 如果开过旧插件的登录自启，先在旧页签运行中心关闭它。
+2. 从托盘退出 DSH，再移除旧包：
+
+   ```powershell
+   dsh plugin --profile desktop remove dsh-plugin-convenient-window
+   ```
+
+3. 确认移除成功，再按上面的 npm 或 GitHub 方式安装新名称。
+4. 重开后检查设置，并按需重新开启登录自启。最早的 `0.1.0-beta.1` 迁移时，总开关默认关闭。
+
+旧名和新名共用当前 profile 的 `convenient-window/` 数据目录；配置、窗口布局与界面偏好在更名验收中保留。配置导出可作为额外备份，但不等于完整备份窗口布局和所有宿主偏好。
+
+**卸载：** 先在插件里关闭登录自启（如果开启），从托盘退出 DSH，然后运行：
+
+```powershell
+dsh plugin --profile desktop remove dsh-convenient-window
+```
+
+卸载保留 profile 中的设置。回退到保存的旧版包时，先移除当前包，再安装旧包；旧版本未必能读取将来的配置格式，不把回退当成无条件兼容。
+
+## 常见问题
+
+- **安装成功但没有页签：** 确认安装到正在使用的 `desktop` profile，并从托盘完全退出后重开 DSH。
+- **助手被占用：** 桌面版、uTools 和 DSH 共用单实例窗口引擎。先在原宿主正常关闭助手，再启用这里的总开关。
+- **DSH 升级后不兼容：** 本版只声明已验收的 `0.2.2-rc.5`。记录两边版本并反馈，不要通过删除兼容限制强行启用。
+- **部分功能入口没显示：** 在右上角齿轮里的功能入口设置中调整。底部空间有限，并非功能被删除。
+- **切页后还能工作吗：** 开启后，切换页签和最小化不停止助手；退出 DSH 会停止本插件拥有的进程。
+- **能和桌面版互相同步吗：** 两边配置独立保存，不自动同步。
+- **没有找到市场条目：** npm 发布、目录审核和市场可搜索是不同状态。未查到时可先用本页固定版本命令，不要安装名称相近的包。
+
+
+## 功能范围
 
 | 桌面功能 | DSH 本版 |
 | --- | --- |
@@ -36,7 +100,7 @@
 
 底部放不下的入口在右上齿轮的功能入口设置里。贴边体验请用未最大化的普通窗口；多屏 DPI、手势手感、截图/OCR 和任务栏实际效果需在目标机器分别体验，自动化的“设置已应用”不能代替真人验收。
 
-### 维护者
+## 维护者
 
 ```text
 DSH 侧栏 → 独立文档内的桌面 App.svelte + styles.css（同一份源文件）
@@ -50,7 +114,7 @@ DSH 侧栏 → 独立文档内的桌面 App.svelte + styles.css（同一份源�
 - 产品/助手 **0.6.11**，DSH 适配包 **0.2.0-beta.3**；只声明已验证的 Windows DSH **0.2.2-rc.5**。仅 DSH 变化，先改宿主适配并升级适配包号。不要改已发布的产品版本或 stable 资产。
 - 在 `apps/dsh-plugin` 运行 `npm ci`、`npm test`。按 `runtime-assets.json` 准备正式资产后执行 `npm run stage:helper -- <解压目录>`。使用 native 工具链执行 `npm run build:native -- <与桌面 Cargo.lock 对应的 THIRD-PARTY-NOTICES.txt>`，再执行 `npm run test:native`；测试不抢占其他助手。`npm pack` 生成单包。`npm run test:desktop -- "<DSH.exe>" "<新版.tgz>" ["<已验收的旧版.tgz>"]` 在隔离配置验最终包（可验证升级）；同时保留日常有其他插件时不加 `--offline` 的安装回归。测试不替用户修改登录设置、操作真实窗口布局或自动发布。
 
-### 发布与市场收录
+## 发布与市场收录
 
 为已验收的插件提交创建 `dsh-v<插件版本>` Tag，并将实装验收通过的 `.tgz` 附在 GitHub Pre-release 中。桌面和 DSH 插件共用[产品 Releases 入口](https://github.com/ximizhou/convenient_window_free/releases)。
 
@@ -77,5 +141,10 @@ category: tools
 description:
   en: Configure Windows hot corners, edge hiding, mouse gestures and window layouts in DeepSeek Harness.
   zh: 在 DeepSeek Harness 里用便捷窗口设置 Windows 触发角、贴边隐藏、鼠标手势和窗口布局。
+icon: https://raw.githubusercontent.com/ximizhou/convenient_window_free/main/docs/images/app-icon.png
 tarball: https://github.com/ximizhou/convenient_window_free/releases/download/dsh-v0.2.0-beta.3/dsh-convenient-window-0.2.0-beta.3.tgz
 ```
+
+另一个 [2BingLing/dsh-market](https://github.com/2BingLing/dsh-market/blob/master/CONTRIBUTING.md) 支持 topic 扫描及插件申请 Issue。填写源码子目录、插件类型 `cordis-plugin`、已验收宿主版本、固定安装包和带版本的安装命令；收录后检查它生成的命令是否错误地指向仓库根目录或无版本 npm 包。
+
+上面的目录条目固定到本次 beta 附件。后续发版须更新条目并复核市场实际安装目标；审核通过、索引更新、搜索可见和安装成功分别确认。npm 页面中的 README 来自发布包，仓库文档更新不会回写已发布 npm 包；只改介绍时不重打同版本包。GitHub Release 正文以 [版本说明](../../docs/release-notes/dsh-0.2.0-beta.3.md) 为准。

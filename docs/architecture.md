@@ -1,5 +1,11 @@
 # Architecture
 
+## Desktop and DSH hosts
+
+`apps/desktop/` owns the shared Svelte settings UI and desktop native modules. `apps/dsh-plugin/` compiles those same sources into an isolated DSH settings document and a native host adapter. The single Rust window engine remains in `helper/`; there is no second engine implementation.
+
+The DSH plugin bundles a hash-verified released helper, persists its own settings per profile, and manages only its own processes and login entry. The global single-instance guard prevents concurrent window helpers from different hosts. Switching DSH tabs or minimizing the host leaves an enabled helper running; quitting DSH stops the owned processes. Package and engine versions are independent. See the [DSH guide](../apps/dsh-plugin/README.md#维护者) and [DSH release process](release.md#dsh-plugin-releases).
+
 ## Settings normalization and application
 
 Settings continue to persist on every edit. Gesture-sample normalization uses a weak cache keyed by the sample array, with a full coordinate comparison before reuse; in-place edits, changed lengths and replaced samples cannot reuse stale output. Returned points are copied so neither the editor nor a consumer can mutate the cached result. Invalid imports still take the validation path. The host's storage size limit and coordinate rounding remain unchanged, and helper application uses the successfully saved snapshot after the existing debounce.
