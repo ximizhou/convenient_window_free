@@ -6,7 +6,7 @@ Accepted package source: `9021bdc9ed346492f9bbfdd1ea23e3e823173d96` (`dsh-v0.2.0
 
 The user reported local acceptance. Automated checks covered settings acknowledgements, language switching, tab/minimize persistence, restart behavior, ownership and cleanup, with cancelled native confirmation dialogs. They do not certify actual login/UAC approval, every multi-monitor/DPI arrangement or all taskbar/OCR effects. Other DSH versions and live market installation need separate evidence.
 
-`docs/images/dsh-panel.png` is an unmodified screenshot from that isolated final-package test, with an empty workspace and no user conversation content. Later documentation commits do not change package provenance. Test commands and upgrade handling are in the [DSH guide](../apps/dsh-plugin/README.md#维护者).
+`docs/images/dsh-panel.png` was recaptured in light mode from a fresh isolated installation of the same accepted package on November 24, 2026. Its 26 installed files were verified against the archive; the screenshot has an empty workspace and no user conversation content. The capture session closed its own host and released the helper port. Later documentation commits do not change package provenance. Test commands and upgrade handling are in the [DSH guide](../apps/dsh-plugin/README.md#维护者).
 
 ## 0.6.11 Online Acceptance
 
