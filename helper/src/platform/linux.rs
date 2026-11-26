@@ -425,7 +425,10 @@ fn set_window_maximized(handle: WindowHandle, maximized: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn apply_window_layout(handle: WindowHandle, layout: &crate::platform::WindowLayout) -> Result<()> {
+pub fn apply_window_layout(
+    handle: WindowHandle,
+    layout: &crate::platform::WindowLayout,
+) -> Result<()> {
     let Some(window) = window_info_for_handle(handle)? else {
         bail!("window layout target is no longer available")
     };
