@@ -164,7 +164,7 @@ pub fn set_window_rect_topmost(handle: WindowHandle, rect: Rect, _topmost: bool)
     set_window_rect(handle, rect)
 }
 
-pub fn apply_window_layout(handle: WindowHandle, layout: &super::WindowLayout) -> Result<()> {
+pub fn apply_window_layout(handle: WindowHandle, layout: &crate::platform::WindowLayout) -> Result<()> {
     if layout.minimized {
         bail!(super::unsupported_message(
             "windowMinimize on macOS Accessibility API"
