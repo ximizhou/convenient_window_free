@@ -1,6 +1,26 @@
 # dsh-convenient-window · 便捷窗口
 
-在 DeepSeek Harness 侧栏管理触发角、贴边隐藏、鼠标手势和窗口布局。设置页直接复用独立桌面版，Windows 助手已装在插件包里，无需再下载一次。
+在 DeepSeek Harness 侧栏集中管理 Windows 窗口：把暂时不用的窗口藏到屏幕边缘，鼠标移近即可唤回；为屏幕边角设置快捷动作，用鼠标手势执行常用操作，并保存和恢复窗口布局。还支持窗口置顶、拖拽缩放、区域截图、截图贴图与文字识别。
+
+## 功能预览
+
+### 贴边隐藏：需要时展开，不用时收起
+
+![在 DSH 侧栏设置窗口贴边隐藏](https://raw.githubusercontent.com/ximizhou/convenient_window_free/main/docs/images/dsh-panel.png)
+
+### 触发角：把屏幕边角变成快捷操作入口
+
+![触发角与屏幕边缘动作设置](https://raw.githubusercontent.com/ximizhou/convenient_window_free/main/docs/images/hot-zones.png)
+
+### 鼠标手势：画出轨迹，执行常用操作
+
+![鼠标手势与动作设置](https://raw.githubusercontent.com/ximizhou/convenient_window_free/main/docs/images/mouse-gestures.png)
+
+首图为 DSH 实际页签；后两图复用桌面版共享设置页的浅色截图，具体排版以当前插件为准。
+
+## 版本与使用环境
+
+设置页直接复用独立桌面版，Windows 助手已装在插件包里，无需再下载一次。
 
 | 插件 | 内置窗口引擎 | 已验收环境 |
 | --- | --- | --- |
@@ -139,8 +159,8 @@ url: https://github.com/ximizhou/convenient_window_free/tree/main/apps/dsh-plugi
 name: ximizhou/convenient_window_free#dsh-convenient-window
 category: tools
 description:
-  en: Configure Windows hot corners, edge hiding, mouse gestures and window layouts in DeepSeek Harness.
-  zh: 在 DeepSeek Harness 里用便捷窗口设置 Windows 触发角、贴边隐藏、鼠标手势和窗口布局。
+  en: Manage Windows windows from the DeepSeek Harness sidebar with edge hiding and hover-to-reveal, hot corners and screen-edge actions, mouse gestures, saved window layouts, window pinning, dragging and resizing, region screenshots, pinned images and OCR.
+  zh: 在 DeepSeek Harness 侧栏集中管理 Windows 窗口：将窗口贴边收起、鼠标移近唤回，为屏幕边角设置快捷动作，用鼠标手势执行常用操作，保存并恢复窗口布局；还支持窗口置顶、拖拽缩放、区域截图、截图贴图与文字识别。
 icon: https://raw.githubusercontent.com/ximizhou/convenient_window_free/main/docs/images/app-icon.png
 tarball: https://github.com/ximizhou/convenient_window_free/releases/download/dsh-v0.2.0-beta.3/dsh-convenient-window-0.2.0-beta.3.tgz
 ```
@@ -148,3 +168,5 @@ tarball: https://github.com/ximizhou/convenient_window_free/releases/download/ds
 另一个 [2BingLing/dsh-market](https://github.com/2BingLing/dsh-market/blob/master/CONTRIBUTING.md) 支持 topic 扫描及插件申请 Issue。填写源码子目录、插件类型 `cordis-plugin`、已验收宿主版本、固定安装包和带版本的安装命令；收录后检查它生成的命令是否错误地指向仓库根目录或无版本 npm 包。
 
 上面的目录条目固定到本次 beta 附件。后续发版须更新条目并复核市场实际安装目标；审核通过、索引更新、搜索可见和安装成功分别确认。npm 页面中的 README 来自发布包，仓库文档更新不会回写已发布 npm 包；只改介绍时不重打同版本包。GitHub Release 正文以 [版本说明](../../docs/release-notes/dsh-0.2.0-beta.3.md) 为准。
+
+市场截图通过本目录的 `screenshots.json` 声明，按顺序展示 DSH 页签、触发角和鼠标手势。复用仓库已有浅色图的 GitHub HTTPS 地址，不复制图片，不用越出插件目录的相对路径。声明合入默认分支后等待目录采集；简介改动则更新上面的社区 YAML 条目并提交 PR。展示资料更新无需发布新的插件包。
