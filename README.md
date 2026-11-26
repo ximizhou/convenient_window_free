@@ -1,107 +1,97 @@
 <div align="center">
 
-<img src="docs/images/app-icon.png" width="80" alt="Convenient Window icon">
+<img src="docs/images/app-icon.png" width="72" alt="Convenient Window icon">
 
 <h1>Convenient Window</h1>
 
 <p><strong>Tuck windows away. Keep everyday actions within reach.</strong></p>
-<p>Hot corners, edge hiding, mouse gestures and window layouts, in one settings panel.</p>
+<p>Edge hiding, hot corners, mouse gestures and saved layouts for your Windows desktop.</p>
 
 <p>
   <a href="https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11"><img src="https://img.shields.io/badge/Desktop-0.6.11-3f6ee4?style=flat-square" alt="Desktop stable 0.6.11"></a>
-  <a href="https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3"><img src="https://img.shields.io/badge/DSH-0.2.0--beta.3-8250df?style=flat-square" alt="DSH beta 0.2.0-beta.3"></a>
   <img src="https://img.shields.io/badge/Windows_11-x64-59636e?style=flat-square" alt="Windows 11 x64">
+</p>
+
+<p>
+  <a href="https://github.com/ximizhou/convenient_window_free/releases/download/v0.6.11/convenient-window-0.6.11-windows-x64-setup.exe"><strong>Download for Windows</strong></a> ·
+  <a href="https://github.com/ximizhou/convenient_window_free/releases/download/v0.6.11/convenient-window-0.6.11-windows-x64-portable.zip">Portable ZIP</a> ·
+  <a href="docs/release-notes/0.6.11.md">Release notes</a>
 </p>
 
 <p><a href="README.zh-CN.md">简体中文</a> · <strong>English</strong></p>
 
 </div>
 
-## Choose your edition
+![Convenient Window desktop: light settings panel with multiple displays](docs/images/running-center.png)
 
-| Standalone desktop | DSH plugin |
+<p align="center"><sub>Standalone app · System tray access · Chinese and English · Light and dark themes</sub></p>
+
+## Fewer repetitive steps
+
+| Feature | What it does |
 | --- | --- |
-| **Install and use it from the system tray. No other host required.** | **Already using DeepSeek Harness? Open it in the sidebar.** |
-| Stable **0.6.11**, with an installer and portable ZIP. | Beta **0.2.0-beta.3**, tested with DSH **0.2.2-rc.5**. |
-| [**Download desktop**](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11) · [Get started](#desktop-quick-start) | [**Install DSH plugin**](#use-it-in-dsh) · [Release and downloads](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3) |
+| **Edge hiding** | Tuck a window against a screen edge, then hover over its strip to bring it back. |
+| **Hot corners and zones** | Assign actions to each display's corners and edges: show the desktop, adjust volume or send shortcuts. |
+| **Mouse gestures** | Draw a gesture to run window controls, shortcuts or custom actions. |
+| **Window layouts** | Save window positions, sizes and states, then restore the arrangement. |
+| **Move, resize and pin** | Drag and resize from anywhere in a window, or keep a reference window on top. |
+| **Screenshots, pinned images and OCR** | Capture an area, float it above other windows and extract text with local Windows OCR. |
 
-Both editions use the same settings UI and Rust window engine. The helper is bundled, so no second download is required. Settings are stored separately; run the window helper from only one host at a time.
+## A closer look at the desktop app
 
-## Use it in DSH
+### Set up each display
 
-![Convenient Window in the DSH sidebar, showing edge-hide settings](docs/images/dsh-panel.png)
+Choose a display, assign corner and edge actions, and adjust the size and behavior of its hot zones.
 
-*An actual DSH tab, shown in Chinese; the plugin UI also supports English. The enabled helper keeps running when you switch tabs or minimize DSH.*
+![Desktop hot-corner and zone settings](docs/images/hot-zones.png)
 
-Open DSH once to initialize its desktop profile, then quit it from the system tray. Run this in PowerShell:
+### Keep your window arrangements
 
-```powershell
-dsh plugin --profile desktop add dsh-convenient-window@0.2.0-beta.3 --ignore-scripts --registry=https://registry.npmjs.org/
-```
+Save a layout and restore windows that are still running. Closed windows and windows without sufficient access are skipped.
 
-Reopen DSH, select **dsh-convenient-window** in the sidebar, and turn on the main switch when ready. If `dsh` is not on PATH, invoke `resources/runtime/cli/bin/dsh.cmd` inside your DSH installation directory.
-
-For the old package name `dsh-plugin-convenient-window`, turn off its login startup first if enabled, quit DSH, remove the old package, then install the new one. Existing settings remain in the same profile. [Detailed installation and migration guide (Chinese)](apps/dsh-plugin/README.md#安装) · [Report a problem](https://github.com/ximizhou/convenient_window_free/issues/new/choose)
-
-## What you can do
-
-| Feature | Everyday use |
-| --- | --- |
-| **Edge hiding** | Tuck an ordinary window against a screen edge; point at its exposed strip to bring it back. |
-| **Hot corners and zones** | Assign actions to each display's four corners and edges, such as showing the desktop, changing volume or sending shortcuts. |
-| **Mouse gestures** | Use one-stroke gestures for window controls, shortcuts and custom actions. |
-| **Window layouts** | Save a window arrangement and restore its positions, sizes and supported window states. |
-| **Screenshots, pinned images and OCR** | Capture an area, float it above other windows, and recognize text using local Windows APIs. |
-| **Window controls and preferences** | Move and resize from anywhere, pin windows, manage startup applications, and switch language or theme. |
+![Desktop window layouts](docs/images/window-layouts.png)
 
 <details>
-<summary><strong>See the desktop edition and more screenshots</strong></summary>
+<summary>See mouse gesture settings</summary>
 
-### Standalone desktop
-
-![Desktop running center](docs/images/running-center.png)
-
-### Hot corners and window layouts
-
-![Per-display hot-corner settings](docs/images/hot-zones.png)
-
-![Saving and restoring window layouts](docs/images/window-layouts.png)
-
-### Mouse gestures
-
-![Mouse gesture settings](docs/images/mouse-gestures.png)
+![Desktop mouse gesture settings](docs/images/mouse-gestures.png)
 
 </details>
 
-## Desktop quick start
+*Screenshots show the Chinese interface. The app also supports English.*
 
-1. Download the `setup.exe` installer from the [desktop release](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11). Choose the portable ZIP if you prefer extracting and running the app.
-2. Open Convenient Window from the system tray, turn on the main switch, and enable the features you want.
-3. Drag an ordinary, non-maximized window to an enabled edge. Release when the blue hint appears; at the top edge, wait for the line to fill.
-4. Point at the exposed strip to restore the window. Use the gear button to change language, theme and feature entries.
+## Get started
 
-Closing settings leaves the desktop app running in the tray; use the tray menu to quit. To update the portable edition, replace the program files. Settings remain in the local application data directory.
+1. Download the **Windows installer** above, or extract and run the portable edition.
+2. Open Convenient Window from the system tray, turn on the main switch and enable the features you want.
+3. Try edge hiding: drag an ordinary, non-maximized window to an enabled edge and release when the blue hint appears. At the top edge, wait for the line to fill. Hover over the strip to restore the window.
 
-## Recent changes
+Closing settings leaves the app running in the tray; use the tray menu to quit. The helper is included, with no separate download required.
 
-**DSH 0.2.0-beta.3**
+<details>
+<summary>Compatibility, updates and usage notes</summary>
 
-A DSH sidebar entry using the desktop settings UI, native modules and bundled 0.6.11 helper. The package is named `dsh-convenient-window` and is available through npm and a GitHub release download. [Installation and old-name migration](apps/dsh-plugin/README.md)
+- The published and tested desktop edition targets **Windows 11 x64**. This release has no accepted macOS/Linux installation packages.
+- Window operations, settings and OCR stay on your machine. OCR does not upload screenshots and uses installed Windows language packs.
+- Download updates manually. For the portable edition, replace the program files; settings remain in the local application data directory.
+- Executables are currently unsigned, so Windows may show an unknown-publisher prompt. The [release page](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11) includes checksums and a manifest to verify the download.
+- Taskbar material is experimental and off by default; appearance and restoration need verification on the target system.
 
-**Desktop 0.6.11**
+[Previous releases](https://github.com/ximizhou/convenient_window_free/releases) · [0.6.10 rollback](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.10)
 
-Fixed edge-hidden windows reopening when another app closes and restore strips appearing on the wrong virtual desktop. Settings with many gesture samples save faster. [Full release notes](docs/release-notes/0.6.11.md)
+</details>
 
-[All releases](https://github.com/ximizhou/convenient_window_free/releases) · [Desktop 0.6.10 rollback](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.10)
+## Also available in DSH
 
-## Before you start
+Already using DeepSeek Harness? Open Convenient Window from its sidebar with the same settings UI. The enabled helper keeps running when you switch tabs or minimize DSH.
 
-- **Support:** Published and accepted packages target Windows 11 x64. The DSH plugin declares only the tested DSH 0.2.2-rc.5 version. Other host versions need separate verification. macOS/Linux implementation boundaries exist, but there are no accepted packages for this release.
-- **Local processing:** Window operations, settings and OCR stay on your machine. OCR does not upload screenshots and depends on installed Windows language packs.
-- **Updates:** Download desktop updates manually. The DSH adapter and window engine have separate versions so host compatibility can be updated independently.
-- **Settings:** Desktop and DSH settings are separate; DSH stores them per profile. Enable only one host's window helper at a time.
-- **Experimental features:** Taskbar material is off by default; appearance and restoration need verification on the target system.
-- **Download integrity:** Executables are currently unsigned. Windows may show an unknown-publisher prompt. Desktop releases include checksums and a manifest; the DSH release lists its package hash. Check the source and checksum if a download is blocked.
+![Convenient Window in the DSH sidebar](docs/images/dsh-panel.png)
+
+**DSH plugin 0.2.0-beta.3** · Tested with **DSH 0.2.2-rc.5** · Windows 11 x64
+
+[Install and upgrade (Chinese)](apps/dsh-plugin/README.md#安装) · [Plugin download](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3)
+
+The helper is bundled. Desktop and DSH settings are stored separately; enable only one host's window helper at a time. Other DSH versions need separate verification.
 
 ## Feedback and development
 

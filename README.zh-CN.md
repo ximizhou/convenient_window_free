@@ -1,107 +1,95 @@
 <div align="center">
 
-<img src="docs/images/app-icon.png" width="80" alt="便捷窗口图标">
+<img src="docs/images/app-icon.png" width="72" alt="便捷窗口图标">
 
 <h1>便捷窗口</h1>
 
 <p><strong>窗口靠边收起，常用操作随手触发。</strong></p>
-<p>触发角、贴边隐藏、鼠标手势和窗口布局，在一个设置页里管理。</p>
+<p>为 Windows 桌面提供贴边隐藏、触发角、鼠标手势与窗口布局。</p>
 
 <p>
   <a href="https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11"><img src="https://img.shields.io/badge/桌面版-0.6.11-3f6ee4?style=flat-square" alt="桌面正式版 0.6.11"></a>
-  <a href="https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3"><img src="https://img.shields.io/badge/DSH-0.2.0--beta.3-8250df?style=flat-square" alt="DSH 测试版 0.2.0-beta.3"></a>
   <img src="https://img.shields.io/badge/Windows_11-x64-59636e?style=flat-square" alt="Windows 11 x64">
+</p>
+
+<p>
+  <a href="https://github.com/ximizhou/convenient_window_free/releases/download/v0.6.11/convenient-window-0.6.11-windows-x64-setup.exe"><strong>下载 Windows 安装版</strong></a> ·
+  <a href="https://github.com/ximizhou/convenient_window_free/releases/download/v0.6.11/convenient-window-0.6.11-windows-x64-portable.zip">便携版</a> ·
+  <a href="docs/release-notes/0.6.11.md">更新说明</a>
 </p>
 
 <p><strong>简体中文</strong> · <a href="README.md">English</a></p>
 
 </div>
 
-## 选一个适合你的版本
+![便捷窗口桌面版，浅色运行中心与多显示器设置](docs/images/running-center.png)
 
-| 独立桌面版 | DSH 插件版 |
+<p align="center"><sub>独立运行 · 系统托盘常驻 · 中英双语 · 深浅主题</sub></p>
+
+## 少一点重复操作
+
+| 功能 | 可以做什么 |
 | --- | --- |
-| **不需要其他软件，安装后从系统托盘使用。** | **已经在用 DeepSeek Harness？直接在侧栏打开。** |
-| 正式版 **0.6.11**；提供安装包和便携版。 | 测试版 **0.2.0-beta.3**；已验收 DSH **0.2.2-rc.5**。 |
-| [**下载桌面版**](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11) · [上手步骤](#桌面版上手) | [**安装 DSH 插件**](apps/dsh-plugin/README.md#安装) · [下载与更新说明](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3) |
+| **贴边隐藏** | 把暂时不用的窗口拖到屏幕边缘收起，鼠标移到边条即可展开。 |
+| **触发角与热区** | 为每块屏幕的四角和四边设置动作：显示桌面、调节音量、执行快捷键。 |
+| **鼠标手势** | 按住鼠标画出手势，执行窗口操作、快捷键或自定义动作。 |
+| **窗口布局** | 记录窗口的位置、大小与状态，需要时一键恢复排列。 |
+| **拖动与置顶** | 从窗口任意位置拖动、缩放，把需要对照的窗口保持在前面。 |
+| **截图、贴图与识字** | 截取区域并悬浮显示，使用 Windows 本地 OCR 提取文字。 |
 
-两个版本使用同一套设置界面和 Rust 窗口引擎，安装包内置助手，无需再下载一份。配置各自保存；使用时只开启其中一个版本的窗口助手。
+## 桌面功能一览
 
-## 在 DSH 里使用
+### 每块屏幕，单独设置
 
-![DSH 侧栏中的便捷窗口，正在设置贴边隐藏](docs/images/dsh-panel.png)
+选择显示器，为边角分配动作，按习惯调整热区大小和触发方式。
 
-*真实 DSH 页签截图：左侧打开插件，右侧直接设置窗口功能。切换其他页签或最小化 DSH 后，已开启的助手继续工作。*
+![桌面版触发角与热区设置](docs/images/hot-zones.png)
 
-首次使用 DSH，先打开一次，再从系统托盘退出。打开 PowerShell，粘贴以下命令：
+### 留住常用的窗口排列
 
-```powershell
-dsh plugin --profile desktop add dsh-convenient-window@0.2.0-beta.3 --ignore-scripts --registry=https://registry.npmjs.org/
-```
+保存当前布局，之后恢复仍在运行的窗口；已关闭或无权操作的窗口会跳过。
 
-安装完成后重开 DSH，点击左侧 **dsh-convenient-window**，按需开启功能总开关。
-
-[找不到 dsh 命令、旧名称迁移、升级与卸载](apps/dsh-plugin/README.md#安装) · [反馈问题](https://github.com/ximizhou/convenient_window_free/issues/new/choose)
-
-## 你可以用它做什么
-
-| 功能 | 日常怎么用 |
-| --- | --- |
-| **贴边隐藏** | 把普通窗口拖到屏幕边缘收起，鼠标回到露出的边条时展开。 |
-| **触发角与热区** | 为每块屏幕的四角、四边设置动作，例如显示桌面、调节音量或执行快捷键。 |
-| **鼠标手势** | 用单笔手势执行窗口操作、快捷键或自定义动作。 |
-| **窗口布局** | 保存当前窗口排列，之后一键恢复位置、大小和相应窗口状态。 |
-| **截图、贴图与 OCR** | 截取区域并悬浮显示，通过 Windows 本地能力识别文字。 |
-| **窗口控制与偏好** | 任意位置拖动缩放、置顶、启动项管理，以及中英切换和深浅主题。 |
+![桌面版窗口布局](docs/images/window-layouts.png)
 
 <details>
-<summary><strong>展开查看桌面版与更多功能截图</strong></summary>
+<summary>查看鼠标手势设置</summary>
 
-### 独立桌面版
-
-![桌面版运行中心](docs/images/running-center.png)
-
-### 触发角与窗口布局
-
-![逐显示器配置触发角](docs/images/hot-zones.png)
-
-![保存和恢复窗口布局](docs/images/window-layouts.png)
-
-### 鼠标手势
-
-![鼠标手势设置](docs/images/mouse-gestures.png)
+![桌面版鼠标手势设置](docs/images/mouse-gestures.png)
 
 </details>
 
-## 桌面版上手
+## 安装后怎么用
 
-1. 从[桌面发布页](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11)下载以 `setup.exe` 结尾的安装包并安装；喜欢免安装的用户可选 portable ZIP。
+1. 下载上方的 **Windows 安装版**并安装，或解压便携版运行。
 2. 从系统托盘打开便捷窗口，开启总开关，再启用需要的功能。
-3. 把一个未最大化的普通窗口拖向已启用的屏幕边缘，出现蓝线后松手；顶部需要等蓝线铺满。
-4. 鼠标回到露出的边条时，窗口会展开。右上角齿轮可以调整语言、主题和功能入口。
+3. 试试贴边隐藏：把未最大化的普通窗口拖向已启用的屏幕边缘，出现蓝线后松手；顶部需要等蓝线铺满。鼠标移回边条即可展开。
 
-关闭设置窗口后，桌面版继续在托盘运行；从托盘菜单退出才会结束。便携版升级时替换程序文件即可，设置保存在本机应用数据目录。
+关闭设置窗口后，功能继续在托盘运行；从托盘菜单退出才会结束。助手已包含在安装包里，无需另行下载。
 
-## 这次更新了什么
+<details>
+<summary>支持范围、更新与使用说明</summary>
 
-**DSH 0.2.0-beta.3**
+- 当前已发布并验收的桌面版面向 **Windows 11 x64**；macOS/Linux 暂无本版可交付安装包。
+- 窗口操作、设置和 OCR 在本机完成；OCR 不上传截图，识别语言取决于 Windows 语言包。
+- 更新需手动下载。便携版替换程序文件即可，设置保存在本机应用数据目录。
+- 当前程序未签名，Windows 可能提示未知发布者。[发布页](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.11)提供校验值和文件清单，可核对来源与完整性。
+- 任务栏材质为默认关闭的实验功能，效果和恢复行为需按系统验证。
 
-新增 DSH 侧栏入口，复用桌面设置页、原生功能模块和 0.6.11 助手；包名统一为 `dsh-convenient-window`。支持 npm 和 GitHub 安装包两种安装方式。[查看安装与旧包迁移](apps/dsh-plugin/README.md)
+[历史版本](https://github.com/ximizhou/convenient_window_free/releases) · [0.6.10 回退版本](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.10)
 
-**桌面 0.6.11**
+</details>
 
-修复其他应用退出时贴边窗口意外展开、边条出现在错误虚拟桌面的问题，并加快包含大量手势样本的设置保存。[完整更新说明](docs/release-notes/0.6.11.md)
+## 也可以在 DSH 中使用
 
-[所有历史版本](https://github.com/ximizhou/convenient_window_free/releases) · [桌面 0.6.10 回退版本](https://github.com/ximizhou/convenient_window_free/releases/tag/v0.6.10)
+如果你已经使用 DeepSeek Harness，可以从侧栏打开便捷窗口，使用同一套设置界面。切换页签或最小化 DSH 后，已开启的助手继续工作。
 
-## 使用前了解
+![DSH 侧栏中的便捷窗口](docs/images/dsh-panel.png)
 
-- **支持范围：** 当前发布并验收的是 Windows 11 x64。DSH 插件仅声明已验收的 DSH 0.2.2-rc.5；其他宿主版本需另行验证。macOS/Linux 保留实现边界，尚无可交付的本版安装包。
-- **本机处理：** 窗口操作、设置和 OCR 在本机完成；OCR 不上传截图，识别语言取决于已安装的 Windows 语言包。
-- **更新：** 桌面版手动下载安装更新。DSH 插件版本与窗口引擎版本分开管理，宿主适配可以单独更新。
-- **配置：** 桌面版与 DSH 配置独立；DSH 按当前 profile 保存。不要同时开启多个宿主的窗口助手。
-- **实验功能：** 任务栏材质默认关闭，其实际效果和恢复行为需要按目标系统验证。
-- **下载校验：** 当前程序未签名，Windows 可能提示未知发布者。桌面发布附带 `SHA256SUMS` 和清单；DSH 发布页列出包哈希。遇到拦截先核对下载来源和校验值。
+**DSH 插件 0.2.0-beta.3** · 已验收宿主 **0.2.2-rc.5** · Windows 11 x64
+
+[安装与升级](apps/dsh-plugin/README.md#安装) · [插件下载](https://github.com/ximizhou/convenient_window_free/releases/tag/dsh-v0.2.0-beta.3)
+
+插件内置助手，无需单独下载。桌面版和 DSH 的配置独立保存；同时使用时，只开启其中一个版本的窗口助手。其他 DSH 版本需另行验证。
 
 ## 反馈与开发
 
