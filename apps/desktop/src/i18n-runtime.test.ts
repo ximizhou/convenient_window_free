@@ -49,8 +49,8 @@ it("keeps every rendered label switchable between Chinese and English", async ()
       const assertFeatureControls = async language => {
         const english = language === 'en-US';
         for (const [index, label, title] of [
-          [1, english ? 'Enable corners' : '启用触发角功能', english ? 'Hot corners' : '触发角'],
-          [3, english ? 'Enable gestures' : '启用鼠标增强', english ? 'Mouse gestures' : '鼠标手势']
+          [1, english ? 'Enable corners' : '启用触发角', english ? 'Hot corners' : '触发角'],
+          [3, english ? 'Enable gestures' : '启用鼠标手势', english ? 'Mouse gestures' : '鼠标手势']
         ]) {
           navButtons()[index].click(); flushSync(); await settle();
           const control = document.querySelector('.feature-header-toggle input');
@@ -63,7 +63,7 @@ it("keeps every rendered label switchable between Chinese and English", async ()
         }
         navButtons()[2].click(); flushSync(); await settle();
         assert.deepEqual([...document.querySelectorAll('.window-tab-item .mini-switch input')].map(input => input.getAttribute('aria-label')),
-          english ? ['Enable edge hide', 'Enable dragging'] : ['启用贴边隐藏', '启用任意位置拖拽'], 'both independent switch labels follow the language');
+          english ? ['Enable edge hide', 'Enable dragging'] : ['启用贴边隐藏', '启用拖拽与缩放'], 'both independent switch labels follow the language');
         const tabs = [...document.querySelectorAll('.window-tabs button[role="tab"]')];
         assert.deepEqual(tabs.map(tab => tab.textContent.trim()), english ? ['Edge hide', 'Move / resize'] : ['贴边隐藏', '拖拽与缩放']);
         for (const tab of tabs) {
@@ -78,7 +78,11 @@ it("keeps every rendered label switchable between Chinese and English", async ()
       HelperClient.prototype.disconnect = function() {};
       HelperClient.prototype.stop = function() {};
       HelperClient.prototype.sendConfig = function() { return true; };
-      HelperClient.prototype.onMessage = function() { return () => {}; };
+      const messageHandlers = new Set();
+      HelperClient.prototype.onMessage = function(handler) {
+        messageHandlers.add(handler);
+        return () => messageHandlers.delete(handler);
+      };
       HelperClient.prototype.onStatus = function() { return () => {}; };
       HelperClient.prototype.ping = function() {};
 
@@ -144,6 +148,26 @@ it("keeps every rendered label switchable between Chinese and English", async ()
       await chooseLanguage('zh-CN');
       await assertFeatureControls('zh-CN');
       assert.deepEqual(nav(), ['运行中心', '触发角', '窗口增强', '鼠标手势', '窗口美化'], 'bottom tabs must switch back to Chinese');
+
+      const openPower = () => { navButtons()[0].click(); flushSync(); };
+      const emitOcr = async (characters) => {
+        for (const handler of messageHandlers) handler({ type: 'ocr.completed', data: { characters } });
+        await settle();
+      };
+      const runtimeStateText = () => document.querySelector('.status-rail strong[aria-live]').textContent.trim();
+      const recentActionText = () => document.querySelector('.status-rail strong').textContent.trim();
+      openPower();
+      await emitOcr(1);
+      assert.equal(runtimeStateText(), '已识别并复制 1 个字符');
+      assert.equal(recentActionText(), '文字识别 · 已复制');
+      openSettings();
+      await chooseLanguage('en-US');
+      openPower();
+      assert.equal(runtimeStateText(), 'Copied 1 character', 'the last OCR result must translate without a second OCR event');
+      assert.equal(recentActionText(), 'OCR · text copied');
+      await emitOcr(2);
+      assert.equal(runtimeStateText(), 'Copied 2 characters');
+      assert.deepEqual(cjk(), [], 'English OCR feedback must not retain Chinese');
 
       // 3) 英文错误路径：Rust/preload 的诊断仍是中文时，界面只能显示本地化通用提示。
       await unmount(component); document.body.replaceChildren();

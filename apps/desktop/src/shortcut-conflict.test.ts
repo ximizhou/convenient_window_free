@@ -169,7 +169,7 @@ describe("shortcut key resolution", () => {
 describe("shortcut recorder component", () => {
   it("renders the record hint, key caps and clear control", () => {
     const empty = html({ value: "", label: "录制快捷键", english: false });
-    expect(empty).toContain("点击录制快捷键");
+    expect(empty).toContain("点击录制（支持单键）");
     expect(empty).not.toContain("清除快捷键");
     expect(html({ value: "", label: "Record shortcut", english: true })).toContain("Record shortcut");
 

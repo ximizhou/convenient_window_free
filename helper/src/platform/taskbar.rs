@@ -9,7 +9,7 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use tokio::sync::broadcast;
+use tokio::sync::watch;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +80,21 @@ fn supported_materials() -> Vec<String> {
 }
 
 impl TaskbarAppearanceStatus {
+    pub fn channel() -> (watch::Sender<Self>, watch::Receiver<Self>) {
+        let mut initial = Self::idle();
+        if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+            initial.state = "unavailable".into();
+        }
+        watch::channel(initial)
+    }
+
+    pub fn message(&self) -> HelperMessage {
+        HelperMessage::new(
+            "taskbar.status",
+            serde_json::to_value(self).unwrap_or_default(),
+        )
+    }
+
     fn idle() -> Self {
         Self {
             state: "inactive".into(),
@@ -297,7 +312,6 @@ struct Shared {
     request: Mutex<Request>,
     stop: AtomicBool,
     wake: Condvar,
-    status: Mutex<TaskbarAppearanceStatus>,
 }
 
 pub struct TaskbarAppearanceWorker {
@@ -305,7 +319,7 @@ pub struct TaskbarAppearanceWorker {
     thread: Option<JoinHandle<()>>,
 }
 impl TaskbarAppearanceWorker {
-    pub fn new(events: broadcast::Sender<HelperMessage>) -> Self {
+    pub fn new(status: watch::Sender<TaskbarAppearanceStatus>) -> Self {
         let shared = Arc::new(Shared {
             request: Mutex::new(Request {
                 enabled: false,
@@ -314,20 +328,19 @@ impl TaskbarAppearanceWorker {
             }),
             stop: AtomicBool::new(false),
             wake: Condvar::new(),
-            status: Mutex::new(TaskbarAppearanceStatus::idle()),
         });
         let state = shared.clone();
+        let worker_status = status.clone();
         let worker = thread::Builder::new()
             .name("taskbar-appearance".into())
-            .spawn(move || run_worker(state, events));
+            .spawn(move || run_worker(state, worker_status));
         match worker {
             Ok(thread) => Self {
                 shared,
                 thread: Some(thread),
             },
             Err(error) => {
-                *shared.status.lock().unwrap() =
-                    TaskbarAppearanceStatus::failure(error.to_string());
+                status.send_replace(TaskbarAppearanceStatus::failure(error.to_string()));
                 Self {
                     shared,
                     thread: None,
@@ -345,19 +358,18 @@ impl TaskbarAppearanceWorker {
             self.shared.wake.notify_one();
         }
     }
-    #[cfg(test)]
-    pub fn status(&self) -> TaskbarAppearanceStatus {
-        self.shared
-            .status
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-    }
 }
 impl Drop for TaskbarAppearanceWorker {
     fn drop(&mut self) {
-        self.shared.stop.store(true, Ordering::Release);
-        self.shared.wake.notify_one();
+        {
+            let _request = self
+                .shared
+                .request
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            self.shared.stop.store(true, Ordering::Release);
+            self.shared.wake.notify_one();
+        }
         // Native attachment is bounded to one second, close waits at most one second.
         if let Some(worker) = self.thread.take() {
             if worker.join().is_err() {
@@ -535,14 +547,13 @@ impl RecoveryPolicy {
     }
 }
 
-fn run_worker(shared: Arc<Shared>, events: broadcast::Sender<HelperMessage>) {
+fn run_worker(shared: Arc<Shared>, status_tx: watch::Sender<TaskbarAppearanceStatus>) {
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     let mut controller: Option<native::Controller> = None;
     let start = Instant::now();
     let mut recovery = RecoveryPolicy::default();
     let mut native_status = TaskbarAppearanceStatus::idle();
-    let mut last_report = Instant::now() - Duration::from_secs(1);
-    let mut reported_status = None;
+    let mut reported_status = status_tx.borrow().clone();
     loop {
         if shared.stop.load(Ordering::Acquire) {
             break;
@@ -597,22 +608,25 @@ fn run_worker(shared: Arc<Shared>, events: broadcast::Sender<HelperMessage>) {
             }
         }
         let status = recovery.visible(enabled, native_status.clone());
-        *shared.status.lock().unwrap_or_else(|e| e.into_inner()) = status.clone();
-        if reported_status.as_ref() != Some(&status)
-            || last_report.elapsed() >= Duration::from_secs(1)
-        {
-            let _ = events.send(HelperMessage::new(
-                "taskbar.status",
-                serde_json::to_value(&status).unwrap_or_default(),
-            ));
-            reported_status = Some(status);
-            last_report = Instant::now();
+        if reported_status != status {
+            reported_status = status.clone();
+            status_tx.send_replace(status);
         }
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+        let needs_poll = enabled || controller.is_some();
+        #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+        let needs_poll = false;
         let request = shared.request.lock().unwrap_or_else(|e| e.into_inner());
         if !shared.stop.load(Ordering::Acquire) && request.revision == revision {
-            let _ = shared
-                .wake
-                .wait_timeout(request, Duration::from_millis(200));
+            if needs_poll {
+                drop(
+                    shared
+                        .wake
+                        .wait_timeout(request, Duration::from_millis(200)),
+                );
+            } else {
+                drop(shared.wake.wait(request));
+            }
         }
     }
     // Drop requests restoration before releasing the hook.
@@ -645,18 +659,20 @@ mod tests {
 
     #[test]
     fn disabled_worker_does_not_load_the_native_controller() {
-        let (events, mut receiver) = broadcast::channel(8);
-        let worker = TaskbarAppearanceWorker::new(events);
+        let (status, receiver) = TaskbarAppearanceStatus::channel();
+        let worker = TaskbarAppearanceWorker::new(status.clone());
         worker.configure(false, &TaskbarAppearanceConfig::default());
-        let message = receiver.blocking_recv().unwrap();
-        assert_eq!(message.kind, "taskbar.status");
+        let reconnected = status.subscribe();
+        assert_eq!(reconnected.borrow().message().kind, "taskbar.status");
         let expected = if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
             "inactive"
         } else {
             "unavailable"
         };
-        assert_eq!(worker.status().state, expected);
-        assert_eq!(worker.status().backgrounds, 0);
+        assert_eq!(reconnected.borrow().state, expected);
+        assert_eq!(reconnected.borrow().backgrounds, 0);
+        std::thread::sleep(Duration::from_millis(1100));
+        assert!(!receiver.has_changed().unwrap());
         drop(worker);
     }
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]

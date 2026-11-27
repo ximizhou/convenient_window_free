@@ -26,7 +26,7 @@
   import { getHostBridge, type AdminStartupState } from "./host-bridge";
   import { defaultSettings, loadSettings, MAX_GESTURE_TEMPLATES, normalizeSettings, saveSettings } from "./settings-store";
   import { LANGUAGE_KEY, normalizeLanguage, resolveInitialLanguage, translator } from "./i18n";
-  import { en, format, zh } from "./i18n";
+  import { en, format, formatCount, zh } from "./i18n";
   import NavigationComposer from "./NavigationComposer.svelte";
   import NavGlyph from "./NavGlyph.svelte";
   import WindowLayouts from "./WindowLayouts.svelte";
@@ -111,7 +111,7 @@
   };
   const triggerLabels: Record<TriggerKind, string> = {
     hover: "悬停", "left-click": "左键", "right-click": "右键", "wheel-up": "滚轮上",
-    "wheel-down": "滚轮下", "slide-forward": "向下移动", "slide-backward": "向上移动"
+    "wheel-down": "滚轮下", "slide-forward": "向下滑动", "slide-backward": "向上滑动"
   };
   const triggerLabelsEn: Record<TriggerKind, string> = {
     hover: "Hover", "left-click": "Left click", "right-click": "Right click", "wheel-up": "Wheel up",
@@ -120,7 +120,7 @@
   const triggerGroups: { label: string; labelEn: string; items: TriggerKind[] }[] = [
     { label: "悬停", labelEn: "Hover", items: ["hover"] }, { label: "左键", labelEn: "Left", items: ["left-click"] },
     { label: "右键", labelEn: "Right", items: ["right-click"] }, { label: "滚轮", labelEn: "Wheel", items: ["wheel-up", "wheel-down"] },
-    { label: "滑动", labelEn: "Swipe", items: ["slide-forward", "slide-backward"] }
+    { label: "滑动", labelEn: "Slide", items: ["slide-forward", "slide-backward"] }
   ];
   const actionPresets: ActionPreset[] = [
     { label: "不执行", labelEn: "None", group: "基础", groupEn: "Basic", kind: "none" },
@@ -172,8 +172,8 @@
       .filter(([, enabled]) => !enabled)
       .map(([name]) => capabilityLabels[name as keyof HelperPlatformInfo["capabilities"]]?.[english ? 1 : 0] ?? name);
     return unavailable.length > 0
-      ? `${english ? "Unavailable" : "暂不支持"}: ${unavailable.join(english ? ", " : "、")}`
-      : (english ? "Base capabilities available" : "基础能力可用");
+      ? format(ui("capabilityUnavailable"), { items: unavailable.join(ui("capabilityListSep")) })
+      : ui("capabilityAllAvailable");
   };
 
   let settings: AppSettings = loadSettings();
@@ -302,7 +302,7 @@
   let gestureConflict = "";
   let foregroundApp = "";
   let runtimeSummary = "";
-  $: runtimeSummary = displayReady ? `${displays.length}${statusText("displaysDetected", english)}` : "";
+  $: runtimeSummary = displayReady ? formatCount(ui, displays.length, "displaysDetectedOne", "displaysDetectedMany") : "";
   let lastAction = "";
   let lastMessage: UiStatusKey | string = "waiting";
   let helperError = "";
@@ -429,7 +429,7 @@
       if (status !== "connected") observedHelper = {};
       if (status !== "connected") helperElevated = null;
       if (status === "connected") lastMessage = "helperSync";
-      if (status === "disconnected" && connectionTestState === "testing") finishConnectionTest(false, "connectionLost");
+      if (status === "disconnected" && connectionTestState === "testing") finishConnectionTest(false, "statusConnectionLost");
       if (status === "disconnected") {
         helperElevated = null;
         displayReady = false;
@@ -517,15 +517,16 @@
           : name;
       } else if (message.type === "ocr.completed") {
         const data = message.data as { characters?: number };
-        lastAction = ui("ocrCopiedShort");
-        lastMessage = format(ui("statusOcrCopiedCount"), { count: Math.max(0, Number(data.characters) || 0) });
+        lastAction = "ocrCopiedShort";
+        const count = Math.max(0, Number(data.characters) || 0);
+        setStatus(count === 1 ? "statusOcrCopiedOne" : "statusOcrCopiedCount", { count });
       } else if (message.type === "runtime.error") {
         lastMessage = runtimeErrorKey(message.data);
         helperError = lastMessage;
       } else if (message.type === "helper.pong") {
         if (connectionTestState === "testing") {
           const elapsedMs = Math.max(1, Math.round(performance.now() - connectionTestStartedAt));
-          finishConnectionTest(true, `${statusText("connectionOk")} · ${elapsedMs} ms`);
+          finishConnectionTest(true, "connectionTestSucceeded", { elapsedMs });
         } else if (connectionTestState === "idle") {
           lastMessage = "helperResponse";
         }
@@ -555,17 +556,17 @@
     connectionTestStartedAt = performance.now();
     lastMessage = "checking";
     if (!helper.ping()) {
-      finishConnectionTest(false, "requestNotSent");
+      finishConnectionTest(false, "statusRequestNotSent");
       return;
     }
-    connectionTestTimer = setTimeout(() => finishConnectionTest(false, "testTimeout"), 3000);
+    connectionTestTimer = setTimeout(() => finishConnectionTest(false, "statusTestTimeout"), 3000);
   }
 
-  function finishConnectionTest(success: boolean, message: string): void {
+  function finishConnectionTest(success: boolean, message: UiKey, values: Record<string, string | number> = {}): void {
     if (connectionTestTimer) clearTimeout(connectionTestTimer);
     connectionTestTimer = null;
     connectionTestState = success ? "success" : "failed";
-    lastMessage = message;
+    setStatus(message, values);
     if (success) helperError = "";
     else helperError = message;
     connectionTestResetTimer = setTimeout(() => {
@@ -1458,7 +1459,7 @@
   <main bind:this={workspaceElement} class:drawer-open={mode !== null} class:startup-open={mode === "startup"} class:gesture-open={mode === "gestures"} class="workspace">
     <section id="workspace-preview" class="scene" aria-label={ui("displayAndPreview")}>
       <div class="scene-tools">
-        <div class:ready={displayReady} class:pending={!displayReady && helperStatus === "connecting"} class="display-picker" role="status"><i aria-hidden="true" class:ready={displayReady} class:pending={!displayReady && helperStatus === "connecting"}></i><span class="display-status">{displayReady ? `${displays.length}${ui("displays")}` : helperStatus === "connecting" ? ui("connecting") : ui("displayPreview")}</span></div>
+        <div class:ready={displayReady} class:pending={!displayReady && helperStatus === "connecting"} class="display-picker" role="status"><i aria-hidden="true" class:ready={displayReady} class:pending={!displayReady && helperStatus === "connecting"}></i><span class="display-status">{displayReady ? formatCount(ui, displays.length, "displayCountOne", "displayCountMany") : helperStatus === "connecting" ? ui("connecting") : ui("displayPreview")}</span></div>
         {#if mode === "hotzones"}<p>{ui("chooseArea")}</p>{:else if mode === "edge-hide"}<p>{ui("chooseEdge")}</p>{:else if mode === "gestures"}<p>{ui("drawGesture")}</p>{:else}<p>{ui("chooseFeature")}</p>{/if}
       </div>
 
@@ -1635,7 +1636,7 @@
                 </div>
                 {#if windowDragBindingConflict}<p class="gesture-warning">{ui("moveResizeConflict")}</p>{/if}
                 <div class="list-section drag-paused-apps"><div class="subhead"><div><h2>{ui("pausedDragApps")}</h2><p>{ui("foreground")}{foregroundApp || ui("noForeground")}</p></div><button class="quiet" on:click={() => addForeground("drag")} type="button">+ {ui("addCurrentApp")}</button></div><div class="app-list">{#each settings.windowDrag.pausedApps as app}<div><span>{app}</span><button aria-label={format(ui("removeApp"), { app })} on:click={() => removeApp("drag", app)} type="button">×</button></div>{:else}<p class="empty">{ui("noPausedDragApps")}</p>{/each}</div></div>
-                <details class="advanced-settings"><summary><span>{ui("advancedSettings")}</span><small>{ui("dragUpdateRateHint")}</small></summary><div class="advanced-settings-body"><section class="window-tuning drag-update-settings" aria-label={ui("dragUpdateRate")}>
+                <details class="advanced-settings"><summary><span>{ui("advancedSettings")}</span><small>{ui("dragAdvancedDescription")}</small></summary><div class="advanced-settings-body"><section class="window-tuning drag-update-settings" aria-label={ui("dragUpdateRate")}>
                 <div class="tuning-heading"><h2>{ui("dragUpdateRate")}</h2><p>{ui("dragUpdateRateHint")}</p></div>
                 <div class="motion-presets">{#each [60, 120, 240] as hz}<button class:active={settings.windowDrag.updateHz === hz} aria-pressed={settings.windowDrag.updateHz === hz} on:click={() => { settings.windowDrag.updateHz = hz; persist(); }} type="button"><strong>{ui(hz === 60 ? "dragRateEconomy" : hz === 120 ? "dragRateBalanced" : "dragRateSmooth")}</strong><small>{hz} Hz</small></button>{/each}</div>
                 <div class="form-grid single"><label><span>{ui("customUpdateRate")}</span><div><input aria-label={ui("dragUpdateRate")} use:numberSetting={{ value: settings.windowDrag.updateHz, onChange: (value) => { settings.windowDrag.updateHz = value; persist(); } }} min="30" max="240" type="number" /><em>Hz</em></div></label></div>
@@ -1655,7 +1656,7 @@
                     {#each settings.mouseGestures.gestures as gesture}
                       <button class:active={gesture.id === activeGesture.id} class:screenshot={gesture.mode === "region-screenshot"} on:click={() => selectGesture(gesture.id)} type="button">
                         <svg viewBox="0 0 100 100" aria-hidden="true">{#if gesture.samples.at(-1)?.length}<path d={gesturePath(gesture.samples.at(-1) ?? [])} />{/if}</svg>
-                        <span><b>{gestureName(gesture)}</b><small>{gesture.mode === "region-screenshot" ? ui("regionScreenshot") : gesture.builtin ? ui("builtinGestures") : format(ui("sampleCount"), { count: gesture.samples.length })}</small></span>
+                        <span><b>{gestureName(gesture)}</b><small>{gesture.mode === "region-screenshot" ? ui("regionScreenshot") : gesture.builtin ? ui("builtinGestures") : formatCount(ui, gesture.samples.length, "sampleCountOne", "sampleCountMany")}</small></span>
                         <i class:off={!gesture.enabled} title={gesture.enabled ? ui("enabledState") : ui("disabledState")}></i>
                       </button>
                     {/each}
@@ -1665,7 +1666,7 @@
                 <section class:screenshot-editor={activeGesture.mode === "region-screenshot"} class="gesture-editor">
                   <div class="gesture-paper-head">
                     <label><span>{ui("currentGesture")}</span><input aria-label={ui("gestureNameLabel")} value={gestureName(activeGesture)} on:input={renameGesture} /></label>
-                    <span class:special={activeGesture.mode === "region-screenshot"} class="gesture-kind">{activeGesture.mode === "region-screenshot" ? ui("screenshotMode") : format(ui("sampleCount"), { count: activeGesture.samples.length })}</span>
+                    <span class:special={activeGesture.mode === "region-screenshot"} class="gesture-kind">{activeGesture.mode === "region-screenshot" ? ui("screenshotMode") : formatCount(ui, activeGesture.samples.length, "sampleCountOne", "sampleCountMany")}</span>
                   </div>
                   {#if activeGesture.mode === "region-screenshot"}
                     <div class="screenshot-panel">
@@ -1748,7 +1749,7 @@
                 <div class="runtime-details-body">
                   {#if helperPlatform}<div class="runtime-platform"><span>{ui("runtimePlatform")}</span><p>{helperPlatform.system} · {helperPlatform.architecture}{helperPlatform.session ? ` · ${helperPlatform.session}` : ""}</p><p>{unavailableCapabilityText(helperPlatform)}</p></div>{/if}
                   <div class="helper-meta"><span>{format(ui("helperVersion"), { version: helperInstallState.version })}</span><button on:click={() => openHelperPage("repository")} type="button">{ui("publicDownload")}</button><code>{helperInstallState.installDir ?? ui("helperInstallDirUnknown")}</code></div>
-                  <div class:error={Boolean(helperError)} class="status-rail"><div><span>{ui("recentAction")}</span><strong>{lastAction || statusText("noAction", english)}</strong></div><div><span>{ui("currentState")}</span><strong aria-live="polite">{statusText(helperError, english) || renderedLastMessage}</strong></div></div>
+                  <div class:error={Boolean(helperError)} class="status-rail"><div><span>{ui("recentAction")}</span><strong>{statusText(lastAction || "noAction", english)}</strong></div><div><span>{ui("currentState")}</span><strong aria-live="polite">{statusText(helperError, english) || renderedLastMessage}</strong></div></div>
                   <button class="quiet" on:click={copyDiagnostics} type="button">{ui("diagnostics")}</button>
                 </div>
               </details>

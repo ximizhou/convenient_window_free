@@ -200,7 +200,7 @@ describe("MonitorStage hotzone highlight", () => {
 
     expect(html).toContain("预览");
     expect(html).not.toContain("主显示器");
-    expect(html).toContain("等待后台助手提供显示器信息");
+    expect(html).toContain("等待后台助手识别显示器");
   });
 });
 

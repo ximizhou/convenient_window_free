@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { HelperClient } from "./helper-client";
-  import { format, translator } from "./i18n";
+  import { format, formatCount, translator } from "./i18n";
   import type { UiKey } from "./i18n";
   import { syncLayoutHotkeys } from "./layout-hotkeys";
   import { layoutShortcutFromKeyboardEvent } from "./layout-hotkey-utils";
@@ -57,7 +57,7 @@
       status = {
         kind: windows.length ? "success" : "warning",
         text: windows.length
-          ? text("windowLayoutsRecorded", { count: windows.length })
+          ? formatCount(ui, windows.length, "windowLayoutsRecordedOne", "windowLayoutsRecordedMany")
           : text("windowLayoutsNoWindows")
       };
     } catch (error) {
@@ -82,7 +82,7 @@
         kind: skipped ? "warning" : "success",
         text: skipped
           ? text("windowLayoutsRestoredSkipped", { restored, skipped })
-          : text("windowLayoutsRestored", { count: restored })
+          : formatCount(ui, restored, "windowLayoutsRestoredOne", "windowLayoutsRestoredMany")
       };
     } catch (error) {
       status = { kind: "error", text: errorMessage(error) };
@@ -304,7 +304,7 @@
             {:else}
               <button class="layout-name" on:click={() => beginRename(layout)} title={text("windowLayoutsRename")} type="button">{layout.name}</button>
             {/if}
-            <p>{text("windowLayoutsWindowCount", { count: visibleWindows.length })} · {formatDate(layout.capturedAt)}</p>
+            <p>{formatCount(ui, visibleWindows.length, "windowLayoutsWindowCountOne", "windowLayoutsWindowCountMany")} · {formatDate(layout.capturedAt)}</p>
           </div>
           <button class:recording={recordingShortcutId === layout.id} class="layout-shortcut" aria-label={shortcutAria(layout)} title={recordingShortcutId === layout.id ? text("windowLayoutsShortcutHint") : shortcutAria(layout)} on:click={() => beginShortcutRecording(layout)} on:blur={() => { if (recordingShortcutId === layout.id) cancelShortcutRecording(); }} type="button">
             {#if recordingShortcutId === layout.id}
@@ -317,7 +317,7 @@
           </button>
           <div class="window-layout-actions">
             <button class="apply layout-restore" disabled={!connected || !supported || Boolean(busy)} on:click={() => restoreLayout(layout)} type="button">{busy === layout.id ? text("windowLayoutsRestoring") : text("windowLayoutsRestore")}</button>
-            <button class="icon-button danger-icon" aria-label={text("windowLayoutsDeleted")} title={text("windowLayoutsDeleted")} on:click={() => deleteLayout(layout)} type="button">×</button>
+            <button class="icon-button danger-icon" aria-label={text("windowLayoutsDelete")} title={text("windowLayoutsDelete")} on:click={() => deleteLayout(layout)} type="button">×</button>
           </div>
         </article>
       {/each}

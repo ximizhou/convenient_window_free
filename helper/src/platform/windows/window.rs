@@ -32,6 +32,11 @@ pub fn lock_screen() -> Result<()> {
     Ok(())
 }
 
+pub fn foreground_window_handle() -> Option<WindowHandle> {
+    let hwnd = unsafe { GetForegroundWindow() };
+    (!hwnd.0.is_null()).then_some(WindowHandle(hwnd.0 as isize))
+}
+
 pub fn foreground_window_snapshot() -> Result<(Option<WindowHandle>, Option<WindowInfo>)> {
     foreground_snapshot_for_handle(unsafe { GetForegroundWindow() })
 }
@@ -444,6 +449,18 @@ fn window_covers_monitor(hwnd: HWND, rect: AppRect) -> bool {
 }
 
 pub fn set_window_rect(handle: WindowHandle, rect: AppRect) -> Result<()> {
+    position_window(handle, rect, false)
+}
+
+pub fn move_window(handle: WindowHandle, rect: AppRect) -> Result<()> {
+    position_window(handle, rect, true)
+}
+
+fn position_window(handle: WindowHandle, rect: AppRect, move_only: bool) -> Result<()> {
+    let mut flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER;
+    if move_only {
+        flags |= SWP_NOSIZE;
+    }
     let hwnd = HWND(handle.0 as *mut core::ffi::c_void);
     unsafe {
         SetWindowPos(
@@ -453,7 +470,7 @@ pub fn set_window_rect(handle: WindowHandle, rect: AppRect) -> Result<()> {
             rect.top,
             rect.width().max(1),
             rect.height().max(1),
-            SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
+            flags,
         )?;
     }
     Ok(())

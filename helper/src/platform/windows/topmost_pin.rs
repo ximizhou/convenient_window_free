@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use windows::core::w;
 use windows::Win32::Foundation::{BOOL, COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -22,10 +22,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos,
     ShowWindow, TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA,
     GWL_EXSTYLE, GW_HWNDPREV, GW_OWNER, HWND_NOTOPMOST, HWND_TOPMOST, IDC_HAND, LWA_ALPHA,
-    LWA_COLORKEY, MSG, PM_REMOVE, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER, SWP_SHOWWINDOW,
-    SW_HIDE, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_NCCREATE, WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TOPMOST as TOPMOST_STYLE, WS_POPUP,
+    LWA_COLORKEY, MSG, PM_REMOVE, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SW_HIDE, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WM_DESTROY, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TOPMOST as TOPMOST_STYLE, WS_POPUP,
 };
 
 const CLASS_NAME: windows::core::PCWSTR = w!("ConvenientWindowTopmostPin");
@@ -100,8 +100,15 @@ fn run_pin_thread(receiver: mpsc::Receiver<PinCommand>) {
     if enabled {
         adopt_existing_topmost_windows(&mut pins);
     }
+    let mut last_activity = Instant::now();
     loop {
-        match receiver.recv_timeout(pin_refresh_interval(pins.values().any(|pin| pin.shown))) {
+        let has_visible_pin = pins.values().any(|pin| pin.shown);
+        let timeout = pin_refresh_interval(has_visible_pin, last_activity.elapsed());
+        let command = receiver.recv_timeout(timeout);
+        if command.is_ok() {
+            last_activity = Instant::now();
+        }
+        match command {
             Ok(PinCommand::SetTarget(handle, topmost)) => {
                 if topmost {
                     let pin = pins.entry(handle).or_insert_with(|| ManagedPin::new(0));
@@ -127,10 +134,10 @@ fn run_pin_thread(receiver: mpsc::Receiver<PinCommand>) {
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
-        if enabled {
-            refresh_pins(&mut pins);
-        }
         pump_messages();
+        if enabled && refresh_pins(&mut pins) {
+            last_activity = Instant::now();
+        }
     }
     clear_pins(&mut pins);
 }
@@ -220,11 +227,15 @@ fn is_shell_surface(hwnd: HWND) -> bool {
     )
 }
 
-fn pin_refresh_interval(has_visible_pin: bool) -> Duration {
-    if has_visible_pin {
-        PIN_FOLLOW_INTERVAL
-    } else {
-        PIN_IDLE_INTERVAL
+fn pin_refresh_interval(has_visible_pin: bool, stationary: Duration) -> Duration {
+    if !has_visible_pin {
+        return PIN_IDLE_INTERVAL;
+    }
+    match stationary.as_millis() {
+        0..250 => PIN_FOLLOW_INTERVAL,
+        250..500 => Duration::from_millis(16),
+        500..750 => Duration::from_millis(32),
+        _ => Duration::from_millis(48),
     }
 }
 
@@ -272,7 +283,8 @@ fn create_pin_window(target: WindowHandle) -> isize {
     hwnd.0 as isize
 }
 
-fn refresh_pins(pins: &mut HashMap<WindowHandle, ManagedPin>) {
+fn refresh_pins(pins: &mut HashMap<WindowHandle, ManagedPin>) -> bool {
+    let mut changed = false;
     let mut stale = Vec::new();
     for (&target, pin_state) in pins.iter_mut() {
         let target_hwnd = HWND(target.0 as *mut c_void);
@@ -293,6 +305,7 @@ fn refresh_pins(pins: &mut HashMap<WindowHandle, ManagedPin>) {
                 }
                 pin_state.shown = false;
                 pin_state.rect = None;
+                changed = true;
             }
             continue;
         }
@@ -315,7 +328,17 @@ fn refresh_pins(pins: &mut HashMap<WindowHandle, ManagedPin>) {
         let insert_after = unsafe { GetWindow(target_hwnd, GW_HWNDPREV) }.unwrap_or(HWND_TOPMOST);
         let z_order_changed = insert_after != marker_hwnd;
         if pin_state.rect != Some(pin) || z_order_changed || !pin_state.shown {
-            let mut flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW;
+            changed = true;
+            let mut flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+            if !pin_state.shown {
+                flags |= SWP_SHOWWINDOW;
+            }
+            if pin_state.rect.is_some_and(|previous| {
+                previous.right - previous.left == pin.right - pin.left
+                    && previous.bottom - previous.top == pin.bottom - pin.top
+            }) {
+                flags |= SWP_NOSIZE;
+            }
             if !z_order_changed {
                 flags |= SWP_NOZORDER;
             }
@@ -337,9 +360,11 @@ fn refresh_pins(pins: &mut HashMap<WindowHandle, ManagedPin>) {
             pin_state.shown = true;
         }
     }
+    changed |= !stale.is_empty();
     for handle in stale {
         remove_pin(pins, handle);
     }
+    changed
 }
 
 fn ensure_pin_window(target: WindowHandle, pin_state: &mut ManagedPin) {
@@ -734,9 +759,19 @@ mod tests {
     }
 
     #[test]
-    fn pin_refreshes_at_interactive_cadence_only_while_visible() {
-        assert_eq!(pin_refresh_interval(true), Duration::from_millis(8));
-        assert_eq!(pin_refresh_interval(false), Duration::from_millis(80));
+    fn visible_pins_back_off_after_quiet_and_resume_interactive_cadence() {
+        for (stationary_ms, expected_ms) in
+            [(0, 8), (249, 8), (250, 16), (500, 32), (750, 48), (0, 8)]
+        {
+            assert_eq!(
+                pin_refresh_interval(true, Duration::from_millis(stationary_ms)),
+                Duration::from_millis(expected_ms)
+            );
+        }
+        assert_eq!(
+            pin_refresh_interval(false, Duration::ZERO),
+            PIN_IDLE_INTERVAL
+        );
     }
 
     #[test]

@@ -172,7 +172,9 @@ async fn main() -> Result<()> {
     let usage = usage::UsageTracker::load(event_tx.clone())?;
     let usage_runner = usage.clone();
     let usage_event_rx = event_tx.subscribe();
-    let usage_shutdown_rx = shutdown_tx.subscribe();
+    let (usage_shutdown_tx, usage_shutdown_rx) = broadcast::channel(1);
+    let (taskbar_status_tx, taskbar_status_rx) =
+        platform::taskbar::TaskbarAppearanceStatus::channel();
     let mut engine = Engine::new(config_rx, event_tx.clone(), shutdown_tx.subscribe());
     let server = WebSocketServer::new(
         "127.0.0.1:56873",
@@ -181,35 +183,36 @@ async fn main() -> Result<()> {
         event_tx,
         shutdown_tx.clone(),
         usage,
+        taskbar_status_rx,
     );
 
-    // All three receivers must exist before the owner monitor can broadcast.
+    // Runtime shutdown receivers must exist before the owner monitor can broadcast.
     // The server's own receiver is created in run(), so retain an outer one too.
     let server_shutdown_rx = shutdown_tx.subscribe();
     desktop_owner::initialize(shutdown_tx.clone())?;
 
-    let mut usage_task =
+    let usage_task =
         tokio::spawn(async move { usage_runner.run(usage_event_rx, usage_shutdown_rx).await });
     let server_task =
         tokio::spawn(async move { run_until_shutdown(server.run(), server_shutdown_rx).await });
-    let engine_task = tokio::spawn(async move { engine.run().await });
+    let engine_task = tokio::spawn(async move { engine.run(taskbar_status_tx).await });
 
     logging::write_line("main: supervising websocket server and engine");
     let runtime_result = supervise_runtime(server_task, engine_task, shutdown_tx.clone()).await;
     let _ = shutdown_tx.send(());
 
-    if tokio::time::timeout(Duration::from_secs(2), &mut usage_task)
-        .await
-        .is_err()
-    {
-        logging::write_line("main: usage task did not stop in time; aborting");
-        usage_task.abort();
+    // The engine is finished emitting actions. Drain them and await the last write.
+    let _ = usage_shutdown_tx.send(());
+    let usage_result = usage_task.await;
+    if let Err(error) = &usage_result {
+        logging::write_line(format!("main: usage task failed: {error:#}"));
     }
 
     #[cfg(target_os = "windows")]
     platform::reset_software_brightness();
 
-    runtime_result
+    runtime_result?;
+    usage_result?
 }
 
 #[cfg(test)]
@@ -252,7 +255,11 @@ mod runtime_tests {
             )
             .await
         });
-        let engine = tokio::spawn(async move { engine.run().await });
+        let engine = tokio::spawn(async move {
+            engine
+                .run(platform::taskbar::TaskbarAppearanceStatus::channel().0)
+                .await
+        });
         tokio::time::timeout(
             Duration::from_millis(500),
             supervise_runtime(server, engine, shutdown_tx),

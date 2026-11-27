@@ -12,6 +12,7 @@ use tokio::sync::broadcast;
 
 const USAGE_SCHEMA_VERSION: u32 = 1;
 const RETAIN_DAYS: usize = 400;
+const FLUSH_INTERVAL: Duration = Duration::from_secs(12);
 
 #[derive(Clone)]
 pub struct UsageTracker {
@@ -168,8 +169,10 @@ impl UsageTracker {
         &self,
         mut event_rx: broadcast::Receiver<HelperMessage>,
         mut shutdown_rx: broadcast::Receiver<()>,
-    ) {
-        let mut flush_interval = tokio::time::interval(Duration::from_secs(2));
+    ) -> Result<()> {
+        let mut flush_interval = tokio::time::interval(FLUSH_INTERVAL);
+        flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut pending_write = None;
         loop {
             tokio::select! {
                 event = event_rx.recv() => {
@@ -184,18 +187,47 @@ impl UsageTracker {
                         Err(broadcast::error::RecvError::Closed) => break,
                     }
                 }
-                _ = flush_interval.tick() => {
-                    if let Err(error) = self.flush_if_dirty() {
-                        logging::write_line(format!("usage: save failed: {error:#}"));
-                    }
+                _ = flush_interval.tick(), if pending_write.is_none() => {
+                    pending_write = self.start_write()?;
                 }
-                _ = shutdown_rx.recv() => {
-                    if let Err(error) = self.flush_if_dirty() {
-                        logging::write_line(format!("usage: final save failed: {error:#}"));
-                    }
-                    break;
+                result = async { pending_write.as_mut().unwrap().await }, if pending_write.is_some() => {
+                    pending_write = None;
+                    self.report_periodic_write(result);
                 }
+                _ = shutdown_rx.recv() => break,
             }
+        }
+        // Main stops the action producers before requesting a final save.
+        loop {
+            match event_rx.try_recv() {
+                Ok(message) if message.kind == "action.triggered" => {
+                    self.record(action_key(&message))
+                }
+                Ok(_) => {}
+                Err(broadcast::error::TryRecvError::Lagged(skipped)) => {
+                    logging::write_line(format!("usage: event stream lagged by {skipped}"));
+                }
+                Err(_) => break,
+            }
+        }
+        if let Some(write) = pending_write {
+            self.report_periodic_write(write.await);
+        }
+        if let Some(write) = self.start_write()? {
+            write.await.context("usage final write task")??;
+        }
+        Ok(())
+    }
+
+    fn report_periodic_write(
+        &self,
+        result: std::result::Result<Result<()>, tokio::task::JoinError>,
+    ) {
+        if let Err(error) = result.context("usage write task").and_then(|result| result) {
+            if let Ok(mut inner) = self.inner.lock() {
+                inner.dirty = true;
+            }
+            logging::write_line(format!("usage: save failed: {error:#}"));
         }
     }
 
@@ -215,26 +247,23 @@ impl UsageTracker {
             .send(HelperMessage::new("usage.status", json!(snapshot)));
     }
 
-    fn flush_if_dirty(&self) -> Result<()> {
+    fn start_write(&self) -> Result<Option<tokio::task::JoinHandle<Result<()>>>> {
         let (path, stats) = {
             let mut inner = self
                 .inner
                 .lock()
                 .map_err(|_| anyhow::anyhow!("usage lock is poisoned"))?;
             if !inner.dirty {
-                return Ok(());
+                return Ok(None);
             }
             inner.dirty = false;
             (inner.path.clone(), inner.stats.clone())
         };
 
-        if let Err(error) = storage::write_json_with_backup(&path, &stats) {
-            if let Ok(mut inner) = self.inner.lock() {
-                inner.dirty = true;
-            }
-            return Err(error).with_context(|| format!("write {}", path.display()));
-        }
-        Ok(())
+        Ok(Some(tokio::task::spawn_blocking(move || {
+            storage::write_json_with_backup(&path, &stats)
+                .with_context(|| format!("write {}", path.display()))
+        })))
     }
 }
 
@@ -264,6 +293,44 @@ fn normalize_action_key(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn shutdown_drains_queued_actions_and_waits_for_the_final_write() {
+        let directory =
+            std::env::temp_dir().join(format!("magic-corners-usage-{}", uuid::Uuid::new_v4()));
+        let path = directory.join("usage-stats.json");
+        let (event_tx, event_rx) = broadcast::channel(8);
+        let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+        let tracker = UsageTracker {
+            inner: Arc::new(Mutex::new(UsageInner {
+                stats: UsageStats::default(),
+                path: path.clone(),
+                dirty: false,
+            })),
+            event_tx: event_tx.clone(),
+        };
+        for source in ["window-drag.commit", "edge-hide.restore"] {
+            event_tx
+                .send(HelperMessage::new(
+                    "action.triggered",
+                    json!({ "source": source }),
+                ))
+                .unwrap();
+        }
+        shutdown_tx.send(()).unwrap();
+
+        tracker.run(event_rx, shutdown_rx).await.unwrap();
+
+        let stats = storage::read_json_with_backup::<UsageStats>(&path)
+            .unwrap()
+            .unwrap()
+            .0;
+        assert_eq!(stats.total_actions, 2);
+        assert_eq!(stats.by_action.get("window-drag.commit"), Some(&1));
+        assert_eq!(stats.by_action.get("edge-hide.restore"), Some(&1));
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
 
     #[test]
     fn records_daily_totals_and_action_breakdown() {

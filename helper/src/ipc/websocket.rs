@@ -1,7 +1,7 @@
 use crate::config::SCHEMA_VERSION;
 use crate::core::window_layout;
 use crate::ipc::errors::{ErrorCode, RuntimeError};
-use crate::platform::WindowLayout;
+use crate::platform::{taskbar::TaskbarAppearanceStatus, WindowLayout};
 
 pub const PROTOCOL_VERSION: u32 = 7;
 use crate::config::AppConfig;
@@ -33,6 +33,7 @@ pub struct WebSocketServer {
     event_tx: broadcast::Sender<HelperMessage>,
     shutdown_tx: broadcast::Sender<()>,
     usage: UsageTracker,
+    taskbar_status: watch::Receiver<TaskbarAppearanceStatus>,
 }
 
 impl WebSocketServer {
@@ -43,6 +44,7 @@ impl WebSocketServer {
         event_tx: broadcast::Sender<HelperMessage>,
         shutdown_tx: broadcast::Sender<()>,
         usage: UsageTracker,
+        taskbar_status: watch::Receiver<TaskbarAppearanceStatus>,
     ) -> Self {
         Self {
             addr: addr.into(),
@@ -52,6 +54,7 @@ impl WebSocketServer {
             event_tx,
             shutdown_tx,
             usage,
+            taskbar_status,
         }
     }
 
@@ -80,10 +83,11 @@ impl WebSocketServer {
                     let auth_token = self.auth_token.clone();
                     let shutdown_tx = self.shutdown_tx.clone();
                     let usage = self.usage.clone();
+                    let taskbar_status = self.taskbar_status.clone();
                     let event_rx = self.event_tx.subscribe();
                     tokio::spawn(async move {
                         logging::write_line("websocket: accepted client");
-                        if let Err(error) = handle_connection(stream, &auth_token, config_tx, config_update_lock, event_rx, shutdown_tx, usage).await {
+                        if let Err(error) = handle_connection(stream, &auth_token, config_tx, config_update_lock, event_rx, shutdown_tx, usage, taskbar_status).await {
                             logging::write_line(format!("websocket: connection error {error:#}"));
                         }
                     });
@@ -120,6 +124,7 @@ async fn handle_connection(
     mut event_rx: broadcast::Receiver<HelperMessage>,
     shutdown_tx: broadcast::Sender<()>,
     usage: UsageTracker,
+    mut taskbar_status: watch::Receiver<TaskbarAppearanceStatus>,
 ) -> Result<()> {
     let expected_token = auth_token.to_string();
     let socket = accept_hdr_async(stream, move |request: &Request, mut response: Response| {
@@ -174,8 +179,22 @@ async fn handle_connection(
         ))
         .await?;
 
+    let initial_taskbar_status = taskbar_status.borrow_and_update().message();
+    writer
+        .send(Message::Text(
+            serde_json::to_string(&initial_taskbar_status)?.into(),
+        ))
+        .await?;
+    let mut taskbar_status_open = true;
     loop {
         tokio::select! {
+            changed = taskbar_status.changed(), if taskbar_status_open => {
+                taskbar_status_open = changed.is_ok();
+                if taskbar_status_open {
+                    let message = taskbar_status.borrow_and_update().message();
+                    writer.send(Message::Text(serde_json::to_string(&message)?.into())).await?;
+                }
+            }
             _ = recording_tick.tick(), if crate::platform::shortcut_recording::has_work(&recording_connection.0)
                 || crate::platform::shortcut_hotkeys::has_work(&recording_connection.0) => {
                 while let Some(event) = crate::platform::shortcut_recording::take_event(&recording_connection.0) {
