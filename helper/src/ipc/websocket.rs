@@ -370,8 +370,10 @@ async fn handle_connection(
                             .await?;
                     }
                     "helper.stop" => {
-                        writer.send(Message::Close(None)).await?;
+                        // The authenticated stop still applies if the client has already closed.
+                        let close_result = writer.send(Message::Close(None)).await;
                         let _ = shutdown_tx.send(());
+                        close_result?;
                         break;
                     }
                     _ => {

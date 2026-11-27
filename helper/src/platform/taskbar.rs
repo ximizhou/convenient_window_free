@@ -85,7 +85,7 @@ impl TaskbarAppearanceStatus {
         if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
             initial.state = "unavailable".into();
         }
-        watch::channel(initial)
+        watch::channel(RecoveryPolicy::default().visible(false, initial))
     }
 
     pub fn message(&self) -> HelperMessage {
