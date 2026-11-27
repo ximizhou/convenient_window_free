@@ -110,6 +110,10 @@ async fn supervise_runtime(
             }
             let _ = shutdown_tx.send(());
             let server = wait_for_task("websocket server", &mut server_task).await;
+            match &server {
+                Ok(()) => logging::write_line("main: websocket server stopped"),
+                Err(error) => logging::write_line(format!("main: websocket server task failed: {error:#}")),
+            }
             engine.context("engine stopped unexpectedly").and(server)
         }
     }
