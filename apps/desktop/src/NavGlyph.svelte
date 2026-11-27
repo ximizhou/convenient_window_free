@@ -5,7 +5,7 @@
   export let id: NavigationFeatureId;
 </script>
 
-{#if id === "power"}<span class="nav-icon power-icon" aria-hidden="true"></span>
+{#if id === "power"}<svg class="nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" aria-hidden="true"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>
 {:else if id === "hotzones"}<span class="nav-icon corner-icon" aria-hidden="true"></span>
 {:else if id === "edge-hide"}<span class="nav-icon edge-icon" aria-hidden="true"></span>
 {:else if id === "gestures"}<span class="nav-icon gesture-icon" aria-hidden="true"></span>

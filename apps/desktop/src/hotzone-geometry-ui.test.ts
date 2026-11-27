@@ -50,7 +50,7 @@ it("edits geometry through the real App, isolates areas and displays, and round-
       const pick = zone => {
         const selector = document.querySelector('.geometry-zone-select');
         assert.equal(selector.options.length, 8);
-        assert.equal(selector.getAttribute('aria-label'), 'Select current area');
+        assert.equal(selector.getAttribute('aria-label'), 'Select area');
         selector.dispatchEvent(new Event('pointerdown', { bubbles: true }));
         if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
         selector.value = zone; selector.dispatchEvent(new Event('change', { bubbles: true })); flushSync();

@@ -130,10 +130,10 @@ export function buildDiagnosticReport(input: DiagnosticInput, now = new Date()):
 export const diagnosticLabels = {
   zh: {
     title: "诊断报告", description: "查看版本、连接状态与错误摘要，方便排查问题。", generate: "生成报告", refresh: "刷新报告", loading: "正在读取…",
-    privacy: "报告已移除个人路径、令牌与原始日志，仅保存在本机。分享前可在下方查看。", preview: "查看报告内容", copy: "复制报告", save: "保存文件", copied: "报告已复制", saved: "报告已保存", downloadStarted: "已请求下载报告", failed: "无法生成报告，请重试。", copyFailed: "无法复制，请保存文件。", saveFailed: "无法保存，请复制报告。"
+    privacy: "报告不包含个人路径、令牌或原始日志，仅留在本地。分享前可先预览。", preview: "查看报告内容", copy: "复制报告", save: "保存文件", copied: "报告已复制", saved: "报告已保存", downloadStarted: "已开始下载报告", failed: "无法生成报告，请重试。", copyFailed: "无法复制，请保存文件。", saveFailed: "无法保存，请复制报告。"
   },
   en: {
-    title: "Diagnostics", description: "Review versions, connection state and error summaries to troubleshoot issues.", generate: "Generate report", refresh: "Refresh report", loading: "Reading…",
-    privacy: "Personal paths, tokens and raw logs are excluded. The report stays on this device. Review it below before sharing.", preview: "View report contents", copy: "Copy report", save: "Save file", copied: "Report copied", saved: "Report saved", downloadStarted: "Report download requested", failed: "Could not generate the report. Try again.", copyFailed: "Could not copy. Save the report instead.", saveFailed: "Could not save. Copy the report instead."
+    title: "Diagnostics", description: "Review versions, connection status, and error summaries for troubleshooting.", generate: "Generate report", refresh: "Refresh report", loading: "Reading…",
+    privacy: "Excludes personal paths, tokens, and raw logs. Stays on this device—preview before sharing.", preview: "View report contents", copy: "Copy report", save: "Save file", copied: "Report copied", saved: "Report saved", downloadStarted: "Report download started", failed: "Could not generate report. Try again.", copyFailed: "Could not copy. Save the file instead.", saveFailed: "Could not save. Copy the report instead."
   }
 } as const;

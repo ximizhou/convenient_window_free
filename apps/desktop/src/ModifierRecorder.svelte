@@ -1,13 +1,17 @@
 <script lang="ts">
+  import { translator } from "./i18n";
   import type { ModifierKey } from "./types";
 
   export let value: ModifierKey[] = [];
   export let onChange: (value: ModifierKey[]) => void;
-  export let label = "录制组合键";  export let english = false;
+  export let label = "录制组合键";
+  export let english = false;
   export let allowEmpty = true;
-  // 空状态提示可定制：手势草稿区需要「点击输入组合键」这样更明确的引导，
+  // 空状态提示可定制：手势草稿区需要「点击按下组合键」这样更明确的引导，
   // 其他场景沿用默认文案。
   export let emptyHint = "";
+
+  $: ui = translator(english ? "en-US" : "zh-CN");
 
   const order: ModifierKey[] = ["ctrl", "alt", "shift", "win"];
   const names: Record<ModifierKey, string> = { ctrl: "Ctrl", alt: "Alt", shift: "Shift", win: "Win" };
@@ -91,12 +95,12 @@
     {:else if value.length}
       <span class="key-row">{#each value as key}<kbd>{names[key]}</kbd>{/each}</span>
     {:else}
-      <span class="empty">{recording ? (english ? "Press keys" : "请按组合键") : (emptyHint || (allowEmpty ? (english ? "Direct" : "直接触发") : (english ? "Modifier required" : "必须使用修饰键")))}</span>
+      <span class="empty">{recording ? ui("modifierPressKeys") : (emptyHint || (allowEmpty ? ui("direct") : ui("modifierRequired")))}</span>
     {/if}
     {#if recording}<i aria-hidden="true"></i>{/if}
   </button>
   {#if allowEmpty && value.length}
-    <button aria-label={english ? "Clear modifiers" : "清除修饰键"} class="clear" on:click={clear} title={english ? "Clear modifiers" : "清除修饰键"} type="button">×</button>
+    <button aria-label={ui("modifierClear")} class="clear" on:click={clear} title={ui("modifierClear")} type="button">×</button>
   {/if}
 </div>
 

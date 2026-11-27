@@ -1,10 +1,13 @@
 <script lang="ts">
+  import { translator } from "./i18n";
   import type { GesturePoint } from "./types";
 
   export let sample: GesturePoint[] = [];
   export let recording = true;
   export let english = false;
   export let onRecord: (sample: GesturePoint[]) => void = () => {};
+
+  $: ui = translator(english ? "en-US" : "zh-CN");
 
   let drawing: GesturePoint[] = [];
 
@@ -45,7 +48,7 @@
 
 <svg
   class:recording
-  aria-label={recording ? (english ? "Hold left mouse button to record" : "按住鼠标左键录制单笔手势") : (english ? "Gesture preview" : "手势轨迹预览")}
+  aria-label={recording ? ui("gestureCanvasRecordAria") : ui("gestureCanvasPreviewAria")}
   on:pointercancel={pointerUp}
   on:pointerdown={pointerDown}
   on:pointermove={pointerMove}
@@ -57,7 +60,7 @@
   {#if sample.length}<path class="saved" d={path(sample)} />{/if}
   {#if drawing.length}<path class="live" d={path(drawing)} />{/if}
   {#if !sample.length && !drawing.length}
-    <text x="50" y="47">{english ? "Hold left" : "按住左键"}</text><text class="small" x="50" y="57">{english ? "Draw one stroke" : "画一个单笔图案"}</text>
+    <text x="50" y="47">{ui("gestureCanvasHoldLeft")}</text><text class="small" x="50" y="57">{ui("gestureCanvasDrawStroke")}</text>
   {/if}
 </svg>
 

@@ -58,7 +58,7 @@ it("keeps diagnostic exports private and offline-profile confirmation responsive
       await click('.diagnostics-actions button:last-child');
       assert.equal(await globalThis.downloadBlob.text(),report);
       assert.equal(globalThis.downloadName,'convenient-window-diagnostics.json');
-      assert.match(document.querySelector('.diagnostics-feedback').textContent,/已请求下载/);
+      assert.match(document.querySelector('.diagnostics-feedback').textContent,/已开始下载报告/);
       instance.setNativeSave(async()=>false); await settle(); await click('.diagnostics-actions button:last-child');
       assert.equal(document.querySelector('.diagnostics-feedback'),null,'cancel is not a successful save');
       instance.setNativeSave(async()=>{throw Error('secret native-save-path');}); await settle(); await click('.diagnostics-actions button:last-child');

@@ -87,7 +87,8 @@ describe("window enhancement UI wiring", () => {
     expect(styles).toContain(".display-picker i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint);");
     expect(styles).toContain(".display-picker i.ready");
     expect(monitorStage).toContain("class:preview-monitor={!displayReady}");
-    expect(monitorStage).toContain("等待后台助手提供显示器信息");
+    expect(monitorStage).toContain('ui("stageWaitingDisplays")');
+    expect(i18n.zh.stageWaitingDisplays).toBe("等待后台助手识别显示器");
   });
 
   it("keeps paused settings editable and preserves a persistent error rail", () => {
@@ -113,8 +114,8 @@ describe("window enhancement UI wiring", () => {
   it("exposes the restore outline toggle", () => {
     expect(source).toContain('ui("expansionOutline")');
     expect(source).toContain('ui("expansionOutlineDescription")');
-    expect(i18n.zh.expansionOutlineDescription).toBe("关闭只隐藏窗口收纳后的淡白轮廓，边缘恢复仍可触发");
-    expect(i18n.en.expansionOutline).toBe("Show expand outline");
+    expect(i18n.zh.expansionOutlineDescription).toBe("关闭后隐藏收起时的淡白提示框，不影响边缘呼出");
+    expect(i18n.en.expansionOutline).toBe("Show restore outline");
     expect(source).toContain("bind:checked={settings.edgeHide.showRestoreHint}");
   });
 

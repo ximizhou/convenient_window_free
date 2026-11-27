@@ -94,7 +94,7 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       let component = mount(App, { target: document.body });
       flushSync(); await settle();
       const topmostPin = () => {
-        const inputs = document.querySelectorAll('input[aria-label="Enable topmost pin"]');
+        const inputs = document.querySelectorAll('input[aria-label="Enable pin indicator"]');
         assert.equal(inputs.length, 1, 'the topmost action must expose exactly one pin switch');
         const input = inputs[0];
         assert.equal(input.disabled, false, 'topmost pin must remain operable');
@@ -106,13 +106,13 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
         assert.equal(rows.length, 1, 'the hotzone parameters must expose exactly one hint setting');
         const row = rows[0];
         assert.ok(row.classList.contains('setting-title'), 'hint setting must use the existing setting-title style');
-        assert.ok(row.previousElementSibling.textContent.includes('Corner parameters') || row.previousElementSibling.textContent.includes('热区参数'), 'hint setting belongs under hotzone parameters');
+        assert.ok(row.previousElementSibling.textContent.includes('Area settings') || row.previousElementSibling.textContent.includes('区域参数'), 'hint setting belongs under hotzone parameters');
         assert.ok(row.nextElementSibling.classList.contains('hotzone-geometry'), 'the per-area size editor follows the hint setting');
         const input = row.querySelector('.mini-switch input[type="checkbox"]');
         assert.ok(input, 'hint setting must use the existing mini-switch');
         return input;
       };
-      const noTopmostPin = () => assert.equal(document.querySelectorAll('input[aria-label="Enable topmost pin"]').length, 0, 'pin switch must stay hidden without a topmost action');
+      const noTopmostPin = () => assert.equal(document.querySelectorAll('input[aria-label="Enable pin indicator"]').length, 0, 'pin switch must stay hidden without a topmost action');
       const chooseAction = async (label) => {
         const picker = document.querySelector('.action-editor .picker-trigger');
         assert.ok(picker, 'the action picker must be available');
@@ -257,7 +257,7 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       assert.equal(hotzoneHint().checked, true, 'missing/initial hint preference defaults on in the real App');
       assert.equal(hotzoneHint().getAttribute('aria-label'), 'Show translucent hint area');
       assert.equal(document.querySelector('.hotzone-hint-setting h2').textContent, 'Show translucent hint area');
-      assert.equal(document.querySelector('.hotzone-hint-setting p').textContent, 'Hides only the hover hint; corner actions still work');
+      assert.equal(document.querySelector('.hotzone-hint-setting p').textContent, 'Hides only the visual hint; corner actions still work');
       const hotzonesBeforeHint = structuredClone(stored.hotzones);
       const profilesBeforeHint = structuredClone(stored.monitorProfiles);
       const edgeSizeBeforeHint = stored.edgeSize;
@@ -548,9 +548,9 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       localStorage.setItem('convenient-window-language', 'zh-CN');
       component = mount(App, { target: document.body }); flushSync(); await settle(); open(1);
       assert.equal(hotzoneHint().checked, false, 'language changes must retain the saved hint preference');
-      assert.equal(hotzoneHint().getAttribute('aria-label'), '显示半透明提示区域');
-      assert.equal(document.querySelector('.hotzone-hint-setting h2').textContent, '显示半透明提示区域');
-      assert.equal(document.querySelector('.hotzone-hint-setting p').textContent, '关闭只隐藏悬停提示，触发角动作仍然生效');
+      assert.equal(hotzoneHint().getAttribute('aria-label'), '显示边角提示区');
+      assert.equal(document.querySelector('.hotzone-hint-setting h2').textContent, '显示边角提示区');
+      assert.equal(document.querySelector('.hotzone-hint-setting p').textContent, '关闭只隐藏半透明提示，不影响触发');
       openSettings();
       assert.equal(permission().getAttribute('aria-label'), '管理员权限');
       assert.ok(document.querySelector('.permission-settings').textContent.includes('权限状态未知'));
@@ -613,7 +613,7 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       assert.ok(document.querySelector('.power-orb').classList.contains('on'));
       assert.equal(displayStatus.querySelector('.display-status').textContent, 'Waiting for helper', 'missing display data keeps the existing waiting state');
       receive({ type: 'runtime.status', data: { displays: [{ id: 'display:0:0:1920:1080', primary: true, bounds: { left: 0, top: 0, right: 1920, bottom: 1080 }, workArea: { left: 0, top: 0, right: 1920, bottom: 1040 } }] } }); flushSync();
-      assert.equal(displayStatus.querySelector('.display-status').textContent, '1 displays', 'live display count remains visible');
+      assert.equal(displayStatus.querySelector('.display-status').textContent, '1 display', 'live display count remains visible');
       assert.ok(displayStatus.querySelector('i').classList.contains('ready'), 'only live display data marks the status ready');
       const connectionTest = document.querySelector('.runtime-actions > .connection-test');
       assert.equal(connectionTest.disabled, false);
@@ -668,7 +668,7 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       assert.equal(document.querySelectorAll('.drawer input[role="switch"]').length, 0, 'permission settings are absent from the runtime center');
       assert.equal(document.querySelector('.login-toggle'), null);
       assert.equal(document.querySelector('.permission-startup'), null);
-      const off = [...document.querySelectorAll('.runtime-actions button')].find(button => button.textContent.trim() === 'Close');
+      const off = [...document.querySelectorAll('.runtime-actions button')].find(button => button.textContent.trim() === 'Turn off');
       assert.ok(off && !off.disabled, 'stop remains a primary visible action');
       off.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
       assert.equal(stored.enabled, false, 'stop must still use the existing host persistence path');
@@ -677,7 +677,7 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
       assert.equal(document.querySelector('.runtime-actions .apply').dataset.action, 'start');
       assert.equal(document.querySelectorAll('.runtime-actions button').length, 2, 'the redundant disabled stop action is not rendered');
       assert.equal(document.querySelector('.power-orb').classList.contains('on'), false);
-      const on = [...document.querySelectorAll('.runtime-actions button')].find(button => button.textContent.trim() === 'Open');
+      const on = [...document.querySelectorAll('.runtime-actions button')].find(button => button.textContent.trim() === 'Turn on');
       assert.ok(on && !on.disabled, 'start remains available after stopping');
       on.click(); await settle(); await new Promise(resolve => setTimeout(resolve, 0)); await settle();
       assert.equal(stored.enabled, true);
@@ -698,7 +698,7 @@ it("preserves feature controls and exercises aligned runtime cards and settings 
         component = mount(App, { target: document.body }); flushSync(); await settle(); open(1);
         assert.equal(hotzoneHint().checked, false, 'remounting with all features off must retain the hint choice');
         assert.equal(stored.enabled, false);
-        assert.equal(hotzoneHint().getAttribute('aria-label'), language === 'en-US' ? 'Show translucent hint area' : '显示半透明提示区域');
+        assert.equal(hotzoneHint().getAttribute('aria-label'), language === 'en-US' ? 'Show translucent hint area' : '显示边角提示区');
         open(0);
         assert.equal(document.querySelector('.power-summary').dataset.state, 'missing');
         assert.equal(document.querySelector('.power-orb').classList.contains('on'), false);

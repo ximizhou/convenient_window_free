@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { format, translator, type UiKey } from "./i18n";
   import type { DisplayInfo, Edge, HotzoneId, HotzoneSetting } from "./types";
   import { unavailableEdges } from "./monitor-topology";
   import { hotzonePreviewRect } from "./hotzone-geometry";
@@ -32,7 +33,8 @@
     "bottom-right": "Bottom right", bottom: "Bottom", "bottom-left": "Bottom left", left: "Left"
   };
   const edgeLabelsEn: Record<Edge, string> = { left: "L", top: "T", right: "R", bottom: "B" };
-  const edgeNamesEn: Record<Edge, string> = { left: "Left", top: "Top", right: "Right", bottom: "Bottom" };
+  const edgeNameKeys: Record<Edge, UiKey> = { left: "stageEdgeLeft", top: "stageEdgeTop", right: "stageEdgeRight", bottom: "stageEdgeBottom" };
+  $: ui = translator(english ? "en-US" : "zh-CN");
   function slotConfigured(slot: HotzoneSetting["actions"][number]): boolean {
     return slot.action.kind !== "none"
       || (slot.modifierActions ?? []).some((variant) => variant.action.kind !== "none");
@@ -75,18 +77,16 @@
     return `--slot:${slot};--tilt:${slot % 2 === 0 ? -1.2 : 1.1}deg`;
   }
 
-  function displayLabel(display: DisplayInfo, useEnglish: boolean): string {
-    if (!displayReady) return useEnglish ? "Preview" : "预览";
-    return display.primary ? (useEnglish ? "Primary" : "主显示器") : `${display.bounds.right - display.bounds.left} × ${display.bounds.bottom - display.bounds.top}`;
-  }
+  $: displayLabel = (display: DisplayInfo): string => {
+    if (!displayReady) return ui("stagePreview");
+    return display.primary ? ui("stagePrimary") : `${display.bounds.right - display.bounds.left} × ${display.bounds.bottom - display.bounds.top}`;
+  };
 
-  function zoneLabel(zone: HotzoneId): string {
-    return english ? zoneLabelsEn[zone] : zoneLabels[zone];
-  }
+  $: zoneLabel = (zone: HotzoneId): string => (english ? zoneLabelsEn[zone] : zoneLabels[zone]);
 
-  function edgeLabel(edge: Edge): string {
-    return english ? edgeLabelsEn[edge] : edgeLabels[edge];
-  }
+  $: edgeLabel = (edge: Edge): string => (english ? edgeLabelsEn[edge] : edgeLabels[edge]);
+
+  $: edgeHideAria = (edge: Edge): string => format(ui("stageEdgeHideLabel"), { edge: ui(edgeNameKeys[edge]) });
 
   function edgeUnavailable(edge: Edge): boolean {
     const selected = displays.find((display) => display.id === selectedDisplayId);
@@ -102,7 +102,7 @@
       <path d="M 105 100 C 165 92, 165 142, 230 150" />
       <path class="arrow" d="M 220 139 L 231 150 L 216 156" />
     </svg>
-    <span class="swap-note">{english ? "Switch display" : "点击切换焦点"}</span>
+    <span class="swap-note">{ui("stageSwitchDisplay")}</span>
   {/if}
 
   {#each displays as display, index (display.id)}
@@ -115,15 +115,15 @@
       style={monitorStyle(display)}
     >
       <button
-        aria-label={`${english ? "Select display" : "选择显示器"} S${index + 1}`}
+        aria-label={format(ui("stageSelectDisplay"), { index: index + 1 })}
         class="screen"
         on:pointerdown={cancelNumberDraft}
         on:click={() => onSelectDisplay(display.id)}
         type="button"
       >
         <span class="screen-index">S{index + 1}</span>
-        <strong>{display.id === selectedDisplayId ? `S${index + 1} · ${displayReady ? (english ? "Current" : "当前") : (english ? "Preview" : "预览")}` : `S${index + 1}`}</strong>
-        <small>{displayLabel(display, english)}</small>
+        <strong>{display.id === selectedDisplayId ? `S${index + 1} · ${displayReady ? ui("stageCurrent") : ui("stagePreview")}` : `S${index + 1}`}</strong>
+        <small>{displayLabel(display)}</small>
       </button>
 
       {#if display.id === selectedDisplayId && mode === "hotzones"}
@@ -149,10 +149,10 @@
 
       {#if display.id === selectedDisplayId && mode === "edge-hide"}
         <div class="window-demo">
-          <span>{english ? "Window" : "窗口"}</span>
+          <span>{ui("stageWindow")}</span>
           {#each Object.keys(edgeLabels) as edge}
             <button
-              aria-label={`${english ? edgeNamesEn[edge as Edge] : edgeLabel(edge as Edge)}${english ? " edge hide" : "侧贴边隐藏"}`}
+              aria-label={edgeHideAria(edge as Edge)}
               aria-pressed={edgeHideEdges.includes(edge as Edge)}
               class:active={edgeHideEnabled && !edgeUnavailable(edge as Edge) && edgeHideEdges.includes(edge as Edge)}
               class:configured={!edgeUnavailable(edge as Edge) && edgeHideEdges.includes(edge as Edge)}
@@ -160,7 +160,7 @@
               class={`edge-${edge}`}
               disabled={edgeUnavailable(edge as Edge)}
               on:click={() => onToggleEdge(edge as Edge)}
-              title={edgeUnavailable(edge as Edge) ? (english ? "Display seam; edge hide is unavailable" : "显示器拼接缝，不执行收缩") : `${english ? edgeNamesEn[edge as Edge] : edgeLabel(edge as Edge)}${english ? " edge hide" : "侧贴边隐藏"}`}
+              title={edgeUnavailable(edge as Edge) ? ui("stageEdgeSeamTitle") : edgeHideAria(edge as Edge)}
               type="button"
             >{edgeLabel(edge as Edge)}</button>
           {/each}
@@ -172,7 +172,7 @@
   {/each}
 
   <p class="stage-caption">
-    {!displayReady ? (english ? "Waiting for helper display data" : "等待后台助手提供显示器信息") : mode === "hotzones" ? (english ? "Choose a corner" : "点击角定义动作") : mode === "edge-hide" ? (english ? "Outer edges work; seams do not" : "外侧边缘可用，拼接缝会被忽略") : displays.length > 1 ? (english ? "Choose one display" : "一次只聚焦一个显示器") : (english ? "Choose a feature" : "选择下方功能开始设置")}
+    {!displayReady ? ui("stageWaitingDisplays") : mode === "hotzones" ? ui("stageChooseCorner") : mode === "edge-hide" ? ui("stageOuterEdgesHint") : displays.length > 1 ? ui("stageFocusOneDisplay") : ui("chooseFeature")}
   </p>
 </div>
 
