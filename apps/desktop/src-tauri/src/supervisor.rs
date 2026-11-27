@@ -562,7 +562,10 @@ pub(crate) fn ready_socket(
 }
 
 fn request_helper_stop(token: &str, pid: u32) -> Result<(), String> {
-    let mut socket = ready_socket(token, pid)?;
+    send_helper_stop(ready_socket(token, pid)?)
+}
+
+fn send_helper_stop(mut socket: tungstenite::WebSocket<TcpStream>) -> Result<(), String> {
     let message = serde_json::json!({
         "id": uuid::Uuid::new_v4().to_string(),
         "type": "helper.stop",
@@ -572,8 +575,32 @@ fn request_helper_stop(token: &str, pid: u32) -> Result<(), String> {
     socket
         .send(Message::Text(message.to_string().into()))
         .map_err(|error| format!("helper 停止请求发送失败：{error}"))?;
-    let _ = socket.close(None);
-    Ok(())
+    // Helper sends state snapshots before it handles the stop request. Read to
+    // the peer's Close so dropping a socket with unread data cannot reset it.
+    let deadline = Instant::now() + Duration::from_millis(750);
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("Timed out waiting for helper stop acknowledgement".into());
+        }
+        socket
+            .get_ref()
+            .set_read_timeout(Some(remaining))
+            .map_err(|error| format!("Could not set helper stop read timeout: {error}"))?;
+        match socket.read() {
+            Ok(Message::Close(_)) => {
+                // tungstenite queues the reply when it reads the Close frame.
+                let _ = socket.flush();
+                return Ok(());
+            }
+            Ok(_) => {}
+            Err(error) => {
+                return Err(format!(
+                    "Could not read helper stop acknowledgement: {error}"
+                ))
+            }
+        }
+    }
 }
 
 pub(crate) fn connect_authenticated(
@@ -758,6 +785,34 @@ mod tests {
             ((), None)
         );
         assert_eq!(modes, vec![true]);
+    }
+
+    #[test]
+    fn stop_drains_pending_status_and_completes_peer_close_handshake() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = std::thread::spawn(move || {
+            let stream = listener.accept().unwrap().0;
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut socket = tungstenite::accept(stream).unwrap();
+            socket
+                .send(Message::Text("status snapshot".into()))
+                .unwrap();
+            let request: Value =
+                serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+            assert_eq!(request["type"], "helper.stop");
+            socket.close(None).unwrap();
+            assert!(matches!(socket.read(), Ok(Message::Close(_))));
+        });
+        let stream = TcpStream::connect(address).unwrap();
+        let (socket, _) = client(format!("ws://{address}"), stream).unwrap();
+        send_helper_stop(socket).unwrap();
+        peer.join().unwrap();
     }
 
     fn test_dir() -> PathBuf {

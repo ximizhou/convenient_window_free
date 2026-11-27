@@ -1,4 +1,4 @@
-﻿param(
+param(
   [Parameter(Mandatory = $true)]
   [string]$AppPath,
   [string]$DataRoot,
@@ -209,6 +209,9 @@ try {
       throw "Desktop helper never reached its listening state"
     }
     if (-not $logContent.Contains("main: websocket server stopped")) {
+      $logContent -split "`r?`n" | Where-Object {
+        $_ -match ' (main: |engine: (starting|stopped)|websocket: (accepted client|listening |recv type=helper\.stop|connection error))'
+      } | Select-Object -Last 20 | Write-Host
       throw "Desktop helper did not stop through its normal shutdown path"
     }
     $token = Get-Item (Join-Path $helperDataRoot "auth-token") -ErrorAction SilentlyContinue
