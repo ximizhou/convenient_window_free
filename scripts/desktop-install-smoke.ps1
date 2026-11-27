@@ -123,10 +123,10 @@ function Stop-HelperGracefully {
       $true,
       $timeout.Token
     ).GetAwaiter().GetResult()
-    $closed = $socket.ReceiveAsync($receiveBuffer, $timeout.Token).GetAwaiter().GetResult()
-    if ($closed.MessageType -ne [System.Net.WebSockets.WebSocketMessageType]::Close) {
-      throw "External helper did not acknowledge its stop request"
-    }
+    # Status snapshots can be queued before the Close frame. Keep the same deadline.
+    do {
+      $closed = $socket.ReceiveAsync($receiveBuffer, $timeout.Token).GetAwaiter().GetResult()
+    } while ($closed.MessageType -ne [System.Net.WebSockets.WebSocketMessageType]::Close)
     [void]$socket.CloseOutputAsync(
       [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
       "",
