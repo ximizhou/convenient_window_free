@@ -214,6 +214,10 @@ try {
   }
   $liveLog = Read-TextFileWithRetry -Path $liveLogPath
   if (-not $liveLog.Contains("main: websocket server stopped")) {
+    Write-Host "Live uninstall process exits: desktop=$($liveAppProcess.ExitCode); helper=$($liveHelperProcess.ExitCode)"
+    $liveLog -split "`r?`n" | Where-Object {
+      $_ -match ' (main: |engine: (starting|stopped)|websocket: (accepted client|listening |recv type=helper\.stop|connection error))'
+    } | Select-Object -Last 20 | Write-Host
     throw "Live uninstall did not stop helper through the graceful shutdown path"
   }
   $client = [System.Net.Sockets.TcpClient]::new()
